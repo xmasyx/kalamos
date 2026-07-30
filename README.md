@@ -241,9 +241,11 @@ That is the whole recommendation. Two models, and a bigger Mac does not change i
 dictation-length audio Turbo is nearly as accurate and several times faster.
 Reach for Large v3 for a strong accent or a noisy room, not by reflex.
 
-**Qwen 2.5, in 2026, on purpose.** Qwen 3, 3.5 and 3.6 all exist as MLX 4-bit
-builds and Kalamos loads them fine. They are also, measured on the same seven
-cases, *worse at this job* — and not by a little:
+**Qwen 2.5, in 2026, on purpose — and this is not laziness about updating.**
+Qwen 3, 3.5 and 3.6 all exist as MLX 4-bit builds, Kalamos loads them without
+complaint, and every one of them is **worse at this particular job**. Not
+marginally: measured on the same seven cases, the whole Qwen 3 line lands between
+*"barely punctuates"* and *"does nothing but capitalise the first letter"*.
 
 | Cleanup model | Size | Punctuation added to one long run-on | Recognised a name |
 |---|---|---|---|
