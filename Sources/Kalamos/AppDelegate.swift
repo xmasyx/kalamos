@@ -546,8 +546,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         OnboardingWindow.shared.show(state: state, actions: OnboardingActions(
             applyTriggerKey: { [weak self] in self?.applyTriggerKey($0) },
             applyTriggerMode: { [weak self] in self?.applyTriggerMode($0) },
+            // These two must ASK, not merely report. Setup previously showed a row
+            // per permission with a link to System Settings and never triggered the
+            // system prompt at all — so you could walk to the end of the flow, be
+            // told everything was ready, and own an app that could not hear you.
+            requestMicrophone: { done in Permissions.requestMicrophone { done($0) } },
+            requestAccessibility: { _ = Permissions.accessibilityTrusted(prompt: true) },
             openMicrophoneSettings: { Permissions.openMicrophoneSettings() },
-            openAccessibilitySettings: { Permissions.openAccessibilitySettings() },
             finish: { [weak self] in
                 self?.state.didCompleteOnboarding = true
                 // Setup is also where the permissions get granted, so the tap may
