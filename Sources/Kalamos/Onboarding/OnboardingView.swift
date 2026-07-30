@@ -101,12 +101,10 @@ struct OnboardingView: View {
 
     /// First, because everything after it is written in the answer.
     private var interfaceLanguageStep: some View {
-        question(t("In che lingua vuoi leggere le impostazioni?",
-                   "Which language should the settings be in?",
-                   "Dans quelle langue afficher les réglages ?"),
-                 t("Vale per questa configurazione e per i menu dell’app. La lingua in cui detti la scegli subito dopo.",
-                   "This is for the setup and the app’s menus. The language you dictate in comes next.",
-                   "Pour cette configuration et les menus. La langue de dictée vient juste après.")) {
+        question(t("Lingua delle impostazioni", "Settings language", "Langue des réglages"),
+                 t("La lingua in cui detti si sceglie dopo.",
+                   "The language you dictate in comes next.",
+                   "La langue de dictée vient ensuite.")) {
             grid([(1, "Italiano", ""), (2, "English", ""), (3, "Français", "")],
                  selected: { ui == Self.language($0) },
                  pick: { ui = Self.language($0) })
@@ -311,39 +309,57 @@ struct OnboardingView: View {
     private func grid(_ items: [(Int, String, String)],
                       selected: @escaping (Int) -> Bool,
                       pick: @escaping (Int) -> Void) -> some View {
-        // Three choices in a two-column grid leave an orphan tile alone in the
-        // second row, which reads as a layout accident. An odd count gets one
-        // full-width column instead — and there the text is centred, because a
-        // left-aligned label in a very wide tile drifts away from its own box.
-        let single = items.count == 3
-        let columns = single
-            ? [GridItem(.flexible(), spacing: 10)]
-            : [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-        return LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(items, id: \.0) { value, title, note in
-                choice(title: title, note: note, on: selected(value), centred: single) {
-                    pick(value)
+        // The placeholder line under a title exists only to keep tiles the same
+        // height when SOME of them carry a note. When none do, it just pushes every
+        // title off centre in its own box.
+        let anyNotes = items.contains { !$0.2.isEmpty }
+
+        func tile(_ item: (Int, String, String)) -> some View {
+            choice(title: item.1, note: item.2, showsNoteLine: anyNotes,
+                   on: selected(item.0)) { pick(item.0) }
+        }
+
+        return Group {
+            if items.count == 3 {
+                // Two up, one centred below. A third tile stretched across the full
+                // width shouts louder than the two above it, and a third tile parked
+                // bottom-left reads as a grid that ran out of items — the pyramid is
+                // the only arrangement of three that looks chosen.
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) { tile(items[0]); tile(items[1]) }
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        tile(items[2]).frame(width: Self.columnWidth)
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                    GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    ForEach(items, id: \.0) { tile($0) }
                 }
             }
         }
     }
 
-    private func choice(title: String, note: String, on: Bool, centred: Bool,
+    /// One column of the two-column grid, for the tile at the point of the pyramid.
+    /// Derived from the fixed window: 540 wide, 28 of padding each side, 10 between
+    /// the columns. If the window size changes, this changes with it.
+    private static let columnWidth: CGFloat = (540 - 28 * 2 - 10) / 2
+
+    private func choice(title: String, note: String, showsNoteLine: Bool, on: Bool,
                         act: @escaping () -> Void) -> some View {
         Button(action: act) {
-            VStack(alignment: centred ? .center : .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(Theme.font(13.5, .medium)).foregroundStyle(Theme.ink)
-                // Always present, even when empty: without it a tile with a note is
-                // taller than one without, and a row of choices that do not line up
-                // reads as a mistake rather than as a set.
-                Text(note.isEmpty ? " " : note)
-                    .font(Theme.font(11.5))
-                    .foregroundStyle(Theme.inkFaded)
-                    .fixedSize(horizontal: false, vertical: true)
+                if showsNoteLine {
+                    Text(note.isEmpty ? " " : note)
+                        .font(Theme.font(11.5))
+                        .foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 34,
-                   alignment: centred ? .center : .topLeading)
-            .multilineTextAlignment(centred ? .center : .leading)
+            .frame(maxWidth: .infinity, minHeight: showsNoteLine ? 34 : 18, alignment: .leading)
             .padding(.horizontal, 13).padding(.vertical, 10)
             .background(RoundedRectangle(cornerRadius: 8)
                 .fill(on ? Theme.penWash : Color.white.opacity(0.55)))
