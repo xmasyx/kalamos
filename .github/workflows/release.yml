@@ -1,0 +1,88 @@
+name: Release
+
+# Tag a commit and the release builds itself:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Produces Kalamos.zip and attaches it to a GitHub Release, which is what
+# Scripts/install.sh downloads. Also runnable by hand from the Actions tab
+# (without a tag it builds and uploads an artifact but publishes nothing).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # needed to create the release
+
+jobs:
+  build:
+    # macOS 15 runners are Apple Silicon — required: Kalamos links MLX and
+    # WhisperKit, both of which build against Metal and the Neural Engine.
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      # MLX compiles Metal shaders into default.metallib at build time. Since
+      # Xcode 26 the Metal toolchain is a separate component, and when it is
+      # absent the build does NOT fail loudly — it produces an app whose AI
+      # cleanup dies at runtime. Prove the compiler exists before building.
+      - name: Verify the Metal toolchain
+        run: |
+          if ! xcrun -sdk macosx metal --version 2>/dev/null; then
+            echo "Metal compiler missing — downloading the component…"
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun -sdk macosx metal --version \
+              || { echo "::error::No Metal compiler on this runner. MLX cannot build."; exit 1; }
+          fi
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build Kalamos.app
+        env:
+          KALAMOS_NO_INSTALL: "1"
+        run: ./Scripts/build-app.sh Release
+
+      # A bundle missing default.metallib looks perfectly healthy until a user
+      # turns on AI cleanup. Refuse to ship one.
+      - name: Verify the bundle
+        run: |
+          APP="build/Kalamos.app"
+          test -x "$APP/Contents/MacOS/Kalamos"          || { echo "::error::no executable"; exit 1; }
+          test -f "$APP/Contents/Info.plist"           || { echo "::error::no Info.plist"; exit 1; }
+          test -f "$APP/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
+            || { echo "::error::default.metallib missing — AI cleanup would fail at runtime"; exit 1; }
+          "$APP/Contents/MacOS/Kalamos" --version
+
+      - name: Package
+        run: ditto -c -k --keepParent build/Kalamos.app Kalamos.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kalamos.app
+          path: Kalamos.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" Kalamos.zip \
+            --title "Kalamos ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes "
+          ## Install
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/Scripts/install.sh | bash
+          \`\`\`
+
+          Requires macOS 14+ on Apple Silicon. Builds are unsigned, so the
+          installer clears the quarantine flag — read the script first.
+          "

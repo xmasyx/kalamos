@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Kalamos</string>
+    <key>CFBundleDisplayName</key>
+    <string>Kalamos</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.kalamos.app</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>Kalamos</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <!-- Menu-bar app: no Dock icon, no main window -->
+    <key>LSUIElement</key>
+    <true/>
+    <!-- TCC usage strings -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Kalamos transcribes your speech on-device. Audio never leaves your Mac.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Kalamos types transcribed text into the app you are using.</string>
+    <!-- Model downloads come from HuggingFace + its Xet CDN (us.aws.cdn.hf.co).
+         curl reaches them fine but the app's default ATS policy rejects the TLS
+         handshake. Relax ATS for model downloads (no other network is used). -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

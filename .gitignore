@@ -1,0 +1,11 @@
+.build/
+build/
+.DS_Store
+*.xcuserstate
+.swiftpm/
+
+# Internal working documents — not published
+ISA.md
+RESUME-monday.md
+# Coverage artefact
+default.profraw
