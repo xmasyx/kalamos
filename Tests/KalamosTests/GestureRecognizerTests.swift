@@ -45,6 +45,48 @@ import Testing
         #expect(g.state == .idle)
     }
 
+    // MARK: Escape cancels a dictation in flight (any mode).
+
+    /// Hands-free is the state that needed this: without it, the only way out of
+    /// a dictation you changed your mind about was to let it transcribe.
+    @Test func escapeCancelsHandsFree() {
+        let (g, actions) = makeRecorder()
+        g.keyDown(at: 0.00); g.keyUp(at: 0.08); g.keyDown(at: 0.18)   // → hands-free
+        #expect(g.state == .toggleListening)
+
+        #expect(g.cancel() == true)
+        #expect(actions().last == .cancelRecording)
+        #expect(g.state == .idle)
+    }
+
+    /// While holding: cancel, and the eventual key-up must NOT then process the
+    /// recording we just threw away.
+    @Test func escapeCancelsHoldAndKeyUpDoesNotProcess() {
+        let (g, actions) = makeRecorder()
+        g.keyDown(at: 0.00)
+        #expect(g.cancel() == true)
+        g.keyUp(at: 0.90)   // released long after — must stay silent
+        #expect(actions() == [.beginRecording, .cancelRecording])
+        #expect(g.state == .idle)
+    }
+
+    /// Nothing recording → Escape is not ours, and must reach the app underneath.
+    @Test func escapeWhenIdleIsNotConsumed() {
+        let (g, actions) = makeRecorder()
+        #expect(g.cancel() == false)
+        #expect(actions().isEmpty)
+        #expect(g.state == .idle)
+    }
+
+    /// Cancelling twice must not emit a second discard.
+    @Test func escapeIsIdempotent() {
+        let (g, actions) = makeRecorder()
+        g.keyDown(at: 0.00); g.keyUp(at: 0.08); g.keyDown(at: 0.18)   // → hands-free
+        #expect(g.cancel() == true)
+        #expect(g.cancel() == false)
+        #expect(actions().filter { $0 == .cancelRecording }.count == 2)  // 1 from the tap, 1 from cancel
+    }
+
     // MARK: Push-to-talk OFF — only double-tap arms hands-free; a lone press or
     // hold does NOTHING (so the trigger key stays usable for its OS role).
 

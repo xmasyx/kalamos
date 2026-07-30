@@ -131,6 +131,9 @@ and settings with it.
 1. Click into any text field.
 2. **Hold Right Command**, speak, release. The text appears at your cursor.
 3. Or **double-tap** it to go hands-free, and tap again to stop.
+4. Changed your mind halfway through? **Press Escape** and the recording is
+   discarded — nothing is transcribed, nothing is typed. Escape behaves normally
+   whenever Kalamos is not recording, so it stays yours everywhere else.
 
 Everything else lives in the menu-bar icon.
 
@@ -202,49 +205,70 @@ what your actual dictation rhythm implies:
 bun Scripts/analyze-idle.ts
 ```
 
-## Which models for your Mac
+## Which models your Mac can run
 
-Two models are loaded: one that hears you, one that cleans up what you said. On
-Apple Silicon they live in unified memory, shared with everything else you have
-open — so the number that matters is your **total RAM**, and the sum of the two.
+Two models sit in memory: one that hears you, one that cleans up what you said. On
+Apple Silicon both live in unified memory, shared with everything else you have
+open — so what matters is your **total RAM**, and the sum of the two.
 
-Both are swappable from **menu ▸ Speech Model** and **menu ▸ Cleanup ▸ AI Model**.
-Switching frees the old one immediately and loads the new one on your next
-dictation; no rebuild, no reinstall.
+Swap either from **menu ▸ Speech Model** and **menu ▸ Cleanup ▸ AI Model**.
+Switching frees the old one at once and loads the new one on your next dictation.
+No rebuild, no reinstall. Any MLX repo id works, not just the ones in the menu.
 
-| Your Mac | Cleanup model | Speech model | Loaded together |
+| Your Mac | Cleanup model it can hold | Speech model | Together |
 |---|---|---|---|
-| **8 GB** | Qwen2.5 3B (~1.8 GB) | Small | ~2.5 GB |
-| **16 GB** | Qwen2.5 7B (~4.3 GB) | Turbo (1.6 GB) | ~6 GB — **the defaults** |
-| **24 GB** | Qwen2.5 7B, or 14B if you like | Turbo or Large v3 | 6–10 GB |
-| **32 GB+** | Qwen2.5 14B (~8 GB) | Large v3 | ~11 GB |
+| **8 GB** | up to ~2 GB | Small or Turbo | ~3 GB |
+| **16 GB** | up to ~6 GB | any | ~8 GB |
+| **24 GB** | up to ~10 GB | any | ~12 GB |
+| **36 GB+** | up to ~20 GB | any | ~22 GB |
 
-Three things make this less scary than the table looks.
+And it is a **peak, not a resting cost**: both models unload themselves after the
+idle timeout and reload in about a second.
 
-**It is a peak, not a resting cost.** Both models unload themselves after the idle
-timeout — 5 minutes by default, yours to change under **Advanced ▸ Unload Models
-After**, including *Never*. When you are not dictating, Kalamos holds almost
-nothing. The reload costs about a second.
+## What I would actually use
 
-**On 8 GB, prefer the smaller model over no model.** Measured against the 7B on
-the same seven cases, Qwen 3B got every self-correction right — but on a long
-run-on it added five punctuation marks where the 7B added fifteen, once left a
-sentence without its closing period, and once dropped a trailing clause outright.
-Weaker where it matters most, then, but still a far better trade than running the
-7B and swapping to disk. Check it yourself:
+Can-run and should-run are different questions, and the second one has a
+surprising answer.
+
+| Your Mac | Cleanup | Speech |
+|---|---|---|
+| **8 GB** | Qwen2.5 **3B** Instruct (1.7 GB) | Turbo |
+| **16 GB and up** | Qwen2.5 **7B** Instruct (4.3 GB) — **the default** | Turbo |
+
+That is the whole recommendation. Two models, and a bigger Mac does not change it.
+
+**Turbo, even on 36 GB.** Large v3 is not the upgrade the size suggests: on
+dictation-length audio Turbo is nearly as accurate and several times faster.
+Reach for Large v3 for a strong accent or a noisy room, not by reflex.
+
+**Qwen 2.5, in 2026, on purpose.** Qwen 3, 3.5 and 3.6 all exist as MLX 4-bit
+builds and Kalamos loads them fine. They are also, measured on the same seven
+cases, *worse at this job* — and not by a little:
+
+| Cleanup model | Size | Punctuation added to one long run-on | Recognised a name |
+|---|---|---|---|
+| **Qwen2.5 7B Instruct** | 4.3 GB | **7 marks** | yes |
+| Qwen2.5 3B Instruct | 1.7 GB | 5 marks | yes |
+| Qwen3 4B Instruct 2507 | 2.1 GB | 3 marks | no |
+| Qwen3.5 4B | 3.1 GB | 1 mark | no |
+| Qwen3.6 27B | 16 GB | 1 mark | no |
+
+A 27B model losing to a 3B is not a capability gap, it is a mismatch. The Qwen3
+family is trained to reason before answering, and this task wants the opposite: no
+deliberation, just the same sentence with punctuation. *(That is the likely
+explanation, not a proven one — the pinned mlx-swift version may also simply
+mishandle their chat template.)*
+
+The lesson generalises: **newer is not better, measured is better.** Run the
+comparison yourself before believing this table — it is one command per model:
 
 ```sh
 Kalamos --selftest-punct --model mlx-community/Qwen2.5-3B-Instruct-4bit
 ```
 
-**You can also just turn the LLM off.** **Cleanup ▸ Rule-based (instant)** uses no
-model at all: spoken punctuation commands, filler removal, capitalisation. Zero
-extra RAM, zero wait. You lose the self-correction handling, which is the part
-worth having.
-
-The bigger speech model is rarely the upgrade people expect: Turbo is the default
-because on dictation-length audio it is nearly as accurate as Large v3 and several
-times faster. Reach for Large v3 for accents or noisy rooms, not by reflex.
+**Or no model at all.** *Cleanup ▸ Rule-based (instant)* uses none: spoken
+punctuation commands, filler removal, capitalisation. Zero RAM, zero wait. You give
+up the self-corrections, which are the part worth having.
 
 ## When something misbehaves
 

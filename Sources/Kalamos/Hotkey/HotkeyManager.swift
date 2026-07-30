@@ -115,6 +115,15 @@ final class HotkeyManager {
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let now = ProcessInfo.processInfo.systemUptime
 
+        // Escape while recording = discard it. Checked before every other branch
+        // so it works with both trigger styles, and above all hands-free, where
+        // there was previously no way to abandon a dictation you had changed your
+        // mind about. Swallowed ONLY when something was actually cancelled, so
+        // Escape keeps its normal job in every other situation.
+        if type == .keyDown, code == 0x35 {   // kVK_Escape
+            return recognizer.cancel() ? nil : Unmanaged.passUnretained(event)
+        }
+
         // Global "learn selected word" shortcut: Control+Option+L (works in any
         // app — the handler copies the selection via the clipboard).
         if type == .keyDown, code == 0x25,   // kVK_ANSI_L

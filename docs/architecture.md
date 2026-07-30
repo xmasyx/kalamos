@@ -12,6 +12,8 @@ One utterance, start to finish:
 Right Command held
    │
    ├─ HotkeyManager ──── CGEventTap on flagsChanged (a global key listener)
+   │     ├─ Escape → GestureRecognizer.cancel(), and the key is swallowed only
+   │     │   when something was actually recording
    │     └─ GestureRecognizer   hold vs. double-tap → DictationAction   [unit-tested]
    │
    └─ DictationController.endAndProcess()

@@ -100,6 +100,37 @@ final class GestureRecognizer {
         }
     }
 
+    /// The user pressed Escape mid-dictation: throw the audio away.
+    ///
+    /// Distinct from `abort()`, which only fires while the trigger is *held* and
+    /// another key interrupts it. This one works from any recording state — and
+    /// hands-free is the state that needed it, because until now the only way out
+    /// of a dictation you had changed your mind about was to let it transcribe and
+    /// then delete the text.
+    ///
+    /// Returns whether anything was actually cancelled, so the caller can swallow
+    /// the Escape key press only when it meant "cancel" and let it through
+    /// everywhere else.
+    @discardableResult
+    func cancel() -> Bool {
+        switch state {
+        case .holding where pushToTalkEnabled:
+            // Wait for the trigger release rather than going straight to idle, so
+            // the key-up does not read as a fresh gesture.
+            state = .holdingAborted
+            emit(.cancelRecording)
+            return true
+
+        case .toggleListening:
+            state = .idle
+            emit(.cancelRecording)
+            return true
+
+        case .idle, .holding, .holdingAborted, .awaitingSecondTap:
+            return false   // nothing was recording — Escape is not ours
+        }
+    }
+
     /// Feed a key-UP event.
     func keyUp(at now: TimeInterval) {
         switch state {
