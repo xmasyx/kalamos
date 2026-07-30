@@ -51,6 +51,38 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
     exit(0)
 }
 
+// `Kalamos --edit "instruction" --on "text" [--lang it|en|fr]` runs Edit Mode on
+// one piece of text. Same reasoning as --clean, plus one more: Edit Mode normally
+// needs Accessibility to read your selection, so this is the only way to judge it
+// before granting a permission.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--edit") {
+    let args = CommandLine.arguments
+    let instruction = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    let onIndex = args.firstIndex(of: "--on")
+    let selection = onIndex.flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } ?? ""
+    guard !instruction.isEmpty, !instruction.hasPrefix("--"), !selection.isEmpty else {
+        print("usage: Kalamos --edit \"make it shorter\" --on \"the text to rewrite\" [--lang it|en|fr]")
+        exit(2)
+    }
+    var language = Language.english
+    if let l = args.firstIndex(of: "--lang"), l + 1 < args.count,
+       let parsed = Language(rawValue: args[l + 1].lowercased()) {
+        language = parsed
+    }
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        #if canImport(MLXLLM)
+        print(await MLXEditor(engine: .shared)
+            .transform(instruction: instruction, selection: selection, language: language))
+        #else
+        print("ERROR: MLX not compiled in — rebuild with ./Scripts/build-app.sh")
+        #endif
+        sem.signal()
+    }
+    sem.wait()
+    exit(0)
+}
+
 // Headless diagnostic: `Kalamos --selftest-translate` loads the local LLM and
 // translates a fixed Italian sentence to English, printing the result or error.
 // Used to isolate translation failures from the GUI/permissions layer.

@@ -153,6 +153,72 @@ Everything else lives in the menu-bar icon.
 
 First run downloads about 6 GB of models. After that, nothing.
 
+## Edit Mode — rewriting what is already there
+
+Dictation puts new words in. Edit Mode changes words that already exist: **select
+any text, hold the Edit key, say what you want done to it**, and the selection is
+replaced. On device, like everything else.
+
+```
+select:  hey so i can't do tomorrow's shift sorry
+say:     make it more formal
+get:     I regret to inform you that I will not be able to attend tomorrow's shift.
+
+select:  we need to fix the login bug update the docs and ship the release by friday
+say:     turn it into bullet points
+get:     - fix the login bug
+         - update the docs
+         - ship the release by friday
+```
+
+It also translates, shortens, expands, changes tone — whatever you can say in a
+sentence. It is **off by default** and lives on its own modifier (Fn by default,
+never the dictation trigger), because "rewrite the thing I have selected" is too
+destructive to trigger by accident.
+
+Try it without granting anything:
+
+```sh
+Kalamos --edit "make it shorter" --on "your text here"
+```
+
+## Spoken punctuation, no model required
+
+The rule-based cleanup — the free, instant one — does something the size of the
+model cannot fix: it decides whether you *said* a punctuation mark or *meant* the
+word.
+
+```
+ho finito il lavoro punto      →  Ho finito il lavoro.        ← a full stop
+prendi il latte punto poi torna →  Prendi il latte. Poi torna. ← mid-sentence
+il punto 4 è importante        →  Il punto 4 è importante.    ← still the word
+vediamo il punto di vista      →  Vediamo il punto di vista.  ← still the word
+```
+
+Same four letters, four different decisions, no LLM involved. English (*"period",
+"new paragraph", "question mark"*) and French (*"point", "nouveau paragraphe"*)
+work the same way. `Kalamos --selftest-format` runs these as assertions.
+
+## Translation, on device
+
+Dictate in one language, get another out — the same local model, no service:
+
+```
+you say:  Ciao, come stai oggi? Spero che tu stia bene.
+you get:  Hi, how are you today? I hope you're doing well.
+```
+
+Pick the target from **menu ▸ Translate to**. Set it back to *Off* and dictation
+stays in whatever language you spoke.
+
+## Nothing is ever lost
+
+Every transcription is recorded **before** injection is attempted, so a paste into
+the wrong window or a field that stole focus cannot destroy what you said. The
+menu keeps the last 25, one click copies any of them back, and *Summarize Recent
+Dictations* runs the local model over them when you have talked your way through a
+problem and want the shape of it.
+
 ## Making it yours
 
 Dictation degrades exactly where your work is most specific: names, jargon,
