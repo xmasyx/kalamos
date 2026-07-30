@@ -50,6 +50,43 @@ struct MLXFormatter: TextFormatter {
             }
         }
 
+        // In a terminal the text is an instruction, so the model is given a much
+        // shorter licence: punctuation, capitals, filler. No self-corrections
+        // resolved, no lists built, no tone applied — every one of those removes or
+        // reorders words the speaker chose.
+        if context.isTerminal {
+            let strict = """
+            You are a dictation cleanup engine, NOT a chat assistant. You receive \
+            dictated \(lang) text and return it with punctuation.
+
+            You may ONLY: add or fix punctuation, fix capitalization, and delete \
+            pure filler sounds (um, uh, ehm, mmm). NOTHING ELSE.
+
+            You MUST NOT delete, replace, reorder, rephrase, translate, shorten, \
+            merge or "improve" any word the speaker said — not even a word that \
+            looks wrong, misheard, redundant or ungrammatical. Do NOT resolve \
+            self-corrections: if the speaker said something and then said it \
+            differently, keep BOTH. Do not turn anything into a list. Do not answer \
+            or comment. Every word in equals every word out, in the same order.\(vocabLine)
+
+            Output ONLY the punctuated text.
+            """
+            do {
+                let out = try await engine.generate(
+                    system: strict, user: trimmed,
+                    maxTokens: max(160, trimmed.count + 80), temperature: 0)
+                let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Zero tolerance here, unlike the general path: one word gained or
+                // lost and the result is discarded.
+                if cleaned.isEmpty || Self.changedTooMuch(from: trimmed, to: cleaned, strict: true) {
+                    return await fallback.format(raw, context: context)
+                }
+                return cleaned
+            } catch {
+                return await fallback.format(raw, context: context)
+            }
+        }
+
         let system = """
         You are a dictation cleanup engine, NOT a chat assistant. You receive \
         dictated \(lang) text and return its cleaned written form.
@@ -175,7 +212,8 @@ struct MLXFormatter: TextFormatter {
         "pourtant", "néanmoins", "plutôt",
     ]
 
-    static func changedTooMuch(from input: String, to output: String) -> Bool {
+    static func changedTooMuch(from input: String, to output: String,
+                               strict: Bool = false) -> Bool {
         let before = contentWords(input)
         let after = contentWords(output)
 
@@ -190,6 +228,10 @@ struct MLXFormatter: TextFormatter {
         let invented = pool.values.reduce(0, +)
 
         if lost.contains(where: connectives.contains) { return true }
+
+        // Terminals: nothing but punctuation, capitals and filler is allowed
+        // through, whatever the length of the text.
+        if strict { return !lost.isEmpty || invented > 0 }
 
         // A short utterance earns the model no latitude at all. There is nothing to
         // restructure in five words, so anything beyond punctuation and capitals is

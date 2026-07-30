@@ -39,6 +39,25 @@ import Testing
         #expect(!ctx(nil).isCodeEditor)
     }
 
+    /// Terminals are not code editors — they still get cleaned up — but they are
+    /// their own category, because text dictated into one is an instruction that
+    /// something will act on.
+    @Test func terminalsAreRecognisedAsTerminals() {
+        for id in ["com.googlecode.iterm2", "com.apple.Terminal", "dev.warp.Warp-Stable",
+                   "co.zeit.hyper", "net.kovidgoyal.kitty", "com.github.wez.wezterm",
+                   "io.alacritty", "com.mitchellh.ghostty"] {
+            #expect(ctx(id).isTerminal, "\(id) is a terminal")
+            #expect(!ctx(id).isCodeEditor, "\(id) is not a code editor")
+        }
+    }
+
+    @Test func ordinaryAppsAreNotTerminals() {
+        for id in ["com.apple.mail", "net.whatsapp.WhatsApp", "com.apple.dt.Xcode"] {
+            #expect(!ctx(id).isTerminal)
+        }
+        #expect(!ctx(nil).isTerminal)
+    }
+
     /// Tone drives register, not whether the LLM runs — but the same
     /// substring-vs-prefix sloppiness would misfire here too.
     @Test func toneFollowsTheFrontmostApp() {

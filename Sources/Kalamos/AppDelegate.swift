@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var speechModelMenu: NSMenu!
     private var cleanupModelMenu: NSMenu!
     private var editKeyMenu: NSMenu!
-    private var pttItem: NSMenuItem!
+    private var modeMenu: NSMenu!
     private var editModeItem: NSMenuItem!
     private var inputLangMenu: NSMenu!
     private var translateMenu: NSMenu!
@@ -193,9 +193,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             addRadio(to: triggerMenu, title: HotkeyManager.displayName(for: k), raw: String(k), action: #selector(setTriggerKey(_:)))
         }
         triggerMenu.addItem(.separator())
-        pttItem = NSMenuItem(title: "Push-to-talk (hold)", action: #selector(togglePushToTalk), keyEquivalent: "")
-        pttItem.target = self
-        triggerMenu.addItem(pttItem)
+        // Three radios, not one checkbox. The setting has three states since setup
+        // learned to offer them, and a tick can carry two — so "hold only" chosen in
+        // setup was unrepresentable here, and toggling the box silently discarded it.
+        modeMenu = NSMenu()
+        for m in TriggerMode.allCases {
+            addRadio(to: modeMenu, title: Self.modeTitle(m), raw: m.rawValue,
+                     action: #selector(setTriggerMode(_:)))
+        }
+        addSubmenu(to: triggerMenu, title: "Activation", submenu: modeMenu)
         addSubmenu(to: menu, title: "Dictation Trigger", submenu: triggerMenu)
 
         // ─── Edit Mode ▸ — transform the selected text by voice ───────────
@@ -312,7 +318,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 item.state = (raw == String(state.editModeKeyCode)) ? .on : .off
             }
         }
-        pttItem.state = (state.triggerMode != .doubleTap) ? .on : .off
+        for item in modeMenu.items {
+            if let raw = item.representedObject as? String {
+                item.state = (raw == state.triggerMode.rawValue) ? .on : .off
+            }
+        }
         editModeItem.state = state.editModeEnabled ? .on : .off
         launchAtLoginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
         rebuildRecentMenu()
@@ -603,8 +613,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSSound(named: "Glass")?.play()
     }
 
-    @objc private func togglePushToTalk() {
-        applyTriggerMode(state.triggerMode == .doubleTap ? .both : .doubleTap)
+    @objc private func setTriggerMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = TriggerMode(rawValue: raw) else { return }
+        applyTriggerMode(mode)
+    }
+
+    static func modeTitle(_ mode: TriggerMode) -> String {
+        switch mode {
+        case .hold:      return "Hold to talk"
+        case .doubleTap: return "Double-tap (hands-free)"
+        case .both:      return "Both"
+        }
     }
 
     /// The live recogniser has to be told, or the setting only takes effect on the

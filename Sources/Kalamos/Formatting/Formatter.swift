@@ -40,6 +40,31 @@ struct FormattingContext: Sendable {
         return Self.codeEditorPrefixes.contains { id.hasPrefix($0) }
     }
 
+    /// Terminals. Prose gets dictated into them — you are usually talking to a CLI
+    /// agent — so unlike a code editor they DO get cleaned up. But they get it
+    /// verbatim: punctuation and capitals and filler, and not one word more.
+    ///
+    /// The reason is not taste. Text dictated into a terminal is an instruction to
+    /// something that will act on it, so a model that helpfully drops a clause or
+    /// swaps a word for a better one is not tidying a sentence, it is editing a
+    /// command. In a chat window a rephrase is a nuisance; here it changes what
+    /// gets done.
+    private static let terminalPrefixes = [
+        "com.apple.terminal",
+        "com.googlecode.iterm2",
+        "dev.warp.warp",
+        "co.zeit.hyper",
+        "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm",
+        "io.alacritty",
+        "com.mitchellh.ghostty",
+    ]
+
+    var isTerminal: Bool {
+        guard let id = frontmostBundleID?.lowercased() else { return false }
+        return Self.terminalPrefixes.contains { id.hasPrefix($0) }
+    }
+
     /// Writing-context category used to shape tone (feature #7).
     enum Tone { case casual, email, formal, neutral }
 

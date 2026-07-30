@@ -95,6 +95,26 @@ import Testing
         #expect(MLXFormatter.changedTooMuch(from: said, to: rewritten))
     }
 
+    /// In a terminal the budget is zero. Filler may go; a word the speaker said
+    /// may not, however sensible the replacement looks.
+    @Test func strictModeAllowsNothingButFillerAndPunctuation() {
+        let said = "allora vediamo se questa cosa funziona come dovrebbe funzionare"
+        #expect(!MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Allora, vediamo se questa cosa funziona come dovrebbe funzionare.",
+            strict: true))
+        // one word swapped for a synonym — fine anywhere else, not here
+        #expect(MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Allora, vediamo se questa cosa opera come dovrebbe funzionare.",
+            strict: true))
+        // one word dropped
+        #expect(MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Vediamo se questa cosa funziona come dovrebbe.",
+            strict: true))
+    }
+
     /// An empty or wildly truncated answer is the clearest case of all.
     @Test func catchesTruncation() {
         let said = """
