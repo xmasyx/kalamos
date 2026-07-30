@@ -93,7 +93,7 @@ import Testing
     private func makeRecorderPTTOff() -> (GestureRecognizer, @Sendable () -> [DictationAction]) {
         final class Box: @unchecked Sendable { var actions: [DictationAction] = [] }
         let box = Box()
-        let g = GestureRecognizer(holdThreshold: 0.25, doubleTapWindow: 0.30, pushToTalkEnabled: false)
+        let g = GestureRecognizer(holdThreshold: 0.25, doubleTapWindow: 0.30, mode: .doubleTap)
         g.onAction = { box.actions.append($0) }
         return (g, { box.actions })
     }
@@ -142,13 +142,54 @@ import Testing
 
     /// Flipping push-to-talk off mid-hold discards the in-flight recording and
     /// settles to idle.
-    @Test func setPushToTalk_resetsInFlightGesture() {
+    @Test func setMode_resetsInFlightGesture() {
         let (g, actions) = makeRecorder()   // starts ON
         g.keyDown(at: 0.00)                 // begins recording (PTT on)
         #expect(actions() == [.beginRecording])
-        g.setPushToTalk(false)              // flip off → discard
+        g.setMode(.doubleTap)               // flip mode → discard
         #expect(actions() == [.beginRecording, .cancelRecording])
         #expect(g.state == .idle)
-        #expect(g.pushToTalkEnabled == false)
+        #expect(g.mode == .doubleTap)
+    }
+}
+
+/// The third mode, added because setup needed to offer three honest choices and
+/// the old boolean could only express two. "Hold only" is for a trigger key that
+/// has a day job: a tap must do nothing at all, and no stray double-tap may leave
+/// the microphone open behind your back.
+@Suite struct HoldOnlyModeTests {
+
+    private func make() -> (GestureRecognizer, @Sendable () -> [DictationAction]) {
+        final class Box: @unchecked Sendable { var actions: [DictationAction] = [] }
+        let box = Box()
+        let g = GestureRecognizer(holdThreshold: 0.25, doubleTapWindow: 0.30, mode: .hold)
+        g.onAction = { box.actions.append($0) }
+        return (g, { box.actions })
+    }
+
+    @Test func holdStillRecords() {
+        let (g, actions) = make()
+        g.keyDown(at: 0.0)
+        g.keyUp(at: 0.50)
+        #expect(actions() == [.beginRecording, .endRecordingAndProcess])
+    }
+
+    /// The point of the mode: two quick taps must NOT arm hands-free.
+    @Test func doubleTapDoesNotArmHandsFree() {
+        let (g, actions) = make()
+        g.keyDown(at: 0.00); g.keyUp(at: 0.08)   // tap 1
+        g.keyDown(at: 0.18); g.keyUp(at: 0.24)   // tap 2, well inside the window
+        #expect(g.state == .idle)
+        #expect(!actions().contains(.endRecordingAndProcess))
+        #expect(actions().filter { $0 == .beginRecording }.count == 2)   // two aborted taps
+        #expect(actions().filter { $0 == .cancelRecording }.count == 2)  // both discarded
+    }
+
+    /// A lone short tap settles immediately instead of leaving a window open for a
+    /// gesture this mode does not have.
+    @Test func shortTapSettlesWithoutWaiting() {
+        let (g, _) = make()
+        g.keyDown(at: 0.00); g.keyUp(at: 0.08)
+        #expect(g.state == .idle)
     }
 }

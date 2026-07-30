@@ -200,9 +200,10 @@ enum Doctor {
 
     private static func triggerKey() -> Verdict {
         let code = UserDefaults.standard.object(forKey: "hotKeyCode") as? Int ?? 0x36
-        let ptt = (UserDefaults.standard.object(forKey: "pushToTalkEnabled") as? Bool) ?? true
-        let mode = ptt ? "hold to talk · double-tap for hands-free" : "double-tap only"
-        return .ok("\(keyName(code)) — \(mode)")
+        let raw = UserDefaults.standard.string(forKey: "triggerMode")
+        let mode = raw.flatMap(TriggerMode.init(rawValue:))
+            ?? (((UserDefaults.standard.object(forKey: "pushToTalkEnabled") as? Bool) ?? true) ? .both : .doubleTap)
+        return .ok("\(keyName(code)) — \(Self.describe(mode))")
     }
 
     /// A copy that was never registered reports `.notRegistered`, which is a
@@ -252,6 +253,14 @@ enum Doctor {
     /// Copy button no longer puts a username into text headed for a bug report.
     private static func tilde(_ path: String) -> String {
         (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    static func describe(_ mode: TriggerMode) -> String {
+        switch mode {
+        case .hold:      return "hold to talk"
+        case .doubleTap: return "double-tap for hands-free"
+        case .both:      return "hold to talk · double-tap for hands-free"
+        }
     }
 
     private static func keyName(_ code: Int) -> String {

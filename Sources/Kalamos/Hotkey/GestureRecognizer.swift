@@ -7,6 +7,18 @@ enum DictationAction: Equatable {
     case cancelRecording         // discard (gesture turned out to be a no-op)
 }
 
+/// How the trigger key is meant to be used.
+///
+/// `hold` exists because the trigger is often a key with a day job: someone who
+/// uses Right Option to type accents wants the key to do nothing on a tap, and
+/// someone who never dictates hands-free does not want a stray double-tap to leave
+/// the microphone open behind their back.
+enum TriggerMode: String, CaseIterable, Codable, Sendable {
+    case hold        // hold to record; a tap does nothing
+    case doubleTap   // double-tap to go hands-free; holding does nothing
+    case both        // hold to record, double-tap for hands-free
+}
+
 /// Translates raw key down/up events on a single hot-key into Kalamos's two
 /// gestures, with NO dependency on AppKit/CGEvent so it can be unit-tested:
 ///
@@ -33,32 +45,37 @@ final class GestureRecognizer {
     let holdThreshold: TimeInterval      // press >= this == real hold
     let doubleTapWindow: TimeInterval    // 2nd tap must land within this
 
-    /// Push-to-talk. true = hold the trigger to record (+ double-tap toggles).
-    /// false = ONLY a double-tap arms hands-free; a lone press/hold does
-    /// nothing, so the trigger key stays usable for its normal OS role without
-    /// flickering Kalamos. Live-settable via `setPushToTalk`.
-    private(set) var pushToTalkEnabled: Bool
+    /// Which gestures the trigger key answers to.
+    ///
+    /// This used to be a single boolean, which could express "both" and "hands-free
+    /// only" but not "hold only" — so the setup screen would have had to offer three
+    /// choices, one of which was a lie. Three real modes instead.
+    private(set) var mode: TriggerMode
+
+    private var allowsHold: Bool { mode != .doubleTap }
+    private var allowsDoubleTap: Bool { mode != .hold }
 
     /// Emits actions for the controller to execute.
     var onAction: ((DictationAction) -> Void)?
 
     init(holdThreshold: TimeInterval = 0.25, doubleTapWindow: TimeInterval = 0.30,
-         pushToTalkEnabled: Bool = true) {
+         mode: TriggerMode = .both) {
         self.holdThreshold = holdThreshold
         self.doubleTapWindow = doubleTapWindow
-        self.pushToTalkEnabled = pushToTalkEnabled
+        self.mode = mode
     }
 
-    /// Change push-to-talk at runtime. Discards any in-flight gesture and
-    /// settles to idle so the new mode starts clean.
-    func setPushToTalk(_ on: Bool) {
+    /// Change the mode at runtime. Discards any in-flight gesture and settles to
+    /// idle, so the new mode starts from a clean state rather than inheriting a
+    /// half-finished one it may not even have a rule for.
+    func setMode(_ newMode: TriggerMode) {
         switch state {
-        case .holding where pushToTalkEnabled, .toggleListening:
+        case .holding where allowsHold, .toggleListening:
             emit(.cancelRecording)   // discard whatever was recording
         default:
             break
         }
-        pushToTalkEnabled = on
+        mode = newMode
         state = .idle
     }
 
@@ -66,11 +83,11 @@ final class GestureRecognizer {
     func keyDown(at now: TimeInterval) {
         switch state {
         case .idle:
-            // Provisional first-tap-or-hold. With push-to-talk ON we start
-            // recording immediately so HOLD feels instant; with it OFF a lone
-            // hold does nothing — only a double-tap (below) records.
+            // Provisional first-tap-or-hold. When holding is allowed we start
+            // recording at once so HOLD feels instant; when it is not, a lone hold
+            // does nothing and only a double-tap (below) records.
             state = .holding(downAt: now)
-            if pushToTalkEnabled { emit(.beginRecording) }
+            if allowsHold { emit(.beginRecording) }
 
         case .awaitingSecondTap:
             // Second tap in time → double-tap → go hands-free. In PTT-on we
@@ -95,7 +112,7 @@ final class GestureRecognizer {
     /// Discard the in-flight recording (if any) and wait for the trigger release.
     func abort() {
         if case .holding = state {
-            if pushToTalkEnabled { emit(.cancelRecording) }
+            if allowsHold { emit(.cancelRecording) }
             state = .holdingAborted
         }
     }
@@ -114,7 +131,7 @@ final class GestureRecognizer {
     @discardableResult
     func cancel() -> Bool {
         switch state {
-        case .holding where pushToTalkEnabled:
+        case .holding where allowsHold:
             // Wait for the trigger release rather than going straight to idle, so
             // the key-up does not read as a fresh gesture.
             state = .holdingAborted
@@ -137,15 +154,19 @@ final class GestureRecognizer {
         case .holding(let downAt):
             let heldFor = now - downAt
             if heldFor >= holdThreshold {
-                // Genuine hold. PTT on → finish and process; PTT off → hold is a
-                // no-op (nothing was recording).
+                // Genuine hold: finish and process where holding is allowed, and
+                // otherwise a no-op, because nothing was ever recording.
                 state = .idle
-                if pushToTalkEnabled { emit(.endRecordingAndProcess) }
+                if allowsHold { emit(.endRecordingAndProcess) }
             } else {
-                // Short tap → might be the 1st of a double-tap. PTT on: discard
-                // the tiny recording first. Either way, wait for a second tap.
-                if pushToTalkEnabled { emit(.cancelRecording) }
-                state = .awaitingSecondTap(deadline: now + doubleTapWindow)
+                // Short tap. Discard the tiny recording it may have started, then
+                // either wait for a second tap or — in hold-only mode, where a
+                // double-tap means nothing — settle straight back to idle rather
+                // than leaving a window open for a gesture that cannot happen.
+                if allowsHold { emit(.cancelRecording) }
+                state = allowsDoubleTap
+                    ? .awaitingSecondTap(deadline: now + doubleTapWindow)
+                    : .idle
             }
 
         case .holdingAborted:

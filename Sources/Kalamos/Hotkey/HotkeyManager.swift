@@ -97,8 +97,8 @@ final class HotkeyManager {
 
     func updateKeyCode(_ newCode: UInt16) { keyCode = newCode }
 
-    /// Forward the push-to-talk setting to the recognizer (menu toggle / launch).
-    func setPushToTalk(_ on: Bool) { recognizer.setPushToTalk(on) }
+    /// Forward the trigger mode to the recognizer (menu, setup, launch).
+    func setMode(_ mode: TriggerMode) { recognizer.setMode(mode) }
 
     /// Temporarily enable/disable the tap — used while posting synthetic ⌘C so
     /// our own active tap can't interfere with the events we inject.

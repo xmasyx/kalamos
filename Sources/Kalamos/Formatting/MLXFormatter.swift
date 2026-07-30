@@ -120,13 +120,13 @@ struct MLXFormatter: TextFormatter {
                 system: system, user: trimmed,
                 maxTokens: max(160, trimmed.count + 80), temperature: 0)
             let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Two safety nets, for the two ways this stops being a cleanup engine.
-            // Ballooning means it answered the text instead of tidying it; shrinking
-            // means it deleted words that were actually said. In both cases the
-            // rule-based pass is strictly better than a confident wrong answer.
+            // Safety nets, for the ways this stops being a cleanup engine.
+            // Ballooning means it answered the text instead of tidying it; losing
+            // words means it deleted what was said; gaining them means it invented.
+            // In every case the rule-based pass beats a confident wrong answer.
             if cleaned.isEmpty
                 || cleaned.count > trimmed.count * 3 + 80
-                || Self.droppedTooMuch(from: trimmed, to: cleaned) {
+                || Self.changedTooMuch(from: trimmed, to: cleaned) {
                 return await fallback.format(raw, context: context)
             }
             return cleaned
@@ -175,21 +175,33 @@ struct MLXFormatter: TextFormatter {
         "pourtant", "néanmoins", "plutôt",
     ]
 
-    static func droppedTooMuch(from input: String, to output: String) -> Bool {
+    static func changedTooMuch(from input: String, to output: String) -> Bool {
         let before = contentWords(input)
+        let after = contentWords(output)
 
-        var remaining: [String: Int] = [:]
-        for w in contentWords(output) { remaining[w, default: 0] += 1 }
+        var pool: [String: Int] = [:]
+        for w in after { pool[w, default: 0] += 1 }
 
         var lost: [String] = []
         for w in before {
-            if let n = remaining[w], n > 0 { remaining[w] = n - 1 } else { lost.append(w) }
+            if let n = pool[w], n > 0 { pool[w] = n - 1 } else { lost.append(w) }
         }
+        // Whatever is left in the pool was never spoken: the model put it there.
+        let invented = pool.values.reduce(0, +)
 
         if lost.contains(where: connectives.contains) { return true }
 
-        guard before.count >= 8 else { return false }
+        // A short utterance earns the model no latitude at all. There is nothing to
+        // restructure in five words, so anything beyond punctuation and capitals is
+        // the model rewriting rather than tidying — which is how "Osob je interest"
+        // came back as "Osob je interessato", a word that was never said.
+        guard before.count >= 8 else { return before != after }
+
+        // Longer texts get a budget in both directions. Deleting is how a lead-in
+        // clause vanishes; inventing is how a misheard word gets confidently
+        // "corrected" into a different one. Neither is cleanup.
         return lost.count > max(3, before.count / 5)
+            || invented > max(2, before.count / 10)
     }
 }
 #endif

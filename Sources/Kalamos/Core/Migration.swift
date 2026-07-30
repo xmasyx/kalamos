@@ -32,7 +32,7 @@ enum Migration {
         "hotKeyCode", "formatterMode", "enabledLanguages", "autoDetectLanguage",
         "defaultLanguage", "translationEnabled", "translationTarget",
         "whisperModel", "cleanupModelID", "cleanupPromptOverride",
-        "pushToTalkEnabled", "editModeEnabled", "editModeKeyCode",
+        "pushToTalkEnabled", "triggerMode", "editModeEnabled", "editModeKeyCode",
         "idleUnloadSeconds", "debugLogging", "vocabulary", "corrections",
     ]
 

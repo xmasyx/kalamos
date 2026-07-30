@@ -62,9 +62,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Pin the on-device cleanup model to the saved choice (default 7B → no-op)
         // and apply the saved push-to-talk preference before the tap goes live.
         controller.setCleanupModel(state.cleanupModelID)
-        hotkey.setPushToTalk(state.pushToTalkEnabled)
+        hotkey.setMode(state.triggerMode)
 
-        requestPermissionsThenStart()
+        // A fresh install goes through setup instead of the silent permission
+        // prompts: the flow asks for the same two permissions, but with the reason
+        // next to each, and it ends knowing which key to hold. An existing install
+        // never sees it (AppState marks those as already done).
+        if state.didCompleteOnboarding {
+            requestPermissionsThenStart()
+        } else {
+            showOnboarding()
+        }
     }
 
     // MARK: Edit menu (⌘X ⌘C ⌘V ⌘A ⌘Z)
@@ -220,10 +228,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchAtLoginItem.target = self
         let diagnosticsItem = NSMenuItem(title: "Diagnostics…", action: #selector(showDiagnostics), keyEquivalent: "")
         diagnosticsItem.target = self
+        let setupItem = NSMenuItem(title: "Run Setup Again…", action: #selector(rerunOnboarding), keyEquivalent: "")
+        setupItem.target = self
         let advancedMenu = NSMenu()
         addSubmenu(to: advancedMenu, title: "Unload Models After", submenu: idleMenu)
         advancedMenu.addItem(launchAtLoginItem)
         advancedMenu.addItem(diagnosticsItem)
+        advancedMenu.addItem(setupItem)
         addSubmenu(to: menu, title: "Advanced", submenu: advancedMenu)
 
         let quit = NSMenuItem(title: "Quit Kalamos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -250,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func triggerHint() -> String {
         let key = HotkeyManager.displayName(for: state.hotKeyCode)
-        return state.pushToTalkEnabled
+        return state.triggerMode == .both || state.triggerMode == .hold
             ? "Hold \(key) to talk · double-tap = hands-free"
             : "Double-tap \(key) = hands-free"
     }
@@ -301,7 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 item.state = (raw == String(state.editModeKeyCode)) ? .on : .off
             }
         }
-        pttItem.state = state.pushToTalkEnabled ? .on : .off
+        pttItem.state = (state.triggerMode != .doubleTap) ? .on : .off
         editModeItem.state = state.editModeEnabled ? .on : .off
         launchAtLoginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
         rebuildRecentMenu()
@@ -515,6 +526,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func setTriggerKey(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let code = UInt16(raw) else { return }
+        applyTriggerKey(code)
+    }
+
+    /// Changing the trigger is not a matter of writing a number down: the global
+    /// event tap must be torn down and re-registered on the new key. Shared by the
+    /// menu and by first-run setup, so the two cannot drift apart.
+    func applyTriggerKey(_ code: UInt16) {
         state.hotKeyCode = code
         hotkey.stop()
         hotkey.updateKeyCode(code)
@@ -522,6 +540,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hintItem.title = triggerHint()
         startEditHotkeyIfNeeded()   // re-evaluate the edit-key ≠ trigger-key guard
     }
+
+    /// Show first-run setup: at launch for a fresh install, on demand from the menu.
+    func showOnboarding() {
+        OnboardingWindow.shared.show(state: state, actions: OnboardingActions(
+            applyTriggerKey: { [weak self] in self?.applyTriggerKey($0) },
+            applyTriggerMode: { [weak self] in self?.applyTriggerMode($0) },
+            openMicrophoneSettings: { Permissions.openMicrophoneSettings() },
+            openAccessibilitySettings: { Permissions.openAccessibilitySettings() },
+            finish: { [weak self] in
+                self?.state.didCompleteOnboarding = true
+                // Setup is also where the permissions get granted, so the tap may
+                // only have become installable just now.
+                if Permissions.accessibilityTrusted(prompt: false) { _ = self?.hotkey.start() }
+            }))
+    }
+
+    @objc private func rerunOnboarding() { showOnboarding() }
 
     @objc private func setSpeechModelMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String, id != state.whisperModel else { return }
@@ -564,8 +599,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func togglePushToTalk() {
-        state.pushToTalkEnabled.toggle()
-        hotkey.setPushToTalk(state.pushToTalkEnabled)
+        applyTriggerMode(state.triggerMode == .doubleTap ? .both : .doubleTap)
+    }
+
+    /// The live recogniser has to be told, or the setting only takes effect on the
+    /// next launch. Shared with setup, same reason as the trigger key.
+    func applyTriggerMode(_ mode: TriggerMode) {
+        state.triggerMode = mode
+        hotkey.setMode(mode)
         hintItem.title = triggerHint()
     }
 

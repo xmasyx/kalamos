@@ -73,7 +73,9 @@ final class AppState: ObservableObject {
     // double-tap arms hands-free; a lone press/hold is a no-op, so using the
     // trigger key for its normal OS role (e.g. Option to move by word in a
     // terminal) no longer flickers Kalamos.
-    @Published var pushToTalkEnabled: Bool { didSet { persist("pushToTalkEnabled", pushToTalkEnabled) } }
+    /// Which gestures the trigger key answers to. Replaced a boolean that could
+    /// not express "hold only" — see `TriggerMode`.
+    @Published var triggerMode: TriggerMode { didSet { persist("triggerMode", triggerMode.rawValue) } }
 
     // Edit Mode: transform the SELECTED text via a spoken instruction instead of
     // inserting new text. Off by default. Activated by holding its own dedicated
@@ -81,6 +83,12 @@ final class AppState: ObservableObject {
     // from "is something selected", which is ambiguous with dictation-replaces.
     @Published var editModeEnabled: Bool { didSet { persist("editModeEnabled", editModeEnabled) } }
     @Published var editModeKeyCode: UInt16 { didSet { persist("editModeKeyCode", Int(editModeKeyCode)) } }
+
+    /// Whether first-run setup has been seen. Also set, silently, for anyone who
+    /// was already using the app before setup existed — see `init`.
+    @Published var didCompleteOnboarding: Bool {
+        didSet { persist("didCompleteOnboarding", didCompleteOnboarding) }
+    }
 
     private let defaults = UserDefaults.standard
 
@@ -99,7 +107,14 @@ final class AppState: ObservableObject {
         whisperModel = defaults.string(forKey: "whisperModel") ?? "openai_whisper-large-v3-v20240930_turbo"
         cleanupModelID = defaults.string(forKey: "cleanupModelID") ?? "mlx-community/Qwen2.5-7B-Instruct-4bit"
         cleanupPromptOverride = defaults.string(forKey: "cleanupPromptOverride")
-        pushToTalkEnabled = (defaults.object(forKey: "pushToTalkEnabled") as? Bool) ?? true
+        // Migrate the old boolean rather than resetting people to the default:
+        // it carried two of the three modes, and which two is unambiguous.
+        if let raw = defaults.string(forKey: "triggerMode"), let m = TriggerMode(rawValue: raw) {
+            triggerMode = m
+        } else {
+            triggerMode = ((defaults.object(forKey: "pushToTalkEnabled") as? Bool) ?? true)
+                ? .both : .doubleTap
+        }
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
         // 0x3F == Fn / Globe — default Edit-Mode modifier. Distinct from the
         // dictation trigger (Right Command), and NOT used to type text, so it
@@ -107,6 +122,20 @@ final class AppState: ObservableObject {
         // dictation → transform the selection instead of inserting.
         let savedEditKey = defaults.object(forKey: "editModeKeyCode") as? Int
         editModeKeyCode = UInt16(savedEditKey ?? 0x3F)
+
+        // Setup arrived after the app did. Anyone with a trigger key already on
+        // disk, or who came across from the old identity, has configured this app
+        // once already and must not be marched through it again — so an existing
+        // install is silently marked as done. Only a genuinely fresh one is asked.
+        if let done = defaults.object(forKey: "didCompleteOnboarding") as? Bool {
+            didCompleteOnboarding = done
+        } else {
+            let looksEstablished = savedKey != nil
+                || defaults.bool(forKey: "migratedFromParla")
+                || defaults.object(forKey: "vocabulary") != nil
+            didCompleteOnboarding = looksEstablished
+            defaults.set(looksEstablished, forKey: "didCompleteOnboarding")
+        }
 
         if let raw = defaults.array(forKey: "enabledLanguages") as? [String] {
             enabledLanguages = Set(raw.compactMap(Language.init(rawValue:)))
