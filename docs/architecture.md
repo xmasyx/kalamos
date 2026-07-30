@@ -105,6 +105,7 @@ Every one of these runs headless, without the GUI:
 ```sh
 Kalamos --doctor                # permissions, models, Metal shaders, disk
 Kalamos --version
+Kalamos --clean "text" [--lang it|en|fr]   # cleanup pass on one string; exit 2 on misuse
 Kalamos --selftest-format       # spoken punctuation, no model needed
 Kalamos --selftest-corrections  # replacement rules (non-destructive)
 Kalamos --selftest-punct        # punctuation restoration on real run-on cases
@@ -113,8 +114,21 @@ Kalamos --selftest-edit         # Edit Mode transforms
 Kalamos --selftest-translate    # translation
 ```
 
-Runtime logging is **off by default** so transcripts never touch the disk. Turn
-it on only while diagnosing something:
+## What persists
+
+Two things outlive a launch, both under the user's own account and neither ever
+transmitted:
+
+- **`TranscriptHistory`** keeps the last 25 transcriptions in `UserDefaults`
+  (`transcriptHistory`), written *before* injection is attempted, so a mis-fired
+  paste or a wrong focused field never destroys what someone said. Surfaced in the
+  menu; *Clear History* wipes it.
+- **`UsageLog`** appends one ISO-8601 timestamp per dictation — never the text —
+  so `Scripts/analyze-idle.ts` can recommend an idle-unload timeout.
+
+Full transcript logging is a third thing, **off by default**, and `--doctor`
+reports it as a warning for as long as it is on. Turn it on only while diagnosing
+something:
 
 ```sh
 defaults write com.kalamos.app debugLogging -bool true    # → Application Support/Kalamos/kalamos.log

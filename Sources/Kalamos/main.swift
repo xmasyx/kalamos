@@ -20,6 +20,37 @@ if CommandLine.arguments.contains("--version") {
     exit(0)
 }
 
+// `Kalamos --clean "text" [--lang it|en|fr]` runs the cleanup pass on one piece
+// of text and prints the result. Two reasons it exists: every example in the
+// README can be reproduced by the reader with one command, and you can judge the
+// cleanup on your own sentences before letting it near a text field.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
+    let args = CommandLine.arguments
+    let text = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !text.isEmpty, !text.hasPrefix("--") else {
+        print("usage: Kalamos --clean \"your dictated text\" [--lang it|en|fr]")
+        exit(2)
+    }
+    var language = Language.english
+    if let l = args.firstIndex(of: "--lang"), l + 1 < args.count,
+       let parsed = Language(rawValue: args[l + 1].lowercased()) {
+        language = parsed
+    }
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        #if canImport(MLXLLM)
+        let out = await MLXFormatter(engine: .shared)
+            .format(text, context: FormattingContext(language: language, frontmostBundleID: nil))
+        print(out)
+        #else
+        print("ERROR: MLX not compiled in — rebuild with ./Scripts/build-app.sh")
+        #endif
+        sem.signal()
+    }
+    sem.wait()
+    exit(0)
+}
+
 // Headless diagnostic: `Kalamos --selftest-translate` loads the local LLM and
 // translates a fixed Italian sentence to English, printing the result or error.
 // Used to isolate translation failures from the GUI/permissions layer.

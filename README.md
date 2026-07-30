@@ -7,14 +7,26 @@ whatever app you are using. Both models — the one that hears you and the one t
 tidies what you said — run on your Mac.
 
 ```
-you say:   let's meet at 2, actually 3
-you get:   Let's meet at 3.
+you say:  the meeting is on tuesday at ten no wait wednesday at ten thirty in the big room
+you get:  The meeting is on Wednesday at ten thirty in the big room.
 
-you say:   i invited marco lucia and tom to dinner
-you get:   I invited Marco, Lucia, and Tom to dinner.
+you say:  so basically um the api returns a list of users and uh each one has an id
+          a name and an email and then you filter them by the active flag before
+          you render them
+you get:  So basically, the API returns a list of users, and each one has an ID, a
+          name, and an email. Then you filter them by the active flag before you
+          render them.
 ```
 
-*(Both produced by `Kalamos --selftest-cleanup`, which you can run yourself.)*
+Notice what happened in the first one: Tuesday at ten is *gone*, not punctuated
+into the sentence. And in the second: the fillers dropped, "api" became "API",
+and one breathless run-on became two sentences.
+
+Every example in this README is real output, and you can reproduce any of them:
+
+```sh
+Kalamos --clean "the meeting is on tuesday at ten no wait wednesday at ten thirty"
+```
 
 *Kalamos* (κάλαμος) is the reed pen of the ancient world, the one in the Latin
 phrase *currente calamo* — writing at the speed of thought, without stopping.
@@ -46,14 +58,17 @@ and Neural Engine. That is the whole point of the project:
 | Account required | usually | no | **no** |
 | Price | subscription | free | **free, MIT** |
 
-Self-corrections are the part worth trying first, because it is the one thing no
-amount of punctuation logic can fake. Say *"let's meet at 2, actually 3"* and you
-get **"Let's meet at 3."** — the abandoned half is dropped and everything else
-survives. But say *"it's not bad, actually it's excellent"* and both halves stay,
-because there the same word reinforces instead of retracting. The model has to
-read the meaning to tell those apart, which is why this needs a real model rather
-than a list of rules. It works the same in Italian (*anzi, cioè no, volevo dire*)
-and French (*plutôt, enfin non*).
+Self-corrections are the part worth trying first, because they are the one thing
+no amount of punctuation logic can fake. *"We should ship on Friday, I mean
+Monday, because Friday is a public holiday"* becomes **"We should ship on Monday
+because Friday is a public holiday."** — the wrong day is deleted, the reason for
+it survives.
+
+But *"it's not bad, actually it's excellent"* keeps both halves, because there the
+same word reinforces instead of retracting. Nothing but reading the meaning tells
+those two apart, which is exactly why this needs a model and not a rule list. It
+works the same in Italian (*anzi, cioè no, volevo dire*) and French (*plutôt,
+enfin non*).
 
 ## What this project commits to
 
@@ -130,8 +145,62 @@ Everything else lives in the menu-bar icon.
 | **Tone** | adapts register to the app you are writing into |
 | **Models** | swap the speech and cleanup models from the menu |
 | **Prompt** | edit the cleanup instructions yourself |
+| **Memory** | keep the models resident, or let them unload after N minutes — your call |
+| **History** | the last 25 transcriptions, one click to copy any of them back |
 
 First run downloads about 6 GB of models. After that, nothing.
+
+## Making it yours
+
+Dictation degrades exactly where your work is most specific: names, jargon,
+product names, foreign words. Four mechanisms handle it, and they run in this
+order.
+
+**Corrections — deterministic, always wins.** *When you hear X, write Y.* Applied
+to the raw transcript before anything else touches it, whole-word and
+case-insensitive. This is the right tool when Whisper gets a word wrong **the same
+way every time**. Menu ▸ *Corrections ▸ Add Correction…*
+
+**Vocabulary — contextual, applied with judgement.** A list of names, terms and
+spellings injected into the cleanup model's prompt, so it preserves them when they
+appear and repairs near-misses from context. This is the right tool when the
+mistake **varies**. The fast path: select a word anywhere on your Mac and press
+**⌃⌥L** — it is learned without opening a menu.
+
+The difference matters. A correction is a hammer that always swings; vocabulary is
+a hint the model weighs against the sentence. A surname you always want spelled one
+way is a correction. A technical term Whisper mangles differently every time is
+vocabulary.
+
+**Your own cleanup prompt.** *Cleanup ▸ Edit Prompt…* replaces the built-in
+instructions completely, so you can make it more literal, more aggressive, or
+teach it a house style. Your vocabulary is still appended, whatever you write.
+*Reset* puts the original back.
+
+**Tone follows the app you are writing into.** Casual in Messages, WhatsApp,
+Telegram and Slack; polite in Mail; clear and professional in Pages, Word and
+Obsidian. Register only — never the meaning or your words.
+
+## Memory, on your terms
+
+The two models are the whole cost of running Kalamos, and you decide whether you
+pay it continuously or on demand.
+
+**Unload after a while** *(default: 5 minutes)* — the models free their memory when
+you stop dictating, and reload in about a second next time. Between dictations
+Kalamos holds almost nothing.
+
+**Or keep them resident** — *Advanced ▸ Unload Models After ▸ Never*. First
+dictation of the session is as fast as the tenth, at the price of the RAM staying
+occupied.
+
+Anything in between: 1, 2, 5, 10, 15 or 30 minutes. And if you have no idea which
+to pick, `Scripts/analyze-idle.ts` reads the timestamp-only usage log and tells you
+what your actual dictation rhythm implies:
+
+```sh
+bun Scripts/analyze-idle.ts
+```
 
 ## Which models for your Mac
 
