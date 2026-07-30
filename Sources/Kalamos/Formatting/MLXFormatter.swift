@@ -79,7 +79,12 @@ struct MLXFormatter: TextFormatter {
         Judge each ambiguous word from its sentence, never blindly one way.
 
         You MUST:
-        - Remove filler words and false starts (um, uh, ehm, cioè…).
+        - Remove filler words and false starts (um, uh, ehm, cioè…). Filler means \
+        sound with no meaning. A CONNECTIVE IS NOT FILLER, even at the start of a \
+        sentence: "però", "ma", "anche", "quindi", "allora", "però a questo punto", \
+        "but", "so", "also", "though", "mais", "donc" carry the speaker's argument \
+        and must survive verbatim. Deleting an opening "però" changes what the \
+        sentence concedes; that is a meaning change, which is forbidden above.
         - Fix punctuation and capitalization; honor spoken commands ("new \
         paragraph", "comma", "question mark").
         - Resolve self-corrections: people correct themselves mid-sentence. When \
@@ -115,14 +120,76 @@ struct MLXFormatter: TextFormatter {
                 system: system, user: trimmed,
                 maxTokens: max(160, trimmed.count + 80), temperature: 0)
             let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Safety net: a real "answer" balloons length; lists/tone don't.
-            if cleaned.isEmpty || cleaned.count > trimmed.count * 3 + 80 {
+            // Two safety nets, for the two ways this stops being a cleanup engine.
+            // Ballooning means it answered the text instead of tidying it; shrinking
+            // means it deleted words that were actually said. In both cases the
+            // rule-based pass is strictly better than a confident wrong answer.
+            if cleaned.isEmpty
+                || cleaned.count > trimmed.count * 3 + 80
+                || Self.droppedTooMuch(from: trimmed, to: cleaned) {
                 return await fallback.format(raw, context: context)
             }
             return cleaned
         } catch {
             return await fallback.format(raw, context: context)
         }
+    }
+
+    // MARK: Fidelity guard
+
+    /// Words that may legitimately disappear: hesitation noise, and the markers
+    /// that introduce a self-correction — the retracted fragment is meant to go.
+    private static let disposable: Set<String> = [
+        "ehm", "eh", "mmm", "um", "uh", "er", "euh",
+        "cioè", "praticamente", "appunto", "insomma", "diciamo",
+        "actually", "like", "basically", "enfin",
+    ]
+
+    private static func contentWords(_ s: String) -> [String] {
+        let separators = CharacterSet.alphanumerics
+            .union(CharacterSet(charactersIn: "'’")).inverted
+        return s.lowercased()
+            .components(separatedBy: separators)
+            .filter { $0.count > 2 && !disposable.contains($0) }
+    }
+
+    /// True when the cleanup deleted more of the speaker's words than any honest
+    /// self-correction would.
+    ///
+    /// Measured on content words, so removing filler and resolving a retraction
+    /// stay comfortably inside the budget. What does not stay inside it is the
+    /// failure seen in practice: a whole lead-in clause vanishing because the model
+    /// decided the sentence was "really" about its second half. Short utterances are
+    /// exempt — six words carry too little signal to tell editing from mangling.
+    /// Words that are never noise, whatever they sound like in speech. Dropping one
+    /// changes what the sentence concedes, adds or contrasts — a meaning change, even
+    /// though the diff is a single word. Asking the model not to do it did not work
+    /// (it deleted a leading "però" four times in one afternoon of real use), so the
+    /// rule lives here, where it is not a matter of persuasion.
+    ///
+    /// Deliberately excludes "ma", "so" and "allora": those genuinely are discourse
+    /// noise often enough that guarding them would send good cleanups to the fallback.
+    private static let connectives: Set<String> = [
+        "però", "tuttavia", "invece", "anche", "inoltre", "comunque", "piuttosto",
+        "however", "though", "instead", "also", "nevertheless", "besides",
+        "pourtant", "néanmoins", "plutôt",
+    ]
+
+    static func droppedTooMuch(from input: String, to output: String) -> Bool {
+        let before = contentWords(input)
+
+        var remaining: [String: Int] = [:]
+        for w in contentWords(output) { remaining[w, default: 0] += 1 }
+
+        var lost: [String] = []
+        for w in before {
+            if let n = remaining[w], n > 0 { remaining[w] = n - 1 } else { lost.append(w) }
+        }
+
+        if lost.contains(where: connectives.contains) { return true }
+
+        guard before.count >= 8 else { return false }
+        return lost.count > max(3, before.count / 5)
     }
 }
 #endif
