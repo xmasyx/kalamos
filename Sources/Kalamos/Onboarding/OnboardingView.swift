@@ -114,9 +114,9 @@ struct OnboardingView: View {
     private var dictationLanguageStep: some View {
         question(t("In che lingua vuoi dettare?", "Which language do you dictate in?",
                    "Dans quelle langue dictez-vous ?"),
-                 t("Meglio sceglierla anche se ne parli più d’una: saperla in anticipo è più preciso che lasciarla indovinare a ogni frase.",
-                   "Better to choose one even if you speak several: knowing it in advance is more accurate than guessing it every sentence.",
-                   "Mieux vaut en choisir une même si vous en parlez plusieurs : la connaître à l’avance est plus précis que la deviner à chaque phrase.")) {
+                 t("Sceglierla è più preciso che lasciarla indovinare a ogni frase.",
+                   "Choosing one is more accurate than having it guessed every sentence.",
+                   "La choisir est plus précis que la laisser deviner à chaque phrase.")) {
             grid([
                 (1, "Italiano", ""),
                 (2, "English", ""),
@@ -192,7 +192,7 @@ struct OnboardingView: View {
             grid([
                 (1, t("Sì, con il modello", "Yes, use the model", "Oui, avec le modèle"),
                     t("~4 GB, una volta sola", "~4 GB, once", "~4 Go, une seule fois")),
-                (0, t("Solo regole fisse", "Rules only", "Règles seulement"),
+                (0, t("Solo punteggiatura", "Punctuation only", "Ponctuation seule"),
                     t("istantaneo, niente da scaricare", "instant, nothing to download",
                       "instantané, rien à télécharger")),
             ], selected: { state.formatterMode == ($0 == 1 ? .localLLM : .ruleBased) },
@@ -291,20 +291,30 @@ struct OnboardingView: View {
         _ title: String, _ hint: String, @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(Theme.font(21, .semibold))
-                .foregroundStyle(Theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            if !hint.isEmpty {
-                Text(hint)
-                    .font(Theme.font(13))
-                    .foregroundStyle(Theme.inkFaded)
+            // Fixed height, so the choices start at the same point on every page.
+            // A header that grows with its own text drags the whole block up and
+            // down as you go through, which reads as the window twitching.
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(Theme.font(21, .semibold))
+                    .foregroundStyle(Theme.ink)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 6)
+                if !hint.isEmpty {
+                    Text(hint)
+                        .font(Theme.font(13))
+                        .foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            content().padding(.top, 18)
+            .frame(height: Self.headerHeight, alignment: .topLeading)
+
+            content()
         }
     }
+
+    /// Tall enough for a title plus three lines of hint — the longest page — so no
+    /// page has to push the choices down to fit.
+    private static let headerHeight: CGFloat = 104
 
     private func grid(_ items: [(Int, String, String)],
                       selected: @escaping (Int) -> Bool,
@@ -350,17 +360,23 @@ struct OnboardingView: View {
     private func choice(title: String, note: String, showsNoteLine: Bool, on: Bool,
                         act: @escaping () -> Void) -> some View {
         Button(action: act) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(Theme.font(13.5, .medium)).foregroundStyle(Theme.ink)
+            VStack(spacing: 3) {
+                Text(title).font(Theme.font(14, .medium)).foregroundStyle(Theme.ink)
                 if showsNoteLine {
                     Text(note.isEmpty ? " " : note)
                         .font(Theme.font(11.5))
                         .foregroundStyle(Theme.inkFaded)
+                        .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: showsNoteLine ? 34 : 18, alignment: .leading)
-            .padding(.horizontal, 13).padding(.vertical, 10)
+            .multilineTextAlignment(.center)
+            // One size for every choice on every page. Tiles that grow to fit their
+            // own text make each page a slightly different shape, and flipping
+            // through seven of them turns into a series of small jumps.
+            .frame(maxWidth: .infinity,
+                   minHeight: Self.tileHeight, maxHeight: Self.tileHeight)
+            .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 8)
                 .fill(on ? Theme.penWash : Color.white.opacity(0.55)))
             .overlay(RoundedRectangle(cornerRadius: 8)
@@ -370,6 +386,9 @@ struct OnboardingView: View {
         .accessibilityLabel(note.isEmpty ? title : "\(title), \(note)")
         .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
+
+    /// Every tile, on every page.
+    private static let tileHeight: CGFloat = 58
 
     private func permissionRow(granted: Bool, title: String, why: String,
                                button: String, action: @escaping () -> Void) -> some View {
