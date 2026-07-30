@@ -173,8 +173,9 @@ struct OnboardingView: View {
                     t("un tocco singolo non fa niente", "a single tap does nothing",
                       "un appui simple ne fait rien")),
                 (1, t("Doppio tocco", "Double-tap", "Double-appui"),
-                    t("a mani libere: tocchi di nuovo per fermare", "hands-free: tap again to stop",
-                      "mains libres : réappuyez pour arrêter")),
+                    t("a mani libere: tocchi di nuovo e il testo viene scritto",
+                      "hands-free: tap again and the text is written",
+                      "mains libres : réappuyez et le texte s’écrit")),
                 (2, t("Entrambi", "Both", "Les deux"),
                     t("tieni premuto oppure tocca due volte", "hold, or double-tap",
                       "maintenir, ou double-appui")),
@@ -471,9 +472,9 @@ struct OnboardingView: View {
 
     private static func howToUse(_ mode: TriggerMode, _ key: String, _ ui: Language) -> String {
         switch (mode, ui) {
-        case (.doubleTap, .italian): return "Tocca due volte \(key) e parla. Tocca di nuovo per fermare."
-        case (.doubleTap, .french):  return "Appuyez deux fois sur \(key) et parlez. Réappuyez pour arrêter."
-        case (.doubleTap, .english): return "Double-tap \(key) and speak. Tap again to stop."
+        case (.doubleTap, .italian): return "Tocca due volte \(key) e parla. Tocca di nuovo e il testo viene scritto dove hai il cursore."
+        case (.doubleTap, .french):  return "Appuyez deux fois sur \(key) et parlez. Réappuyez et le texte s’écrit au curseur."
+        case (.doubleTap, .english): return "Double-tap \(key) and speak. Tap again and the text is written at your cursor."
         case (.hold, .italian): return "Tieni premuto \(key) e parla. Quando lasci, il testo compare dove hai il cursore."
         case (.hold, .french):  return "Maintenez \(key) et parlez. En relâchant, le texte apparaît au curseur."
         case (.hold, .english): return "Hold \(key) and speak. Release, and the text lands at your cursor."
