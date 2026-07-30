@@ -7,9 +7,14 @@ whatever app you are using. Both models — the one that hears you and the one t
 tidies what you said — run on your Mac.
 
 ```
-you say:   allora ci vediamo domani alle due cioè no facciamo alle tre davanti al bar
-you get:   Allora ci vediamo domani alle tre davanti al bar.
+you say:   let's meet at 2, actually 3
+you get:   Let's meet at 3.
+
+you say:   i invited marco lucia and tom to dinner
+you get:   I invited Marco, Lucia, and Tom to dinner.
 ```
+
+*(Both produced by `Kalamos --selftest-cleanup`, which you can run yourself.)*
 
 *Kalamos* (κάλαμος) is the reed pen of the ancient world, the one in the Latin
 phrase *currente calamo* — writing at the speed of thought, without stopping.
@@ -41,10 +46,14 @@ and Neural Engine. That is the whole point of the project:
 | Account required | usually | no | **no** |
 | Price | subscription | free | **free, MIT** |
 
-Self-corrections are the part worth trying first. Say *"ci vediamo alle due, cioè
-no, alle tre"* and you get **"Ci vediamo alle tre."** — the retracted half is
-dropped and everything else is kept. Say *"non è male, anzi è ottimo"* and both
-halves stay, because there the same marker reinforces instead of retracting.
+Self-corrections are the part worth trying first, because it is the one thing no
+amount of punctuation logic can fake. Say *"let's meet at 2, actually 3"* and you
+get **"Let's meet at 3."** — the abandoned half is dropped and everything else
+survives. But say *"it's not bad, actually it's excellent"* and both halves stay,
+because there the same word reinforces instead of retracting. The model has to
+read the meaning to tell those apart, which is why this needs a real model rather
+than a list of rules. It works the same in Italian (*anzi, cioè no, volevo dire*)
+and French (*plutôt, enfin non*).
 
 ## What this project commits to
 
@@ -123,6 +132,50 @@ Everything else lives in the menu-bar icon.
 | **Prompt** | edit the cleanup instructions yourself |
 
 First run downloads about 6 GB of models. After that, nothing.
+
+## Which models for your Mac
+
+Two models are loaded: one that hears you, one that cleans up what you said. On
+Apple Silicon they live in unified memory, shared with everything else you have
+open — so the number that matters is your **total RAM**, and the sum of the two.
+
+Both are swappable from **menu ▸ Speech Model** and **menu ▸ Cleanup ▸ AI Model**.
+Switching frees the old one immediately and loads the new one on your next
+dictation; no rebuild, no reinstall.
+
+| Your Mac | Cleanup model | Speech model | Loaded together |
+|---|---|---|---|
+| **8 GB** | Qwen2.5 3B (~1.8 GB) | Small | ~2.5 GB |
+| **16 GB** | Qwen2.5 7B (~4.3 GB) | Turbo (1.6 GB) | ~6 GB — **the defaults** |
+| **24 GB** | Qwen2.5 7B, or 14B if you like | Turbo or Large v3 | 6–10 GB |
+| **32 GB+** | Qwen2.5 14B (~8 GB) | Large v3 | ~11 GB |
+
+Three things make this less scary than the table looks.
+
+**It is a peak, not a resting cost.** Both models unload themselves after the idle
+timeout — 5 minutes by default, yours to change under **Advanced ▸ Unload Models
+After**, including *Never*. When you are not dictating, Kalamos holds almost
+nothing. The reload costs about a second.
+
+**On 8 GB, prefer the smaller model over no model.** Measured against the 7B on
+the same seven cases, Qwen 3B got every self-correction right — but on a long
+run-on it added five punctuation marks where the 7B added fifteen, once left a
+sentence without its closing period, and once dropped a trailing clause outright.
+Weaker where it matters most, then, but still a far better trade than running the
+7B and swapping to disk. Check it yourself:
+
+```sh
+Kalamos --selftest-punct --model mlx-community/Qwen2.5-3B-Instruct-4bit
+```
+
+**You can also just turn the LLM off.** **Cleanup ▸ Rule-based (instant)** uses no
+model at all: spoken punctuation commands, filler removal, capitalisation. Zero
+extra RAM, zero wait. You lose the self-correction handling, which is the part
+worth having.
+
+The bigger speech model is rarely the upgrade people expect: Turbo is the default
+because on dictation-length audio it is nearly as accurate as Large v3 and several
+times faster. Reach for Large v3 for accents or noisy rooms, not by reflex.
 
 ## When something misbehaves
 
