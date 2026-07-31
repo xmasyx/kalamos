@@ -67,11 +67,14 @@ struct DictationSection: View {
                         })
             }
 
-            PrefRow(title: L.t("Dettature una dopo l'altra", "One dictation after another",
-                               "Dictées à la suite"),
-                    note: L.t("Quando detti più volte di seguito nello stesso punto, Kalamos può occuparsi dello spazio e della maiuscola al posto tuo.",
-                              "When you dictate several times into the same place, Kalamos can handle the space and the capital for you.",
-                              "Quand vous dictez plusieurs fois au même endroit, Kalamos peut gérer l’espace et la majuscule.")) {
+            // Named for what the block IS now, not for what it was when it held
+            // only the two chaining switches: the last two are about how a
+            // dictation starts and ends, which has nothing to do with chaining.
+            PrefRow(title: L.t("Impostazioni aggiuntive", "Additional settings",
+                               "Réglages supplémentaires"),
+                    note: L.t("Quattro dettagli sul testo che esce: come si attacca a quello che c'è già, e come comincia e come finisce.",
+                              "Four details about the text that comes out: how it joins what is already there, and how it starts and ends.",
+                              "Quatre détails sur le texte produit : comment il rejoint ce qui précède, et comment il commence et finit.")) {
                 VStack(alignment: .leading, spacing: 9) {
                     PrefToggle(title: L.t("Metti uno spazio prima", "Add a space in front",
                                  "Ajouter une espace devant"), isOn: $draft.spaceBetweenDictations)
