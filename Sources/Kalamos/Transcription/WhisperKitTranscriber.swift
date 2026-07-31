@@ -106,6 +106,22 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // "thank you"/"grazie" on trailing silence (trained on YouTube captions).
         let samples = Self.trimSilence(samples)
 
+        // And if there is no speech in there at all, do not ask.
+        //
+        // The phrase list below catches the hallucinations Whisper is FAMOUS for,
+        // which is pattern-matching: feed it pure silence and it will invent
+        // something, and anything not on the list gets through. Until now
+        // `trimSilence` explicitly handed all-silence audio over untouched
+        // (`guard start < end else { return s }`), so the one case that
+        // guarantees an invention was the one case with no defence. Deciding
+        // this from the AUDIO instead of from the words is the only structural
+        // answer. Reported by the user on 2026-07-31, watching a competitor do
+        // exactly this.
+        if Self.isSilent(samples) {
+            Log.write("recording was silent — not transcribed")
+            return TranscriptionResult(text: "", detectedLanguage: forced)
+        }
+
         var options = DecodingOptions()
         if let forced {
             options.language = forced.rawValue
@@ -143,6 +159,25 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         let detected = forced ?? Self.mapLanguage(results.first?.language, allowed: allowedLanguages)
         scheduleIdleUnload()
         return TranscriptionResult(text: text, detectedLanguage: detected)
+    }
+
+    /// True when a recording holds no speech worth transcribing.
+    ///
+    /// Two questions, because either alone is wrong. **Loudness**: room tone sits
+    /// well under this floor while even a whispered word clears it, so the
+    /// threshold is deliberately far below "quiet speech" — swallowing something
+    /// you actually said would be a much worse failure than transcribing a
+    /// breath. **Length**: what survives the trim has to last long enough to be
+    /// a word; a double-tap that catches the key click leaves a few milliseconds
+    /// of noise that is loud but empty.
+    static func isSilent(_ s: [Float], rmsFloor: Float = 0.004,
+                         minimumVoicedSeconds: Float = 0.25,
+                         sampleRate: Float = 16_000) -> Bool {
+        guard !s.isEmpty else { return true }
+        if Float(s.count) / sampleRate < minimumVoicedSeconds { return true }
+        var sum: Float = 0
+        for v in s { sum += v * v }
+        return (sum / Float(s.count)).squareRoot() < rmsFloor
     }
 
     /// Drop near-silent leading/trailing samples (keeps a small pad).

@@ -17,6 +17,14 @@ enum TriggerMode: String, CaseIterable, Codable, Sendable {
     case hold        // hold to record; a tap does nothing
     case doubleTap   // double-tap to go hands-free; holding does nothing
     case both        // hold to record, double-tap for hands-free
+    /// One tap starts hands-free, the next stops it.
+    ///
+    /// Asked for on 2026-07-31, and the reasoning is sound: pressing Option on
+    /// its own does nothing in macOS, so the gesture is free. It costs the
+    /// disambiguation the other modes rely on — every short tap fires — which is
+    /// why holding does nothing here and why a mouse click while the key is down
+    /// cancels: ⌥-click is a real shortcut and must not become a dictation.
+    case singleTap
 }
 
 /// Translates raw key down/up events on a single hot-key into Kalamos's two
@@ -52,8 +60,8 @@ final class GestureRecognizer {
     /// choices, one of which was a lie. Three real modes instead.
     private(set) var mode: TriggerMode
 
-    private var allowsHold: Bool { mode != .doubleTap }
-    private var allowsDoubleTap: Bool { mode != .hold }
+    private var allowsHold: Bool { mode == .hold || mode == .both }
+    private var allowsDoubleTap: Bool { mode == .doubleTap || mode == .both }
 
     /// Emits actions for the controller to execute.
     var onAction: ((DictationAction) -> Void)?
@@ -164,9 +172,16 @@ final class GestureRecognizer {
                 // double-tap means nothing — settle straight back to idle rather
                 // than leaving a window open for a gesture that cannot happen.
                 if allowsHold { emit(.cancelRecording) }
-                state = allowsDoubleTap
-                    ? .awaitingSecondTap(deadline: now + doubleTapWindow)
-                    : .idle
+                if mode == .singleTap {
+                    // One tap is the whole gesture: start listening now, and the
+                    // next tap will stop it (handled in keyDown).
+                    state = .toggleListening
+                    emit(.beginRecording)
+                } else {
+                    state = allowsDoubleTap
+                        ? .awaitingSecondTap(deadline: now + doubleTapWindow)
+                        : .idle
+                }
             }
 
         case .holdingAborted:

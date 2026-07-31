@@ -259,6 +259,7 @@ enum Doctor {
         switch mode {
         case .hold:      return "hold to talk"
         case .doubleTap: return "double-tap for hands-free"
+        case .singleTap: return "one tap to start, one to finish"
         case .both:      return "hold to talk · double-tap for hands-free"
         }
     }

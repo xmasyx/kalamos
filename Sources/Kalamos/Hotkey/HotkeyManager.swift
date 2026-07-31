@@ -58,6 +58,13 @@ final class HotkeyManager {
     func start() -> Bool {
         var mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
         if modifierMask != nil { mask |= (1 << CGEventType.flagsChanged.rawValue) }
+        // Mouse presses too — not to consume them, only to notice them. ⌥-click
+        // opens a link in a new tab, ⌥-drag duplicates a file: with single-tap
+        // activation those would otherwise release into a dictation, because the
+        // keyboard alone cannot tell a held modifier from a tapped one.
+        mask |= (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue)
 
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             let mgr = Unmanaged<HotkeyManager>.fromOpaque(refcon!).takeUnretainedValue()
@@ -135,6 +142,11 @@ final class HotkeyManager {
         // Modifier-key trigger (default): use flagsChanged. Never consume — a
         // bare modifier does nothing in other apps, and consuming it would
         // corrupt system modifier state.
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            recognizer.abort()
+            return Unmanaged.passUnretained(event)
+        }
+
         if let modifierMask {
             if type == .flagsChanged, code == keyCode {
                 if event.flags.contains(modifierMask) { recognizer.keyDown(at: now) }

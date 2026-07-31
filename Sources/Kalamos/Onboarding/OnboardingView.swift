@@ -512,6 +512,9 @@ struct OnboardingView: View {
 
     private static func howToUse(_ mode: TriggerMode, _ key: String, _ ui: Language) -> String {
         switch (mode, ui) {
+        case (.singleTap, .italian): return "Tocca \(key) e parla. Toccalo di nuovo e il testo viene scritto dove hai il cursore."
+        case (.singleTap, .french):  return "Appuyez sur \(key) et parlez. Réappuyez et le texte s’écrit au curseur."
+        case (.singleTap, .english): return "Tap \(key) and speak. Tap again and the text is written at your cursor."
         case (.doubleTap, .italian): return "Tocca due volte \(key) e parla. Tocca di nuovo e il testo viene scritto dove hai il cursore."
         case (.doubleTap, .french):  return "Appuyez deux fois sur \(key) et parlez. Réappuyez et le texte s’écrit au curseur."
         case (.doubleTap, .english): return "Double-tap \(key) and speak. Tap again and the text is written at your cursor."

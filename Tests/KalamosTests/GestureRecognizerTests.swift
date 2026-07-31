@@ -244,3 +244,49 @@ import Testing
         #expect(!actions().contains(.endRecordingAndProcess))
     }
 }
+
+/// One tap starts, one tap finishes (asked 2026-07-31).
+@Suite struct SingleTapModeTests {
+
+    private func recorder() -> (GestureRecognizer, @Sendable () -> [DictationAction]) {
+        final class Box: @unchecked Sendable { var actions: [DictationAction] = [] }
+        let box = Box()
+        let g = GestureRecognizer(holdThreshold: 0.25, doubleTapWindow: 0.30, mode: .singleTap)
+        g.onAction = { box.actions.append($0) }
+        return (g, { box.actions })
+    }
+
+    @Test func oneTapStartsAndTheNextOneFinishes() {
+        let (g, actions) = recorder()
+        g.keyDown(at: 0.0); g.keyUp(at: 0.05)
+        #expect(actions() == [.beginRecording])
+        g.keyDown(at: 3.0); g.keyUp(at: 3.05)
+        #expect(actions() == [.beginRecording, .endRecordingAndProcess])
+    }
+
+    /// Holding the key is how you use Option as a modifier. It must do nothing.
+    @Test func holdingDoesNothing() {
+        let (g, actions) = recorder()
+        g.keyDown(at: 0.0); g.keyUp(at: 1.20)
+        #expect(actions().isEmpty)
+    }
+
+    /// ⌥-click: the click arrives while the key is down, and it cancels the
+    /// gesture — otherwise releasing the key would start dictating.
+    @Test func aClickWhileHeldCancelsTheGesture() {
+        let (g, actions) = recorder()
+        g.keyDown(at: 0.0)
+        g.abort()                       // the mouse press
+        g.keyUp(at: 0.10)               // released quickly, as in a real ⌥-click
+        #expect(actions().isEmpty, "⌥-click started a dictation")
+    }
+
+    /// A shortcut typed with the modifier held, same reasoning.
+    @Test func anotherKeyWhileHeldCancelsTheGesture() {
+        let (g, actions) = recorder()
+        g.keyDown(at: 0.0)
+        g.abort()
+        g.keyUp(at: 0.08)
+        #expect(actions().isEmpty)
+    }
+}

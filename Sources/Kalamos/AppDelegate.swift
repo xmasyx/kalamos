@@ -206,6 +206,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return L.t("Doppio tocco su \(key) = mani libere",
                        "Double-tap \(key) = hands-free",
                        "Double-appui sur \(key) = mains libres")
+        case .singleTap:
+            return L.t("Tocca \(key) per cominciare, toccalo di nuovo per finire",
+                       "Tap \(key) to start, tap again to finish",
+                       "Appuyez sur \(key) pour commencer, à nouveau pour finir")
         }
     }
 
@@ -417,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .hold:      return L.t("Tieni premuto", "Hold to talk", "Maintenir")
         case .doubleTap: return L.t("Doppio tocco", "Double-tap", "Double-appui")
         case .both:      return L.t("Entrambi", "Both", "Les deux")
+        case .singleTap: return L.t("Un tocco", "One tap", "Un appui")
         }
     }
 
