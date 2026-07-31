@@ -390,6 +390,7 @@ struct OnboardingView: View {
                 .fill(on ? Theme.penWash : Color.white.opacity(0.55)))
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(on ? Theme.pen : Theme.rule, lineWidth: 1.5))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(note.isEmpty ? title : "\(title), \(note)")
@@ -412,13 +413,16 @@ struct OnboardingView: View {
             }
             Spacer(minLength: 8)
             if !granted {
-                Button(button, action: action)
-                    .font(Theme.font(12, .medium))
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.penWash))
-                    .foregroundStyle(Theme.pen)
-                    .accessibilityLabel("\(button), \(title)")
+                Button(action: action) {
+                    Text(button)
+                        .font(Theme.font(12, .medium))
+                        .foregroundStyle(Theme.pen)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.penWash))
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(button), \(title)")
             }
         }
         .padding(.horizontal, 13).padding(.vertical, 11)
@@ -437,24 +441,36 @@ struct OnboardingView: View {
             }
             Spacer()
             if step > 0 {
-                Button(t("Indietro", "Back", "Retour")) { step -= 1 }
-                    .buttonStyle(.plain)
-                    .font(Theme.font(13, .medium))
-                    .foregroundStyle(Theme.inkFaded)
-                    .padding(.trailing, 6)
-                    .accessibilityLabel(t("Indietro", "Back", "Retour"))
+                Button { step -= 1 } label: {
+                    Text(t("Indietro", "Back", "Retour"))
+                        .font(Theme.font(13, .medium))
+                        .foregroundStyle(Theme.inkFaded)
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 2)
+                .accessibilityLabel(t("Indietro", "Back", "Retour"))
             }
             let label = step < questionCount
                 ? t("Avanti", "Continue", "Continuer")
                 : t("Inizia a dettare", "Start dictating", "Commencer")
-            Button(label) {
+            Button {
                 if step < questionCount { step += 1 } else { actions.finish() }
+            } label: {
+                // Everything that makes this look like a button lives INSIDE the
+                // label. Applied outside, the padding and the filled rectangle are
+                // decoration behind a button the size of its text — so the blue area
+                // looks pressable and is not. contentShape then guarantees the whole
+                // rounded rectangle is hit-tested, background or not.
+                Text(label)
+                    .font(Theme.font(13, .semibold))
+                    .foregroundStyle(Theme.paper)
+                    .padding(.horizontal, 20).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.pen))
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
-            .font(Theme.font(13, .semibold))
-            .foregroundStyle(Theme.paper)
-            .padding(.horizontal, 20).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.pen))
             .keyboardShortcut(.defaultAction)
             .accessibilityLabel(label)
         }
