@@ -107,7 +107,7 @@ Every one of these runs headless, without the GUI:
 ```sh
 Kalamos --doctor                # permissions, models, Metal shaders, disk
 Kalamos --version
-Kalamos --clean "text" [--lang it|en|fr]   # cleanup pass on one string; exit 2 on misuse
+Kalamos --clean "text" [--lang it|en|fr] [--terminal]   # cleanup on one string
 Kalamos --edit "instruction" --on "text"   # Edit Mode without needing Accessibility
 Kalamos --selftest-format       # spoken punctuation, no model needed
 Kalamos --selftest-corrections  # replacement rules (non-destructive)

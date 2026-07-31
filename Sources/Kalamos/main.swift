@@ -39,8 +39,14 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
     let sem = DispatchSemaphore(value: 0)
     Task.detached {
         #if canImport(MLXLLM)
+        // --terminal exercises the verbatim path. Without it the context has no
+        // frontmost app, so `isTerminal` is false and the general cleanup runs —
+        // which made an earlier "verification" of the strict path measure the
+        // wrong one entirely.
+        let bundle = args.contains("--terminal") ? "com.googlecode.iterm2" : nil
         let out = await MLXFormatter(engine: .shared)
-            .format(text, context: FormattingContext(language: language, frontmostBundleID: nil))
+            .format(text, context: FormattingContext(language: language,
+                                                     frontmostBundleID: bundle))
         print(out)
         #else
         print("ERROR: MLX not compiled in — rebuild with ./Scripts/build-app.sh")

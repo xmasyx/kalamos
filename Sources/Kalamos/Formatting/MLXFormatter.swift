@@ -62,6 +62,23 @@ struct MLXFormatter: TextFormatter {
             You may ONLY: add or fix punctuation, fix capitalization, and delete \
             pure filler sounds (um, uh, ehm, mmm). NOTHING ELSE.
 
+            PUNCTUATE PROPERLY, this is the whole job. Dictated speech arrives with \
+            no punctuation at all: a long sentence that runs on for forty words \
+            needs its internal commas AND to be split into several sentences with \
+            full stops. Returning a wall of text with a single period at the end is \
+            a FAILURE. Add a question mark where a question was asked. None of this \
+            costs you a word: punctuation is free, and it is the only thing you are \
+            here to add.
+
+            Example of the job done right — same words, in the same order, \
+            punctuated:
+            IN:  oggi ho parlato con marco della proposta e mi ha detto che va bene \
+            ma vuole vedere i numeri prima di firmare quindi domani gli mando il \
+            preventivo aggiornato
+            OUT: Oggi ho parlato con Marco della proposta, e mi ha detto che va bene, \
+            ma vuole vedere i numeri prima di firmare. Quindi domani gli mando il \
+            preventivo aggiornato.
+
             You MUST NOT delete, replace, reorder, rephrase, translate, shorten, \
             merge or "improve" any word the speaker said — not even a word that \
             looks wrong, misheard, redundant or ungrammatical. Do NOT resolve \
