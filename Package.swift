@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Kalamos — local-first dictation for macOS (Apple Silicon).
+// Kalamos — local-only dictation for macOS (Apple Silicon).
 //
 // v0.1 builds with Command Line Tools (WhisperKit only).
 // Phase 2 (formatting + translation LLM) needs FULL XCODE for the Metal

@@ -1,6 +1,7 @@
 # Kalamos
 
-**Dictation for macOS that writes like you meant it — and never sends your voice anywhere.**
+**Local-only dictation for macOS that writes like you meant it — and checks the
+model's work against what you actually said.**
 
 Hold a key, speak, release. Punctuated, cleaned-up text lands at your cursor, in
 whatever app you are using. Both models — the one that hears you and the one that
@@ -31,32 +32,64 @@ Kalamos --clean "the meeting is on tuesday at ten no wait wednesday at ten thirt
 *Kalamos* (κάλαμος) is the reed pen of the ancient world, the one in the Latin
 phrase *currente calamo* — writing at the speed of thought, without stopping.
 
-## Why another dictation app
+## This is not another Whisper wrapper
 
-There are two kinds of dictation tools, and both make you give something up.
+Local dictation on the Mac is a crowded shelf in 2026, and it would be dishonest
+to open with "the private ones only give you raw Whisper". That was true two
+years ago. It is not true now:
 
-**The good ones send your voice to a server.** Punctuation, filler removal and
-self-corrections need a language model, and running one is expensive, so the
-polished products do it in the cloud. You get excellent text, and your meeting
-notes, medical questions, private messages and half-formed ideas get uploaded
-along the way.
+- **[FluidVoice](https://github.com/altic-dev/FluidVoice)** (GPLv3, free) pairs
+  on-device speech with *Fluid-1*, its own Gemma-based model trained on dictation
+  data, and cleans up locally.
+- **[VoiceInk](https://tryvoiceink.com)** (GPL, ~$29 prebuilt) is on-device by
+  default, with optional cloud enhancement through your own API key.
+- **[superwhisper](https://superwhisper.com)** runs Whisper locally and offers
+  cloud models — GPT, Claude, Gemini — when you want more.
+- **[MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper)** is the offline
+  file-transcription workhorse.
+- **Wispr Flow, Aqua, LumeVoice** are the polished cloud products: excellent
+  text, and your voice goes to a server to get it.
 
-**The private ones give you raw Whisper.** A thin local wrapper hands you the
-transcript as the speech model produced it: run-on sentences with no internal
-punctuation, every "ehm" preserved, and the sentence you abandoned mid-way still
-sitting there next to the one you meant.
+They are good, and several of them are better than Kalamos at things Kalamos does
+not try to do — Windows, iPhone, file transcription, meeting notes.
 
-Kalamos does the second pass **locally**, with a quantised 7B model on the GPU
-and Neural Engine. That is the whole point of the project:
+**So here is the actual difference, in one sentence: every one of these asks its
+model to behave. Kalamos does not believe it.**
 
-|  | cloud dictation | thin local wrapper | **Kalamos** |
-|---|---|---|---|
-| Audio leaves your Mac | yes | no | **no** |
-| Punctuation on long run-ons | yes | no | **yes** |
-| Filler and false starts removed | yes | no | **yes** |
-| Self-corrections resolved | sometimes | no | **yes** |
-| Account required | usually | no | **no** |
-| Price | subscription | free | **free, MIT** |
+The cleanup model's dangerous failure is not a typo. It is the sentence that
+comes back *reading better* while meaning something else — a lead-in clause gone,
+a "però" dropped, a misheard word confidently "corrected" into a different one.
+It reads well, so you paste it, and you find out weeks later in something you
+already sent. The state of the art against this is a strict prompt, and a strict
+prompt is a request. It held for us until the afternoon the model deleted a
+leading *"però"* four separate times.
+
+So in Kalamos the prompt is not the guarantee. **Every cleanup is diffed against
+what you actually said, and discarded if it fails the diff** — words invented,
+words lost beyond a budget, a connective missing, or any change at all on a short
+utterance. When it fails you get the fast rule-based pass instead: worse text,
+never wrong text. In a terminal, where what you dictate is a command someone will
+execute, the tolerance drops to zero — one word gained or lost and the model's
+version is thrown away.
+
+I could not find another dictation tool that verifies its cleanup against the
+transcript rather than trusting the prompt. If yours does, open an issue and I
+will link it here.
+
+The rest is a matter of taste, and here it is without spin:
+
+|  | cloud dictation | offline Whisper wrapper | local cleanup (FluidVoice, VoiceInk) | **Kalamos** |
+|---|---|---|---|---|
+| Audio leaves your Mac | yes | no | no | **no** |
+| A cloud path exists at all | — | no | optional | **none, structurally** |
+| Punctuation on long run-ons | yes | no | yes | **yes** |
+| Self-corrections resolved | sometimes | no | some | **yes** |
+| Output checked against what you said | no | — | no | **yes** |
+| Safety policy changes by app | no | — | tone only | **yes — verbatim in terminals** |
+| Dictate one language, type another | some | no | no | **yes, on device** |
+| Rewrite selected text by voice | no | no | no | **yes** |
+| Licence | proprietary | proprietary | GPLv3 | **MIT** |
+| Price | subscription | one-off | free / one-off | **free** |
 
 Self-corrections are the part worth trying first, because they are the one thing
 no amount of punctuation logic can fake. *"We should ship on Friday, I mean
@@ -69,6 +102,12 @@ same word reinforces instead of retracting. Nothing but reading the meaning tell
 those two apart, which is exactly why this needs a model and not a rule list. It
 works the same in Italian (*anzi, cioè no, volevo dire*) and French (*plutôt,
 enfin non*).
+
+**"Local-only", not "local-first".** *Local-first* is the polite way of saying
+there is a cloud path you are not using today. There is no cloud path here: no
+account, no key field, no toggle, no server to point at. The single outbound
+request in the app's life is the model download on first run, and you can verify
+that yourself with one grep — the section below shows you how.
 
 ## What this project commits to
 
@@ -119,12 +158,47 @@ curl -fsSL https://raw.githubusercontent.com/xmasyx/kalamos/main/Scripts/install
 Requires **macOS 14+ on Apple Silicon** (M1 or newer): transcription runs on the
 Neural Engine, which Intel Macs do not have.
 
-Releases are not notarized yet, so the installer clears the quarantine flag that
-macOS puts on downloads. That is a real thing to be careful about — read the
-script before you pipe anything into a shell, including this one.
-
 Removing it: `install.sh --uninstall`, or `--purge` to take the downloaded models
 and settings with it.
+
+### What macOS will say, and why
+
+Kalamos is **not notarized**. Notarization means enrolling in the Apple Developer
+Program at $99 a year, and this is a free MIT project — so the honest thing is to
+tell you exactly what that costs you, rather than hide it.
+
+macOS puts a *quarantine* flag on anything downloaded from the internet. On a
+quarantined app that Apple has not notarized, Gatekeeper does not offer you a
+choice: on recent macOS you get **"Kalamos is damaged and can't be opened"**,
+which is not true — it is what macOS says when an app is unsigned-by-Apple and
+still carries that flag.
+
+**The one-line installer clears the flag for you** (`xattr -d
+com.apple.quarantine`), which is why it exists. Piping a script from the internet
+into a shell is exactly the habit that gets people compromised, so
+[read it first](Scripts/install.sh) — it is about a hundred lines and it does
+nothing clever.
+
+**If you prefer to download the `.zip` from [Releases](../../releases) by hand**,
+do the same thing yourself:
+
+```sh
+unzip Kalamos.zip -d /Applications
+xattr -d com.apple.quarantine /Applications/Kalamos.app
+open /Applications/Kalamos.app
+```
+
+**Then macOS asks for two permissions, and both are the app working, not the app
+overreaching:**
+
+- **Microphone** — to hear you. Nothing else uses it.
+- **Accessibility** — two jobs: noticing the key you press *while you are in
+  another app* (that is what a global hot key is), and typing the text into that
+  app. Without it, pressing the key does nothing at all — no error, no sound, no
+  effect. Setup asks for both with the reason next to each.
+
+If it ever misbehaves, **Preferences ▸ Advanced ▸ Diagnostics…** prints exactly
+which of those is missing.
 
 ## Using it
 
@@ -211,6 +285,41 @@ Same four letters, four different decisions, no LLM involved. English (*"period"
 "new paragraph", "question mark"*) and French (*"point", "nouveau paragraphe"*)
 work the same way. `Kalamos --selftest-format` runs these as assertions.
 
+## The net under the model, in detail
+
+The opening claims Kalamos does not trust its own model. This is what that means
+in code — `MLXFormatter.changedTooMuch`, and the tests around it.
+
+Every cleanup is diffed against what you actually said, on **content words**
+(anything over two characters that is not a known filler), and thrown away if it
+fails any of these:
+
+- **Words invented** — anything in the output that was never in the input. This
+  is how a misheard word gets confidently "corrected" into a different one.
+- **Words lost** — beyond a budget that filler and self-corrections fit inside
+  comfortably. This is how a whole lead-in clause vanishes because the model
+  decided your sentence was "really" about its second half.
+- **Connectives, always** — *però, tuttavia, invece, anche, however, though,
+  instead, also, pourtant, plutôt*. Losing one of these changes what a sentence
+  concedes or contrasts, and the diff is a single small word. Asking the model to
+  stop dropping them **did not work**: it deleted a leading "però" four times in
+  one afternoon of real use. The rule lives in code, where it is not a matter of
+  persuasion.
+- **Short utterances get no latitude at all.** Under eight content words there is
+  nothing to restructure, so anything beyond punctuation and capitals is
+  rewriting. This is not hypothetical either: five words came back with
+  *"interest"* turned into *"interessato"*, a word nobody had said.
+
+Fail any of those and the AI output is discarded — you get the fast rule-based
+cleanup instead. Worse text, never wrong text.
+
+**In a terminal the tolerance is zero.** Kalamos knows which app you are typing
+into, and what you dictate into a terminal is an instruction someone is about to
+execute. There, one word gained or lost sends the result to the fallback, whatever
+the length. The accepted cost is real and worth stating: on very ungrammatical
+speech the model cannot punctuate without "fixing", so you get a flat sentence
+instead. Flat and yours beats polished and altered.
+
 ## Translation, on device
 
 Dictate in one language, get another out — the same local model, no service:
@@ -275,6 +384,31 @@ seconds. Between dictations Kalamos holds almost nothing.
 **Or keep them resident** — **Preferences ▸ Advanced ▸ Never**. Both models are
 then loaded at launch and stay loaded, so the first dictation of the session is as
 fast as the tenth, at the price of the RAM staying occupied.
+
+**And a ceiling nobody thinks to check.** MLX keeps a cache of freed Metal
+buffers to reuse them, and its default limit is the *memory limit* — measured on
+a 36 GB Mac: **35 020 MB**. Dictations of different lengths keep asking for
+buffers of different sizes, so that cache only grows. A Kalamos left running all
+day reached a **13 GB footprint** (12 GB of it in IOAccelerator, across 2391
+regions) while the same binary restarted two minutes earlier sat at 4.9 GB with
+1007 regions — same models, same settings, 7.5 GB of pure accumulation. Nothing
+ever emptied it, and choosing "never free the memory" guaranteed nothing ever
+would.
+
+It is capped at 512 MB now, once, at startup. What that cost, measured properly —
+two replicates, arms **alternated** A,B,A,B over 8 rounds of 5 dictations at
+temperature 0 so both arms generate the identical tokens:
+
+| | uncapped | capped |
+|---|---|---|
+| Generation time | baseline | **−0.44% and −0.72%** (noise band: 6.6% and 13.6%) |
+| Buffer cache | 1608 MB | **511 MB** |
+| Footprint after 40 generations | 5946 MB | **4844 MB** |
+
+No measurable cost, 1.1 GB back almost immediately. Worth writing down: the
+*first* attempt at this measurement ran the arms in blocks (A,A,B,B) and reported
+the cap was "15% slower" — that was thermal drift, dumped entirely on whichever
+arm ran last. If you re-measure anything here, alternate the arms.
 
 Anything in between: 1, 2, 5, 10, 15 or 30 minutes. And if you have no idea which
 to pick, `Scripts/analyze-idle.ts` reads the timestamp-only usage log and tells you
@@ -350,6 +484,31 @@ Kalamos --selftest-punct --model mlx-community/Qwen2.5-3B-Instruct-4bit
 **Or no model at all.** *Cleanup ▸ Rule-based (instant)* uses none: spoken
 punctuation commands, filler removal, capitalisation. Zero RAM, zero wait. You give
 up the self-corrections, which are the part worth having.
+
+## What is deliberately not here
+
+Absent features are decisions too, and an app that explains its omissions is
+easier to trust than one that lists only what it has.
+
+**No recording indicator on screen.** macOS already puts an orange dot next to
+the menu bar the moment any app opens the microphone — it is drawn by the system,
+it cannot be faked by an app, and it is therefore *better evidence* than anything
+Kalamos could draw about itself. A second indicator would be a worse copy of
+something already on your screen, occupying space to repeat it. An earlier
+version had a floating HUD; it was removed for exactly this reason.
+
+**No text appearing while you speak.** Live partial transcription looks
+impressive in a demo and is unpleasant to use: words rewrite themselves under
+your eyes as the model revises, and you end up reading instead of thinking. The
+text arrives once, when you release the key, already clean.
+
+**No Dock icon.** Kalamos lives in the menu bar. The icon appears only while the
+Preferences or setup window is open — a window needs the app to be a foreground
+one to reliably take keyboard focus — and goes away when you close it.
+
+**No account, no telemetry, no "anonymous usage statistics", no update checker
+phoning home.** The single outbound request in the app's life is the model
+download on first run.
 
 ## When something misbehaves
 
