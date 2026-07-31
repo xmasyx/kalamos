@@ -93,3 +93,27 @@ import Testing
         #expect(!MLXFormatter.changedTooMuch(from: heard, to: resolved))
     }
 }
+
+/// Spoken punctuation is an instruction, and instructions are meant to vanish.
+@Suite struct SpokenBracketsTests {
+    @Test func turningWordsIntoBracketsIsNotWordLoss() {
+        // Before: the command words counted as content, so two of three words
+        // "disappeared" and the guard threw the answer away — leaving "tra
+        // parentesi un milione" written out literally.
+        #expect(!MLXFormatter.changedTooMuch(from: "tra parentesi un milione",
+                                             to: "(un milione)"))
+    }
+
+    @Test func alsoWithTheOpenCloseForm() {
+        #expect(!MLXFormatter.changedTooMuch(
+            from: "il totale aperta parentesi iva esclusa chiusa parentesi è pronto",
+            to: "Il totale (IVA esclusa) è pronto."))
+    }
+
+    /// And "tra" keeps its weight in a sentence that is not about brackets.
+    @Test func traStillCountsWhenNoBracketWasSpoken() {
+        #expect(MLXFormatter.changedTooMuch(
+            from: "la differenza tra Marco e Luca è il modo di lavorare e di pensare",
+            to: "La differenza è il modo di lavorare e di pensare."))
+    }
+}

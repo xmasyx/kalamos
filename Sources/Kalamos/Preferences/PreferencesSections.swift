@@ -70,48 +70,45 @@ struct DictationSection: View {
             // Named for what the block IS now, not for what it was when it held
             // only the two chaining switches: the last two are about how a
             // dictation starts and ends, which has nothing to do with chaining.
+            // One short line each, not three.
+            //
+            // The long version answered every question a reader could have and
+            // produced a wall — "troppo confusionario", and he was right: four
+            // switches with a paragraph apiece is a page you skip rather than
+            // read. The rule is a line that fits on one line.
             PrefRow(title: L.t("Impostazioni aggiuntive", "Additional settings",
                                "Réglages supplémentaires"),
-                    note: L.t("Servono soprattutto quando detti in un terminale o in un campo di ricerca: lì la maiuscola iniziale e il punto finale sono rumore, e se detti due volte di fila lo spazio in mezzo lo devi mettere tu.",
-                              "These matter most when you dictate into a terminal or a search field: there a leading capital and a final full stop are noise, and dictating twice in a row leaves you to type the space between.",
-                              "Utiles surtout dans un terminal ou un champ de recherche : la majuscule initiale et le point final y sont du bruit.")) {
-                VStack(alignment: .leading, spacing: 14) {
+                    note: L.t("Soprattutto per il terminale e i campi di ricerca.",
+                              "Mostly for terminals and search fields.",
+                              "Surtout pour le terminal et les champs de recherche.")) {
+                VStack(alignment: .leading, spacing: 12) {
                     PrefToggle(title: L.t("Metti uno spazio prima", "Add a space in front",
                                           "Ajouter une espace devant"),
-                               note: L.t("Uno spazio davanti al testo nuovo, così si attacca a quello che hai dettato un attimo fa invece di appiccicarcisi.",
-                                         "A space in front of the new text, so it joins what you dictated a moment ago instead of sticking to it.",
-                                         "Une espace devant le texte, pour qu’il rejoigne le précédent au lieu de s’y coller."),
+                               note: L.t("Per attaccarla alla dettatura precedente.",
+                                         "To join it to the previous dictation.",
+                                         "Pour la joindre à la dictée précédente."),
                                isOn: $draft.spaceBetweenDictations)
 
-                    PrefToggle(title: L.t("Decidi la maiuscola da quello che c'è prima",
-                                          "Decide the capital from what comes before",
-                                          "Décider la majuscule d’après ce qui précède"),
-                               note: L.t("Se prima del cursore c'è un punto, comincia maiuscolo; se stai finendo una frase, minuscolo. Dove l'app non lascia leggere quello che c'è prima — terminali, Electron — la lascia com'è.",
-                                         "If there is a full stop before the cursor it starts with a capital; mid-sentence it starts lowercase. Where an app will not let Kalamos read what is before the cursor — terminals, Electron — it leaves it alone.",
-                                         "Après un point, majuscule ; en milieu de phrase, minuscule. Là où l’app ne laisse pas lire, elle ne touche à rien."),
+                    PrefToggle(title: L.t("Decidi la maiuscola dal contesto",
+                                          "Decide the capital from the context",
+                                          "Décider la majuscule d’après le contexte"),
+                               note: L.t("Maiuscola dopo un punto, minuscola a metà frase.",
+                                         "A capital after a full stop, lowercase mid-sentence.",
+                                         "Majuscule après un point, minuscule en milieu de phrase."),
                                isOn: $draft.smartCapitalization)
 
                     PrefToggle(title: L.t("Comincia sempre in minuscolo", "Always start lowercase",
                                           "Toujours commencer en minuscule"),
-                               note: L.t("Sempre, senza guardare cosa c'è prima. È il modo giusto per il terminale e per i campi di ricerca.",
-                                         "Always, without looking at what comes before. The right setting for terminals and search fields.",
-                                         "Toujours, sans regarder ce qui précède. Le bon réglage pour le terminal."),
+                               note: L.t("Senza guardare cosa c'è prima.",
+                                         "Without looking at what comes before.",
+                                         "Sans regarder ce qui précède."),
                                isOn: $draft.lowercaseFirstLetter)
 
                     PrefToggle(title: L.t("Togli il punto finale", "Drop the final full stop",
                                           "Retirer le point final"),
-                               note: L.t("Il punto in fondo alla frase, che in un comando o in una ricerca non serve. Il punto interrogativo resta, perché quello vuol dire qualcosa.",
-                                         "The full stop at the end, which a command or a search query does not want. A question mark stays: that one means something.",
-                                         "Le point final, inutile dans une commande. Le point d’interrogation reste."),
+                               note: L.t("Il punto interrogativo resta.", "A question mark stays.",
+                                         "Le point d’interrogation reste."),
                                isOn: $draft.removeTrailingPeriod)
-
-                    Text(L.t("Kalamos sa già di essere in un terminale — è così che lì non tocca le tue parole — ma non può distinguere una riga di comando da una domanda scritta a un assistente nella stessa finestra. Per questo le ultime due restano una tua scelta invece di accendersi da sole.",
-                             "Kalamos already knows it is in a terminal — that is how it leaves your words alone there — but it cannot tell a shell command from a question typed to an assistant in the same window. That is why the last two stay your choice instead of switching themselves on.",
-                             "Kalamos sait déjà qu’il est dans un terminal, mais ne peut pas distinguer une commande d’une question posée à un assistant dans la même fenêtre."))
-                        .font(Theme.font(11))
-                        .foregroundStyle(Theme.inkFaded)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 2)
                 }
             }
 

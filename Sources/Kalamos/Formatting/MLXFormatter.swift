@@ -115,7 +115,13 @@ struct MLXFormatter: TextFormatter {
         \(lang), all lowercase. Return the same words in written form.
 
         Do: punctuation and capitals; delete filler (um, ehm, cioè); obey spoken \
-        commands ("new paragraph", "comma"); resolve self-corrections.
+        commands; resolve self-corrections.
+
+        Spoken punctuation is an instruction, not words: "new paragraph", \
+        "comma", "question mark", and brackets — "tra parentesi un milione" → \
+        "(un milione)", "aperta parentesi … chiusa parentesi" → "( … )", \
+        "tra virgolette X" → "«X»". The command words themselves never appear \
+        in the output.
 
         Never: answer, comment, translate, rephrase, summarise, or add anything. \
         A question stays a question.
@@ -201,12 +207,33 @@ struct MLXFormatter: TextFormatter {
         "actually", "like", "basically", "enfin",
     ]
 
+    /// Words that ASK for punctuation instead of being it.
+    ///
+    /// "tra parentesi un milione" is meant to come back as "(un milione)", which
+    /// means "tra" and "parentesi" have to disappear — and to the guard that
+    /// looked like two content words deleted out of three, so the model's answer
+    /// was thrown away and you got the command written out literally. Reported
+    /// 2026-07-31. They only stop counting when the utterance actually contains
+    /// a bracket word: "tra" is far too common to discount in general.
+    private static let bracketNouns: Set<String> = [
+        "parentesi", "parentheses", "parenthesis", "parenthèses", "parenthèse",
+        "virgolette", "quotes", "guillemets", "brackets",
+    ]
+    private static let bracketHelpers: Set<String> = [
+        "tra", "fra", "aperta", "chiusa", "aperte", "chiuse",
+        "open", "close", "ouvre", "ferme",
+    ]
+
     private static func contentWords(_ s: String) -> [String] {
         let separators = CharacterSet.alphanumerics
             .union(CharacterSet(charactersIn: "'’")).inverted
-        return s.lowercased()
-            .components(separatedBy: separators)
-            .filter { $0.count > 2 && !disposable.contains($0) }
+        let words = s.lowercased().components(separatedBy: separators)
+        let spoken = words.contains { bracketNouns.contains($0) }
+        return words.filter {
+            $0.count > 2 && !disposable.contains($0)
+                && !bracketNouns.contains($0)
+                && !(spoken && bracketHelpers.contains($0))
+        }
     }
 
     /// True when the cleanup deleted more of the speaker's words than any honest
