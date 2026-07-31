@@ -35,6 +35,11 @@ struct OnboardingView: View {
     @State private var micGranted = Permissions.microphoneAuthorized
     @State private var axGranted = Permissions.accessibilityTrusted(prompt: false)
     @State private var micRefused = false
+    /// The idle timeout is the one setting on this screen that does NOT live on
+    /// AppState, so nothing publishes a change and SwiftUI has no reason to redraw.
+    /// Writing it straight to Tuning left the value changed and the tile unlit —
+    /// indistinguishable, from the outside, from a page where nothing is clickable.
+    @State private var idleSeconds = Tuning.idleUnloadRaw
 
     private let questionCount = 7
     private let permissionsStepIndex = 6
@@ -216,7 +221,11 @@ struct OnboardingView: View {
                 (0, t("Mai", "Never", "Jamais"),
                     t("da 32 GB in su: sempre pronta", "32 GB and up: always ready",
                       "à partir de 32 Go : toujours prête")),
-            ], selected: { Tuning.idleUnloadRaw == $0 }, pick: { Tuning.setIdleUnload($0) })
+            ], selected: { idleSeconds == $0 },
+               pick: { seconds in
+                   idleSeconds = seconds        // drives the redraw
+                   Tuning.setIdleUnload(seconds)
+               })
         }
     }
 
