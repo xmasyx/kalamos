@@ -98,12 +98,16 @@ struct DictationSection: View {
                                          "Majuscule après un point, minuscule en milieu de phrase."),
                                isOn: $draft.smartCapitalization)
 
+                    // In ink, at the weight of the setting names, because it is
+                    // not another description: it separates the two pairs, and
+                    // in faded grey it read as one more note and separated
+                    // nothing.
                     Text(L.t("Soprattutto per il terminale e i campi di ricerca.",
                              "Mostly for terminals and search fields.",
                              "Surtout pour le terminal et les champs de recherche."))
-                        .font(Theme.font(11.5))
-                        .foregroundStyle(Theme.inkFaded)
-                        .padding(.top, 4)
+                        .font(Theme.font(12.5, .medium))
+                        .foregroundStyle(Theme.ink)
+                        .padding(.top, 6)
 
                     PrefToggle(title: L.t("Comincia sempre in minuscolo", "Always start lowercase",
                                           "Toujours commencer en minuscule"),
