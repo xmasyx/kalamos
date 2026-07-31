@@ -87,7 +87,7 @@ struct PreferencesView: View {
             }
             .background(Theme.paper)
         }
-        .frame(width: 720, height: 560)
+        .frame(width: 780, height: 560)
         .background(Theme.paper)
     }
 
@@ -223,8 +223,32 @@ struct ChipRow<Value: Hashable>: View {
         // describe all of them without moving the geometry.
         assert(options.allSatisfy { $0.note.isEmpty } || options.allSatisfy { !$0.note.isEmpty },
                "a chip row must not mix chips with and without a note")
-        return FlowLayout(spacing: 8) {
-            ForEach(options, id: \.value) { option in
+        // Four columns, always, when the chips are plain words.
+        //
+        // Sized to their own text they line up with nothing: four rows of four
+        // choices put sixteen chips at sixteen different places, and the eye
+        // reads the raggedness before it reads the words. On a grid the columns
+        // agree across rows, a row of three simply leaves the fourth cell empty,
+        // and a row of five wraps onto the same column it started from.
+        //
+        // Rows whose chips carry a second line — the model pickers — keep the
+        // flowing layout: those are cards, not words, and squeezing them into a
+        // quarter of the pane wraps "~4.3 GB · default" onto three lines.
+        let plainWords = options.allSatisfy { $0.note.isEmpty }
+        return Group {
+            if plainWords {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
+                          alignment: .leading, spacing: 8) {
+                    chips
+                }
+            } else {
+                FlowLayout(spacing: 8) { chips }
+            }
+        }
+    }
+
+    @ViewBuilder private var chips: some View {
+        ForEach(options, id: \.value) { option in
                 Button { pick(option.value) } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         // The chosen chip is written in ink that is still wet.
@@ -234,12 +258,20 @@ struct ChipRow<Value: Hashable>: View {
                         Text(option.label)
                             .font(Theme.font(12.5, isOn(option.value) ? .semibold : .medium))
                             .foregroundStyle(isOn(option.value) ? Theme.pen : Theme.ink)
+                            // One line, always. "Right Command" is the longest
+                            // label in the window and wrapping it made its chip
+                            // taller than the three beside it — the raggedness
+                            // moves from the widths to the heights. A few percent
+                            // of shrink is invisible; a two-line chip is not.
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
                         if !option.note.isEmpty {
                             Text(option.note)
                                 .font(Theme.font(10.5))
                                 .foregroundStyle(Theme.inkFaded)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 7)
@@ -250,7 +282,6 @@ struct ChipRow<Value: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isOn(option.value) ? [.isButton, .isSelected] : .isButton)
-            }
         }
     }
 }

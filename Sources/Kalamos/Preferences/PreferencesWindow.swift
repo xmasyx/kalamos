@@ -31,7 +31,7 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         let wanted = hosting.view.fittingSize
         let limit = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size
             ?? NSSize(width: 1200, height: 800)
-        let size = NSSize(width: min(max(wanted.width, 720), limit.width - 40),
+        let size = NSSize(width: min(max(wanted.width, 780), limit.width - 40),
                           height: min(max(wanted.height, 520), limit.height - 40))
 
         let w = NSWindow(contentViewController: hosting)
