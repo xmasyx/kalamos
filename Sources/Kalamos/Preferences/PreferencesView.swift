@@ -249,15 +249,16 @@ struct ChipRow<Value: Hashable>: View {
 
     @ViewBuilder private var chips: some View {
         ForEach(options, id: \.value) { option in
-                // A single word floating against the left edge of a chip that is
-                // wider than it needs to be looks like a mistake; centred, the
-                // grid reads as a row of buttons. A chip with a second line is a
-                // small card instead, and two lines of different lengths only
-                // look right stacked against the same edge — so it keeps left,
-                // and gets the breathing room that made these feel cramped.
+                // Everything centred, including the two-line cards: tried both
+                // ways in front of him and centred won for those too.
+                //
+                // The heights went the other way round from what I guessed. The
+                // plain rows — the ones you use every day — wanted MORE room, and
+                // the model cards read better tight, because their second line
+                // already gives them height.
                 let card = !option.note.isEmpty
                 Button { pick(option.value) } label: {
-                    VStack(alignment: card ? .leading : .center, spacing: card ? 3 : 2) {
+                    VStack(alignment: .center, spacing: card ? 3 : 2) {
                         // The chosen chip is written in ink that is still wet.
                         // A 13%-blue wash and a border alone read as grey at a
                         // glance — seen on the first build, where the selection
@@ -278,10 +279,9 @@ struct ChipRow<Value: Hashable>: View {
                                 .foregroundStyle(Theme.inkFaded)
                         }
                     }
-                    .frame(maxWidth: .infinity, minHeight: card ? 30 : 0,
-                           alignment: card ? .leading : .center)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, card ? 12 : 8)
+                    .padding(.vertical, card ? 8 : 13)
                     .background(RoundedRectangle(cornerRadius: 7)
                         .fill(isOn(option.value) ? Theme.penWash : Color.white.opacity(0.55)))
                     .overlay(RoundedRectangle(cornerRadius: 7)

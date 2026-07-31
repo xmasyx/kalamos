@@ -30,7 +30,8 @@ struct DictationSection: View {
                 }, isOn: { draft.triggerMode == $0 }, pick: { draft.triggerMode = $0 })
             }
 
-            PrefRow(title: L.t("Lingua che parli", "Language you speak", "Langue que vous parlez"),
+            PrefRow(title: L.t("Lingua della dettatura", "Dictation language",
+                               "Langue de la dictée"),
                     note: L.t("Sceglierla è più preciso che lasciarla indovinare a ogni frase.",
                               "Choosing one is more accurate than having it guessed every sentence.",
                               "La choisir est plus précis que la laisser deviner.")) {
