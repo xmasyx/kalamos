@@ -329,14 +329,8 @@ struct OnboardingView: View {
     private func grid(_ items: [(Int, String, String)],
                       selected: @escaping (Int) -> Bool,
                       pick: @escaping (Int) -> Void) -> some View {
-        // The placeholder line under a title exists only to keep tiles the same
-        // height when SOME of them carry a note. When none do, it just pushes every
-        // title off centre in its own box.
-        let anyNotes = items.contains { !$0.2.isEmpty }
-
         func tile(_ item: (Int, String, String)) -> some View {
-            choice(title: item.1, note: item.2, showsNoteLine: anyNotes,
-                   on: selected(item.0)) { pick(item.0) }
+            choice(title: item.1, note: item.2, on: selected(item.0)) { pick(item.0) }
         }
 
         return Group {
@@ -367,13 +361,17 @@ struct OnboardingView: View {
     /// the columns. If the window size changes, this changes with it.
     private static let columnWidth: CGFloat = (540 - 28 * 2 - 10) / 2
 
-    private func choice(title: String, note: String, showsNoteLine: Bool, on: Bool,
+    private func choice(title: String, note: String, on: Bool,
                         act: @escaping () -> Void) -> some View {
         Button(action: act) {
             VStack(spacing: 3) {
                 Text(title).font(Theme.font(14, .medium)).foregroundStyle(Theme.ink)
-                if showsNoteLine {
-                    Text(note.isEmpty ? " " : note)
+                // Only when there is something to say. A blank reserved line used
+                // to keep tiles the same height, back when they sized themselves —
+                // the fixed height below does that now, and the leftover placeholder
+                // was pushing every note-less title above the centre of its own box.
+                if !note.isEmpty {
+                    Text(note)
                         .font(Theme.font(11.5))
                         .foregroundStyle(Theme.inkFaded)
                         .multilineTextAlignment(.center)
@@ -385,7 +383,8 @@ struct OnboardingView: View {
             // own text make each page a slightly different shape, and flipping
             // through seven of them turns into a series of small jumps.
             .frame(maxWidth: .infinity,
-                   minHeight: Self.tileHeight, maxHeight: Self.tileHeight)
+                   minHeight: Self.tileHeight, maxHeight: Self.tileHeight,
+                   alignment: .center)
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 8)
                 .fill(on ? Theme.penWash : Color.white.opacity(0.55)))
