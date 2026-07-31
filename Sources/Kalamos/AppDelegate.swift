@@ -48,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onLearn = { [weak self] in
             Task { @MainActor in self?.learnSelectedWord() }
         }
+        hotkey.onCopyLast = { [weak self] in
+            Task { @MainActor in self?.copyLast() }
+        }
+        hotkey.onSummarize = { [weak self] in
+            Task { @MainActor in self?.summarizeLast() }
+        }
 
         // Pin the on-device cleanup model to the saved choice and apply the saved
         // push-to-talk preference before the tap goes live.
@@ -159,15 +165,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         headerSeparator = NSMenuItem.separator()
         menu.addItem(headerSeparator)
 
+        // ⌃⌥, not ⌘. These two used to print ⌘C and ⌘S, which never worked from
+        // anywhere except this menu while it was open: a status-bar menu is not
+        // the main menu, and an `.accessory` app never owns the menu bar. The
+        // shortcuts are real now — `HotkeyManager` catches them in the global tap —
+        // and the mask makes the menu print the keys you actually press.
         let copyLast = NSMenuItem(title: L.t("Copia l'ultima trascrizione",
                                              "Copy Last Transcription",
                                              "Copier la dernière transcription"),
                                   action: #selector(copyLast), keyEquivalent: "c")
+        copyLast.keyEquivalentModifierMask = [.control, .option]
         menu.addItem(copyLast)
-        let summarize = NSMenuItem(title: L.t("Riassumi le ultime dettature",
-                                              "Summarize Recent Dictations",
-                                              "Résumer les dictées récentes"),
-                                   action: #selector(summarizeRecent), keyEquivalent: "s")
+        let summarize = NSMenuItem(title: L.t("Riassumi l'ultima dettatura",
+                                              "Summarize Last Dictation",
+                                              "Résumer la dernière dictée"),
+                                   action: #selector(summarizeLast), keyEquivalent: "s")
+        summarize.keyEquivalentModifierMask = [.control, .option]
         menu.addItem(summarize)
         recentMenu = NSMenu()
         let recentItem = NSMenuItem(title: L.t("Trascrizioni recenti", "Recent Transcriptions",
@@ -486,15 +499,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func clearHistory() { history.clear() }
 
-    @objc private func summarizeRecent() {
-        let texts = history.entries.prefix(20).reversed().map(\.text)   // chronological
-        guard !texts.isEmpty else { NSSound.beep(); return }
+    /// Summarize the LAST dictation, not the last twenty.
+    ///
+    /// It used to pile the last twenty entries into one numbered list and
+    /// summarize that. Dictations are not a conversation: an email, a shopping
+    /// list and a stray thought are three unrelated texts, and a summary of all
+    /// three at once is a fruit salad. What is worth summarizing is the one long
+    /// thing you just said.
+    @objc private func summarizeLast() {
+        guard let last = history.last else { NSSound.beep(); return }
         let language = state.translationEnabled ? state.translationTarget : state.defaultLanguage
         #if canImport(MLXLLM)
         state.status = .working(.summarizing)
         Task {
             do {
-                let summary = try await Summarizer().summarize(Array(texts), language: language)
+                let summary = try await Summarizer().summarize(last.text, language: language)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(summary, forType: .string)
                 state.status = .idle

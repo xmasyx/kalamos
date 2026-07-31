@@ -165,6 +165,68 @@ import Testing
         }
     }
 
+    // MARK: ISC-115 — a shortcut printed in the menu is a shortcut that works
+
+    /// Every key printed next to a status-menu item must have something that
+    /// actually listens for it.
+    ///
+    /// The bug this replaces: *Copy Last Transcription* advertised ⌘C, and ⌘C did
+    /// nothing. A `keyEquivalent` on a status-bar menu is only offered the
+    /// keystroke while that menu is open — by which point you are already holding
+    /// the mouse over the item — and Kalamos is `.accessory`, so its main menu
+    /// never owns the menu bar to catch it either. Nothing was broken, no test
+    /// failed, no build complained: the glyph was simply a promise with nothing
+    /// behind it, and it survived every commit since the first one.
+    ///
+    /// Two ways to keep the promise, and this accepts both. Either the key is one
+    /// of the global Control+Option shortcuts the event tap catches in any app, or
+    /// it is mirrored in the main menu, which does get the keystroke for as long as
+    /// a window of ours is key (⌘, and ⌘Q while Preferences is open).
+    @Test func everyMenuShortcutIsReal() throws {
+        guard let delegate = try Self.swiftFiles().first(where: { $0.name == "AppDelegate.swift" })
+        else { throw Failure.noSources }
+
+        func body(of function: String, upTo next: String) throws -> Substring {
+            guard let start = delegate.text.range(of: function),
+                  let end = delegate.text.range(of: next, range: start.upperBound..<delegate.text.endIndex)
+            else { throw Failure.noSources }
+            return delegate.text[start.upperBound..<end.lowerBound]
+        }
+
+        let statusMenu = try body(of: "private func setupMenuBar()", upTo: "private func triggerHint()")
+        let mainMenu = try body(of: "private func setupMainMenu()", upTo: "// MARK: Menu bar")
+
+        /// Every `keyEquivalent: "x"` in a chunk of source, empty ones dropped.
+        func keys(in source: Substring) -> [String] {
+            source.components(separatedBy: "keyEquivalent: \"")
+                .dropFirst()
+                .compactMap { $0.first.map(String.init) }
+                .filter { $0 != "\"" }
+        }
+
+        let global = Set(HotkeyManager.controlOptionShortcuts.values)
+        let mirrored = Set(keys(in: mainMenu))
+        #expect(!mirrored.isEmpty, "expected to find the main menu's key equivalents")
+
+        let advertised = keys(in: statusMenu)
+        #expect(advertised.count >= 4, "expected to find the status menu's key equivalents")
+
+        for key in advertised {
+            #expect(global.contains(key) || mirrored.contains(key),
+                    "the status menu prints a shortcut for \"\(key)\" that nothing listens for")
+        }
+
+        // And a global one must say ⌃⌥ rather than the ⌘ macOS assumes: an item
+        // that registers ⌃⌥C globally while printing ⌘C is the same lie, told
+        // one layer down.
+        for key in Set(advertised).intersection(global).subtracting(mirrored) {
+            guard let item = statusMenu.range(of: "keyEquivalent: \"\(key)\"") else { continue }
+            let after = statusMenu[item.upperBound...].prefix(240)
+            #expect(after.contains("keyEquivalentModifierMask = [.control, .option]"),
+                    "the status menu prints ⌘\(key.uppercased()) for a ⌃⌥ shortcut")
+        }
+    }
+
     // MARK: ISC-107 — the buffer cache keeps its ceiling
 
     /// The cap on MLX's Metal buffer cache must not disappear in a refactor.

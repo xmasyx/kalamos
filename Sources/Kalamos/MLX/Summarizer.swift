@@ -2,25 +2,27 @@ import Foundation
 
 #if canImport(MLXLLM)
 
-/// Summarizes dictated notes on-device via the local LLM (shares the same
+/// Summarizes a dictated note on-device via the local LLM (shares the same
 /// resident model as the formatter/translator).
 struct Summarizer {
     let engine: MLXEngine
     init(engine: MLXEngine = .shared) { self.engine = engine }
 
-    /// Summarize a set of dictation texts (chronological order) into `language`.
-    func summarize(_ texts: [String], language: Language) async throws -> String {
-        let joined = texts.enumerated()
-            .map { "\($0.offset + 1). \($0.element)" }
-            .joined(separator: "\n")
+    /// Summarize one dictation into `language`.
+    ///
+    /// One, deliberately. This took a list until 2026-07-31, and was called with
+    /// the last twenty entries — unrelated texts summarized as though they were
+    /// one train of thought.
+    func summarize(_ text: String, language: Language) async throws -> String {
         let system = """
-        You summarize a person's dictated notes. Write a clear, concise summary \
+        You summarize a note a person dictated. Write a clear, concise summary \
         in \(language.displayName): capture the key points as short bullet points, \
-        and if there are any tasks or decisions, list them under "Action items". \
-        Be faithful to the content; do not invent anything. Output only the summary.
+        and if there are any tasks or decisions, list them under a heading meaning \
+        "Action items", written in \(language.displayName). Be faithful to the \
+        content; do not invent anything. Output only the summary.
         """
         return try await engine.generate(
-            system: system, user: joined, purpose: .summarizing, maxTokens: 700, temperature: 0.3)
+            system: system, user: text, purpose: .summarizing, maxTokens: 700, temperature: 0.3)
     }
 }
 #endif

@@ -23,6 +23,12 @@ final class HotkeyManager {
     /// Fired on the global "learn selected word" shortcut (⌃⌥L).
     var onLearn: (() -> Void)?
 
+    /// Fired on ⌃⌥C — put the last transcription back on the clipboard.
+    var onCopyLast: (() -> Void)?
+
+    /// Fired on ⌃⌥S — summarize the last dictation.
+    var onSummarize: (() -> Void)?
+
     init(keyCode: UInt16, recognizer: GestureRecognizer = GestureRecognizer()) {
         self.keyCode = keyCode
         self.recognizer = recognizer
@@ -53,6 +59,23 @@ final class HotkeyManager {
     }
 
     private var modifierMask: CGEventFlags? { Self.modifierMasks[keyCode] }
+
+    /// The global Control+Option shortcuts: key code → the letter the menu prints.
+    ///
+    /// The menu is where these are discovered, and a menu that prints a shortcut
+    /// is making a promise. Before this table existed, "Copy Last Transcription"
+    /// advertised ⌘C while nothing anywhere listened for it: a status-bar menu's
+    /// `keyEquivalent` only fires while that menu is open, and Kalamos is an
+    /// `.accessory` app that never owns the menu bar. The glyph was decoration.
+    /// `SourceGuardTests` now refuses any menu shortcut that is not in here.
+    ///
+    /// Control+Option, never Command: ⌘C is the system's copy, and a global tap
+    /// that swallowed it would break copying everywhere on the Mac.
+    static let controlOptionShortcuts: [UInt16: String] = [
+        0x25: "l",   // kVK_ANSI_L — learn the selected word
+        0x08: "c",   // kVK_ANSI_C — copy the last transcription
+        0x01: "s",   // kVK_ANSI_S — summarize the last dictation
+    ]
 
     @discardableResult
     func start() -> Bool {
@@ -131,11 +154,20 @@ final class HotkeyManager {
             return recognizer.cancel() ? nil : Unmanaged.passUnretained(event)
         }
 
-        // Global "learn selected word" shortcut: Control+Option+L (works in any
-        // app — the handler copies the selection via the clipboard).
-        if type == .keyDown, code == 0x25,   // kVK_ANSI_L
-           event.flags.contains(.maskControl), event.flags.contains(.maskAlternate) {
-            onLearn?()
+        // The global Control+Option shortcuts, which work in any app because this
+        // tap sees the key before the app underneath does. Consumed, so the letter
+        // never lands in whatever you were typing in — and so the identical
+        // `keyEquivalent` on the menu item cannot fire the same action a second
+        // time while the menu happens to be open.
+        if type == .keyDown,
+           event.flags.contains(.maskControl), event.flags.contains(.maskAlternate),
+           let shortcut = Self.controlOptionShortcuts[code] {
+            switch shortcut {
+            case "l": onLearn?()
+            case "c": onCopyLast?()
+            case "s": onSummarize?()
+            default: return Unmanaged.passUnretained(event)
+            }
             return nil   // consume
         }
 

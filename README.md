@@ -336,9 +336,16 @@ stays in whatever language you spoke.
 
 Every transcription is recorded **before** injection is attempted, so a paste into
 the wrong window or a field that stole focus cannot destroy what you said. The
-menu keeps the last 25, one click copies any of them back, and *Summarize Recent
-Dictations* runs the local model over them when you have talked your way through a
-problem and want the shape of it.
+menu keeps the last 25 and one click copies any of them back. Two of them are also
+global shortcuts, so they work without opening anything:
+
+- **⌃⌥C** — put the last transcription back on the clipboard.
+- **⌃⌥S** — summarize the last dictation with the local model, when you have
+  talked your way through a problem and want the shape of it. The summary lands on
+  the clipboard too.
+
+Control+Option rather than Command, because ⌘C belongs to macOS and an app that
+swallowed it globally would break copying everywhere.
 
 ## Making it yours
 
