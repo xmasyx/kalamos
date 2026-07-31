@@ -72,34 +72,18 @@ struct DictationSection: View {
                               "When you dictate several times into the same place, Kalamos can handle the space and the capital for you.",
                               "Quand vous dictez plusieurs fois au même endroit, Kalamos peut gérer l’espace et la majuscule.")) {
                 VStack(alignment: .leading, spacing: 9) {
-                    Toggle(isOn: $draft.spaceBetweenDictations) {
-                        Text(L.t("Metti uno spazio prima", "Add a space in front",
-                                 "Ajouter une espace devant"))
-                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    }
-                    .toggleStyle(.switch).tint(Theme.pen)
+                    PrefToggle(title: L.t("Metti uno spazio prima", "Add a space in front",
+                                 "Ajouter une espace devant"), isOn: $draft.spaceBetweenDictations)
 
-                    Toggle(isOn: $draft.smartCapitalization) {
-                        Text(L.t("Decidi la maiuscola da quello che c'è prima",
+                    PrefToggle(title: L.t("Decidi la maiuscola da quello che c'è prima",
                                  "Decide the capital from what comes before",
-                                 "Décider la majuscule d’après ce qui précède"))
-                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    }
-                    .toggleStyle(.switch).tint(Theme.pen)
+                                 "Décider la majuscule d’après ce qui précède"), isOn: $draft.smartCapitalization)
 
-                    Toggle(isOn: $draft.lowercaseFirstLetter) {
-                        Text(L.t("Comincia sempre in minuscolo", "Always start lowercase",
-                                 "Toujours commencer en minuscule"))
-                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    }
-                    .toggleStyle(.switch).tint(Theme.pen)
+                    PrefToggle(title: L.t("Comincia sempre in minuscolo", "Always start lowercase",
+                                 "Toujours commencer en minuscule"), isOn: $draft.lowercaseFirstLetter)
 
-                    Toggle(isOn: $draft.removeTrailingPeriod) {
-                        Text(L.t("Togli il punto finale", "Drop the final full stop",
-                                 "Retirer le point final"))
-                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    }
-                    .toggleStyle(.switch).tint(Theme.pen)
+                    PrefToggle(title: L.t("Togli il punto finale", "Drop the final full stop",
+                                 "Retirer le point final"), isOn: $draft.removeTrailingPeriod)
 
                     Text(L.t("Le ultime due servono per le ricerche e per il terminale, dove la maiuscola e il punto sono rumore. Il punto interrogativo resta: quello vuol dire qualcosa.",
                              "The last two are for search fields and terminals, where a capital and a full stop are noise. A question mark stays: that one means something.",
@@ -186,12 +170,8 @@ struct CleanupSection: View {
                               "Kalamos compares what the model returns with what you said, and throws it away if your words changed, falling back to the rule-based pass. That happens silently: this makes it visible.",
                               "Kalamos compare ce que le modèle renvoie avec ce que vous avez dit et l’écarte si vos mots ont changé. Cela se produit en silence : ceci le rend visible.")) {
                 VStack(alignment: .leading, spacing: 7) {
-                    Toggle(isOn: $draft.notifyCleanupRejected) {
-                        Text(L.t("Dimmelo quando succede", "Tell me when it happens",
-                                 "Me le dire quand ça arrive"))
-                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    }
-                    .toggleStyle(.switch).tint(Theme.pen)
+                    PrefToggle(title: L.t("Dimmelo quando succede", "Tell me when it happens",
+                                 "Me le dire quand ça arrive"), isOn: $draft.notifyCleanupRejected)
                     Text(L.t("Compare per qualche secondo nel menu, e la dettatura resta segnata con ⚠︎ fra le recenti.",
                              "It shows for a few seconds in the menu, and the dictation stays marked with ⚠︎ in the recent list.",
                              "Cela s’affiche quelques secondes dans le menu, et la dictée reste marquée ⚠︎."))
@@ -432,13 +412,8 @@ struct AdvancedSection: View {
                               "Hold the key below and speak an instruction: Kalamos transforms the text you selected instead of writing new text.",
                               "Maintenez la touche ci-dessous et dictez une instruction : Kalamos transforme le texte sélectionné.")) {
                 VStack(alignment: .leading, spacing: 9) {
-                    Toggle(isOn: $draft.editModeEnabled) {
-                        Text(L.t("Attivo", "On", "Actif"))
-                            .font(Theme.font(12.5))
-                            .foregroundStyle(Theme.ink)
-                    }
-                    .toggleStyle(.switch)
-                    .tint(Theme.pen)
+                    PrefToggle(title: L.t("Attivo", "On", "Actif"),
+                               isOn: $draft.editModeEnabled)
                     if draft.editModeEnabled {
                         ChipRow(options: [
                             (UInt16(0x3F), "Fn / Globe", ""),
@@ -460,14 +435,9 @@ struct AdvancedSection: View {
 
             PrefRow(title: L.t("All'accensione del Mac", "When the Mac starts",
                                "Au démarrage du Mac")) {
-                Toggle(isOn: $draft.launchAtLogin) {
-                    Text(L.t("Avvia Kalamos al login", "Launch Kalamos at login",
-                             "Lancer Kalamos à l’ouverture"))
-                        .font(Theme.font(12.5))
-                        .foregroundStyle(Theme.ink)
-                }
-                .toggleStyle(.switch)
-                .tint(Theme.pen)
+                PrefToggle(title: L.t("Avvia Kalamos al login", "Launch Kalamos at login",
+                                      "Lancer Kalamos à l’ouverture"),
+                           isOn: $draft.launchAtLogin)
             }
 
             PrefRow(title: L.t("Se qualcosa non va", "If something misbehaves",

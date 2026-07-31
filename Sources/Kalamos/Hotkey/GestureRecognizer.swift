@@ -15,8 +15,6 @@ enum DictationAction: Equatable {
 /// the microphone open behind their back.
 enum TriggerMode: String, CaseIterable, Codable, Sendable {
     case hold        // hold to record; a tap does nothing
-    case doubleTap   // double-tap to go hands-free; holding does nothing
-    case both        // hold to record, double-tap for hands-free
     /// One tap starts hands-free, the next stops it.
     ///
     /// Asked for on 2026-07-31, and the reasoning is sound: pressing Option on
@@ -25,6 +23,8 @@ enum TriggerMode: String, CaseIterable, Codable, Sendable {
     /// why holding does nothing here and why a mouse click while the key is down
     /// cancels: ⌥-click is a real shortcut and must not become a dictation.
     case singleTap
+    case doubleTap   // double-tap to go hands-free; holding does nothing
+    case both        // hold to record, double-tap for hands-free
 }
 
 /// Translates raw key down/up events on a single hot-key into Kalamos's two

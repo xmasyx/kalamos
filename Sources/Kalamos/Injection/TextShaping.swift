@@ -28,7 +28,8 @@ enum TextShaping {
                         addSpace: Bool,
                         smartCapitals: Bool,
                         forceLowercase: Bool = false,
-                        dropTrailingPeriod: Bool = false) -> String {
+                        dropTrailingPeriod: Bool = false,
+                        chaining: Bool = true) -> String {
         var out = text
         guard !out.isEmpty else { return out }
 
@@ -61,10 +62,14 @@ enum TextShaping {
         }
 
         if addSpace, !atVeryStart, !endsWithSpace, let first = out.first, !bindsLeft.contains(first) {
-            // `before == nil` still gets the space: the setting is an explicit
-            // "chain my dictations", and a stray leading space is a keystroke to
-            // fix while a missing one is the annoyance the setting exists for.
-            out = " " + out
+            // When the app WILL say what is before the cursor, the rules above
+            // decided already. When it will not — terminals, Electron, which is
+            // where he actually dictates — the space is added only if we are
+            // continuing: another dictation went into this same app a moment
+            // ago. A shell prompt after a pause gets nothing, because a leading
+            // space there is not neutral: with `HIST_IGNORE_SPACE` set, zsh and
+            // bash quietly drop that command from your history.
+            if before != nil || chaining { out = " " + out }
         }
 
         return out

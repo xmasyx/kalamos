@@ -255,6 +255,39 @@ struct ChipRow<Value: Hashable>: View {
     }
 }
 
+/// A setting with a switch, label left, switch on the right margin.
+///
+/// Every one of these was a bare `Toggle` whose switch sat flush against the end
+/// of its own label, so four rows put four switches at four different places —
+/// reported on 2026-07-31 with a screenshot that makes it obvious. The first
+/// attempt at a fix, `.frame(maxWidth: .infinity)` on the Toggle, made it worse:
+/// it stretched the LABEL and dragged it right. The switch only reaches the
+/// margin if the row is built as label + spacer + switch, which is what this is
+/// — written once so the next setting cannot be added crooked.
+struct PrefToggle: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(Theme.font(12.5))
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(Theme.pen)
+        }
+        // Capped, not stretched. Flush against the window edge leaves a lonely
+        // switch a whole pane away from its own label; this puts every switch in
+        // the same column, close enough to read as one row. "Aligned and
+        // harmonious", which is exactly how he asked for it.
+        .frame(maxWidth: 430, alignment: .leading)
+    }
+}
+
 /// A plain text button in the app's own ink.
 struct PrefButton: View {
     let title: String
