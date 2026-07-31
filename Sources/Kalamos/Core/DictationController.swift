@@ -127,6 +127,9 @@ final class DictationController {
         let promptOverride = state.cleanupPromptOverride
         let addSpace = state.spaceBetweenDictations
         let smartCapitals = state.smartCapitalization
+        let forceLowercase = state.lowercaseFirstLetter
+        let dropTrailingPeriod = state.removeTrailingPeriod
+        let insertionMode = state.insertionMode
 
         // Consume the Edit-Mode capture for this utterance (reset immediately so
         // the next dictation is normal unless the modifier is held again).
@@ -163,7 +166,7 @@ final class DictationController {
                     let edited = await MLXEditor().transform(
                         instruction: text, selection: selection, language: sourceLang)
                     history.add(edited, language: sourceLang)
-                    TextInjector.inject(edited)
+                    TextInjector.inject(edited, mode: state.insertionMode)
                     UsageLog.record()
                     finishQuietly()
                     Log.write("editMode: replaced ✓")
@@ -188,7 +191,12 @@ final class DictationController {
                 }
                 Log.write("output=\"\(text)\"")
 
-                history.add(text, language: outputLang)
+                // Say it out loud when the model's version was refused. Not a
+                // system notification — that would mean asking for one more
+                // permission — but the status line, the menu-bar marker, and a
+                // line in the log you can go back to.
+                let rejection = state.notifyCleanupRejected ? CleanupReport.shared.take() : nil
+                history.add(text, language: outputLang, cleanupRejected: rejection)
                 // Fit it to what is already there — a space to chain onto the
                 // previous dictation, and a first letter that agrees with it.
                 // Both settings are off unless asked for; the context read is
@@ -197,15 +205,32 @@ final class DictationController {
                     text,
                     before: (addSpace || smartCapitals) ? TextInjector.textBeforeCursor() : nil,
                     addSpace: addSpace,
-                    smartCapitals: smartCapitals)
-                TextInjector.inject(shaped)
+                    smartCapitals: smartCapitals,
+                    forceLowercase: forceLowercase,
+                    dropTrailingPeriod: dropTrailingPeriod)
+                TextInjector.inject(shaped, mode: insertionMode)
                 UsageLog.record()
-                finishQuietly()
+                if let rejection {
+                    announceRejection(rejection)
+                } else {
+                    finishQuietly()
+                }
                 Log.write("injected ✓")
             } catch {
                 state.status = .error(error.localizedDescription)
                 Log.write("ERROR: \(error)")
             }
+        }
+    }
+
+    /// Leave the reason on screen for a few seconds, then go back to idle —
+    /// unless a new dictation has started in the meantime, which always wins.
+    private func announceRejection(_ reason: String) {
+        state.status = .error(L.t("pulizia scartata", "cleanup discarded", "nettoyage écarté")
+                              + " — \(reason)")
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if case .error = state.status { finishQuietly() }
         }
     }
 

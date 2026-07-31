@@ -7,12 +7,17 @@ struct TranscriptEntry: Codable, Identifiable, Equatable {
     let text: String
     let date: Date
     let languageCode: String
+    /// Set when the fidelity guard threw the model's version away and this is
+    /// the rule-based text instead. Optional so entries written before this
+    /// existed still decode.
+    let cleanupRejected: String?
 
-    init(text: String, language: Language, date: Date = Date()) {
+    init(text: String, language: Language, date: Date = Date(), cleanupRejected: String? = nil) {
         self.id = UUID()
         self.text = text
         self.date = date
         self.languageCode = language.rawValue
+        self.cleanupRejected = cleanupRejected
     }
 
     /// Short, single-line label for the menu (truncated).
@@ -21,7 +26,10 @@ struct TranscriptEntry: Codable, Identifiable, Equatable {
             .trimmingCharacters(in: .whitespaces)
         let clipped = oneLine.count > 48 ? String(oneLine.prefix(48)) + "…" : oneLine
         let time = Self.timeFormatter.string(from: date)
-        return "\(time)  \(clipped)"
+        // The marker is the whole point of recording the rejection: it is how you
+        // find out, afterwards, that a dictation came out of the fallback.
+        let mark = cleanupRejected == nil ? "" : "⚠︎ "
+        return "\(mark)\(time)  \(clipped)"
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -45,10 +53,11 @@ final class TranscriptHistory: ObservableObject {
     private init() { load() }
 
     /// Record a transcription. Most-recent first.
-    func add(_ text: String, language: Language) {
+    func add(_ text: String, language: Language, cleanupRejected: String? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        entries.insert(TranscriptEntry(text: trimmed, language: language), at: 0)
+        entries.insert(TranscriptEntry(text: trimmed, language: language,
+                                       cleanupRejected: cleanupRejected), at: 0)
         if entries.count > maxEntries { entries.removeLast(entries.count - maxEntries) }
         persist()
     }

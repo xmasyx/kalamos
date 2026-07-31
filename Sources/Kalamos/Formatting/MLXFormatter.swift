@@ -178,14 +178,50 @@ struct MLXFormatter: TextFormatter {
             // Ballooning means it answered the text instead of tidying it; losing
             // words means it deleted what was said; gaining them means it invented.
             // In every case the rule-based pass beats a confident wrong answer.
-            if cleaned.isEmpty
-                || cleaned.count > trimmed.count * 3 + 80
-                || Self.changedTooMuch(from: trimmed, to: cleaned) {
+            if cleaned.isEmpty {
+                await report(.emptyAnswer)
                 return await fallback.format(raw, context: context)
             }
+            if cleaned.count > trimmed.count * 3 + 80 {
+                await report(.answered)
+                return await fallback.format(raw, context: context)
+            }
+            if Self.changedTooMuch(from: trimmed, to: cleaned) {
+                await report(.changedTooMuch)
+                return await fallback.format(raw, context: context)
+            }
+            await MainActor.run { CleanupReport.shared.modelWasUsed() }
             return cleaned
         } catch {
+            await report(.failed)
             return await fallback.format(raw, context: context)
+        }
+    }
+
+    /// Why the model's answer was refused. Written where the language is known.
+    enum Rejection { case changedTooMuch, answered, emptyAnswer, failed }
+
+    private func report(_ why: Rejection) async {
+        await MainActor.run {
+            let reason: String
+            switch why {
+            case .changedTooMuch:
+                reason = L.t("il modello ha cambiato le tue parole",
+                             "the model changed your words",
+                             "le modèle a changé vos mots")
+            case .answered:
+                reason = L.t("il modello ha risposto invece di sistemare",
+                             "the model answered instead of tidying",
+                             "le modèle a répondu au lieu de corriger")
+            case .emptyAnswer:
+                reason = L.t("il modello non ha restituito niente",
+                             "the model returned nothing",
+                             "le modèle n’a rien renvoyé")
+            case .failed:
+                reason = L.t("il modello non ha risposto", "the model did not answer",
+                             "le modèle n’a pas répondu")
+            }
+            CleanupReport.shared.modelWasRejected(reason)
         }
     }
 

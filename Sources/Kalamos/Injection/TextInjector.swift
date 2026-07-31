@@ -62,8 +62,12 @@ enum TextInjector {
         return text as? String
     }
 
-    static func inject(_ text: String) {
+    static func inject(_ text: String, mode: TextInsertionMode = .clipboard) {
         guard !text.isEmpty else { return }
+        if mode == .typing {
+            typeDirectly(text)
+            return
+        }
         let pb = NSPasteboard.general
 
         // Save current clipboard so we can restore it (ISC-43).
@@ -88,6 +92,31 @@ enum TextInjector {
         }
     }
 
+    /// Type the text in as unicode key events, leaving the clipboard alone.
+    ///
+    /// `keyboardSetUnicodeString` sends characters rather than key codes, so it
+    /// is independent of the keyboard layout and needs no pasteboard. Two details
+    /// are not optional:
+    ///
+    ///  * **The flags are cleared.** The trigger key may still be physically
+    ///    held when this runs, and a held Option or Command turns typed text into
+    ///    shortcuts — a lesson this codebase already paid for once.
+    ///  * **It goes out in small chunks.** A single event carrying a long string
+    ///    is dropped or truncated by some apps; short bursts arrive intact.
+    private static func typeDirectly(_ text: String) {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        for chunk in Array(text).chunked(into: 16) {
+            var utf16 = Array(String(chunk).utf16)
+            for isDown in [true, false] {
+                guard let event = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: isDown)
+                else { continue }
+                event.flags = []
+                event.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+                event.post(tap: .cgAnnotatedSessionEventTap)
+            }
+        }
+    }
+
     /// Synthesize ⌘V to the frontmost app.
     private static func paste() {
         let src = CGEventSource(stateID: .combinedSessionState)
@@ -98,5 +127,11 @@ enum TextInjector {
         up?.flags = .maskCommand
         down?.post(tap: .cgAnnotatedSessionEventTap)
         up?.post(tap: .cgAnnotatedSessionEventTap)
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map { Array(self[$0 ..< Swift.min($0 + size, count)]) }
     }
 }

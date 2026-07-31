@@ -21,6 +21,10 @@ struct SettingsDraft: Equatable {
     var hotKeyCode: UInt16
     var spaceBetweenDictations: Bool
     var smartCapitalization: Bool
+    var lowercaseFirstLetter: Bool
+    var removeTrailingPeriod: Bool
+    var insertionMode: TextInsertionMode
+    var notifyCleanupRejected: Bool
     var triggerMode: TriggerMode
     var autoDetectLanguage: Bool
     var defaultLanguage: Language
@@ -43,6 +47,10 @@ struct SettingsDraft: Equatable {
         hotKeyCode = state.hotKeyCode
         spaceBetweenDictations = state.spaceBetweenDictations
         smartCapitalization = state.smartCapitalization
+        lowercaseFirstLetter = state.lowercaseFirstLetter
+        removeTrailingPeriod = state.removeTrailingPeriod
+        insertionMode = state.insertionMode
+        notifyCleanupRejected = state.notifyCleanupRejected
         triggerMode = state.triggerMode
         autoDetectLanguage = state.autoDetectLanguage
         defaultLanguage = state.defaultLanguage
@@ -66,6 +74,10 @@ struct SettingsDraft: Equatable {
         if hotKeyCode != other.hotKeyCode { n += 1 }
         if spaceBetweenDictations != other.spaceBetweenDictations { n += 1 }
         if smartCapitalization != other.smartCapitalization { n += 1 }
+        if lowercaseFirstLetter != other.lowercaseFirstLetter { n += 1 }
+        if removeTrailingPeriod != other.removeTrailingPeriod { n += 1 }
+        if insertionMode != other.insertionMode { n += 1 }
+        if notifyCleanupRejected != other.notifyCleanupRejected { n += 1 }
         if triggerMode != other.triggerMode { n += 1 }
         if autoDetectLanguage != other.autoDetectLanguage || defaultLanguage != other.defaultLanguage { n += 1 }
         if translationEnabled != other.translationEnabled || translationTarget != other.translationTarget { n += 1 }

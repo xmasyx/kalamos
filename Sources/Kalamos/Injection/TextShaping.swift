@@ -26,9 +26,18 @@ enum TextShaping {
     static func prepare(_ text: String,
                         before: String?,
                         addSpace: Bool,
-                        smartCapitals: Bool) -> String {
+                        smartCapitals: Bool,
+                        forceLowercase: Bool = false,
+                        dropTrailingPeriod: Bool = false) -> String {
         var out = text
         guard !out.isEmpty else { return out }
+
+        // A full stop at the end of a search query or a shell command is noise
+        // the cleanup added, not something you said. Only the period: a question
+        // mark or an exclamation carries meaning and stays.
+        if dropTrailingPeriod, out.hasSuffix(".") , !out.hasSuffix("..") {
+            out.removeLast()
+        }
 
         // The last character that is not whitespace, and whether there was any
         // whitespace after it. Both questions are asked of the same string once.
@@ -37,7 +46,11 @@ enum TextShaping {
         let endsWithSpace = before.map { $0.last == " " || $0.last == "\t" || $0.last == "\n" } ?? false
         let atVeryStart = before?.isEmpty ?? false
 
-        if smartCapitals, let last = lastMeaningful ?? (atVeryStart ? "\n" : nil) {
+        // An explicit "always lowercase" wins over the context rule: you asked
+        // for it precisely because the context is not what you want followed.
+        if forceLowercase {
+            out = lowercasingFirst(out)
+        } else if smartCapitals, let last = lastMeaningful ?? (atVeryStart ? "\n" : nil) {
             // Mid-sentence: "…and then" + "we shipped" must not become "We shipped".
             // After a full stop, or at the start of an empty field, it must.
             if sentenceEnders.contains(last) {

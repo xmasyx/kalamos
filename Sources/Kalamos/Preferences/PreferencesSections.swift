@@ -87,6 +87,27 @@ struct DictationSection: View {
                     }
                     .toggleStyle(.switch).tint(Theme.pen)
 
+                    Toggle(isOn: $draft.lowercaseFirstLetter) {
+                        Text(L.t("Comincia sempre in minuscolo", "Always start lowercase",
+                                 "Toujours commencer en minuscule"))
+                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                    }
+                    .toggleStyle(.switch).tint(Theme.pen)
+
+                    Toggle(isOn: $draft.removeTrailingPeriod) {
+                        Text(L.t("Togli il punto finale", "Drop the final full stop",
+                                 "Retirer le point final"))
+                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                    }
+                    .toggleStyle(.switch).tint(Theme.pen)
+
+                    Text(L.t("Le ultime due servono per le ricerche e per il terminale, dove la maiuscola e il punto sono rumore. Il punto interrogativo resta: quello vuol dire qualcosa.",
+                             "The last two are for search fields and terminals, where a capital and a full stop are noise. A question mark stays: that one means something.",
+                             "Les deux dernières servent aux recherches et au terminal. Le point d’interrogation reste : lui veut dire quelque chose."))
+                        .font(Theme.font(11.5))
+                        .foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
+
                     Text(L.t("Maiuscola dopo un punto, minuscola se stai finendo una frase. Dove l'app non lascia leggere quello che c'è prima del cursore — terminali, Electron — la maiuscola resta com'è.",
                              "A capital after a full stop, lowercase when you are still finishing a sentence. Where an app will not let Kalamos read what is before the cursor — terminals, Electron — the capital is left alone.",
                              "Majuscule après un point, minuscule si la phrase continue. Là où l’app ne laisse pas lire ce qui précède le curseur, la majuscule reste telle quelle."))
@@ -156,6 +177,26 @@ struct CleanupSection: View {
                         .progressViewStyle(.linear)
                         .tint(Theme.pen)
                     }
+                }
+            }
+
+            PrefRow(title: L.t("Quando il modello viene scartato", "When the model is refused",
+                               "Quand le modèle est écarté"),
+                    note: L.t("Kalamos confronta quello che il modello restituisce con quello che hai detto, e se ha cambiato le tue parole lo butta e usa la pulizia a regole. Succede in silenzio: questo lo rende visibile.",
+                              "Kalamos compares what the model returns with what you said, and throws it away if your words changed, falling back to the rule-based pass. That happens silently: this makes it visible.",
+                              "Kalamos compare ce que le modèle renvoie avec ce que vous avez dit et l’écarte si vos mots ont changé. Cela se produit en silence : ceci le rend visible.")) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Toggle(isOn: $draft.notifyCleanupRejected) {
+                        Text(L.t("Dimmelo quando succede", "Tell me when it happens",
+                                 "Me le dire quand ça arrive"))
+                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                    }
+                    .toggleStyle(.switch).tint(Theme.pen)
+                    Text(L.t("Compare per qualche secondo nel menu, e la dettatura resta segnata con ⚠︎ fra le recenti.",
+                             "It shows for a few seconds in the menu, and the dictation stays marked with ⚠︎ in the recent list.",
+                             "Cela s’affiche quelques secondes dans le menu, et la dictée reste marquée ⚠︎."))
+                        .font(Theme.font(11.5)).foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -334,6 +375,27 @@ struct AdvancedSection: View {
                 ChipRow(options: Language.allCases.map { ($0, $0.displayName, "") },
                         isOn: { draft.uiLanguage == $0 },
                         pick: { draft.uiLanguage = $0 })
+            }
+
+            PrefRow(title: L.t("Come entra il testo", "How the text gets in",
+                               "Comment le texte arrive"),
+                    note: L.t("Gli appunti restano il modo più veloce e funziona ovunque, ma per un attimo la tua copia diventa la dettatura. Scrivendo carattere per carattere gli appunti non si toccano.",
+                              "The clipboard is the fastest way and works everywhere, but for a moment your copy becomes the dictation. Typing it in character by character never touches the clipboard.",
+                              "Le presse-papiers est le plus rapide, mais un instant votre copie devient la dictée. En tapant caractère par caractère, il n’est jamais touché.")) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ChipRow(options: [
+                        (TextInsertionMode.clipboard, L.t("Appunti", "Clipboard", "Presse-papiers"),
+                         L.t("istantaneo", "instant", "instantané")),
+                        (TextInsertionMode.typing, L.t("Scritto a mano", "Typed in", "Tapé"),
+                         L.t("non tocca gli appunti", "leaves the clipboard alone",
+                             "ne touche pas le presse-papiers")),
+                    ], isOn: { draft.insertionMode == $0 }, pick: { draft.insertionMode = $0 })
+                    Text(L.t("In ogni caso il testo resta nelle trascrizioni recenti, quindi con «Copia l'ultima» lo recuperi comunque.",
+                             "Either way the text stays in the recent transcriptions, so \"Copy Last\" always gets it back.",
+                             "Dans les deux cas le texte reste dans les transcriptions récentes."))
+                        .font(Theme.font(11.5)).foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             PrefRow(title: L.t("Quando liberare la memoria", "When to free the memory",

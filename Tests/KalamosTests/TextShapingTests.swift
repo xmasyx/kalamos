@@ -48,3 +48,32 @@ import Testing
                 == "ciao")
     }
 }
+
+/// The two small toggles for search fields and terminals.
+@Suite struct SearchFieldTogglesTests {
+    @Test func dropsTheFinalFullStopButNotAQuestionMark() {
+        #expect(TextShaping.prepare("come si chiama.", before: nil, addSpace: false,
+                                    smartCapitals: false, dropTrailingPeriod: true)
+                == "come si chiama")
+        #expect(TextShaping.prepare("come si chiama?", before: nil, addSpace: false,
+                                    smartCapitals: false, dropTrailingPeriod: true)
+                == "come si chiama?")
+    }
+
+    /// An ellipsis is not a full stop someone forgot to remove.
+    @Test func leavesAnEllipsisAlone() {
+        #expect(TextShaping.prepare("aspetta…", before: nil, addSpace: false,
+                                    smartCapitals: false, dropTrailingPeriod: true)
+                == "aspetta…")
+        #expect(TextShaping.prepare("aspetta...", before: nil, addSpace: false,
+                                    smartCapitals: false, dropTrailingPeriod: true)
+                == "aspetta...")
+    }
+
+    @Test func forcedLowercaseBeatsTheContextRule() {
+        // Context says "new sentence, capitalise"; the explicit setting wins.
+        #expect(TextShaping.prepare("Roma", before: "cerca.", addSpace: false,
+                                    smartCapitals: true, forceLowercase: true)
+                == "roma")
+    }
+}

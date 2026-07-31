@@ -259,6 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state.formatterMode = draft.formatterMode
         state.spaceBetweenDictations = draft.spaceBetweenDictations
         state.smartCapitalization = draft.smartCapitalization
+        state.lowercaseFirstLetter = draft.lowercaseFirstLetter
+        state.removeTrailingPeriod = draft.removeTrailingPeriod
+        state.insertionMode = draft.insertionMode
+        state.notifyCleanupRejected = draft.notifyCleanupRejected
 
         applySpeechModel(draft.whisperModel)
         applyCleanupModel(draft.cleanupModelID)

@@ -23,6 +23,19 @@ enum FormatterMode: String, CaseIterable, Codable {
     case localLLM     // MLX on-device model (Phase 2)
 }
 
+/// How the finished text is put into the app you are writing in.
+enum TextInsertionMode: String, CaseIterable, Codable {
+    /// Write to the pasteboard, press ⌘V, put the pasteboard back. Instant on
+    /// text of any length, and works everywhere — but for about 150 ms your
+    /// clipboard is the dictation, and the restore keeps only the first
+    /// representation of what was there.
+    case clipboard
+    /// Type the characters straight in as a unicode key event. The clipboard is
+    /// never touched, so whatever you had copied is still there afterwards.
+    /// Slower on long text, and a few apps swallow synthetic keystrokes.
+    case typing
+}
+
 /// Which of the two models a status is about. Kalamos runs two: one that hears
 /// (WhisperKit), one that tidies up and translates (MLX).
 enum ModelKind: String, Equatable, Sendable {
@@ -122,6 +135,19 @@ final class AppState: ObservableObject {
     /// English whatever you chose. Persisted since 2026-07-31, on his point:
     /// the answer to that question is the language of the person.
     @Published var uiLanguage: Language { didSet { persist("uiLanguage", uiLanguage.rawValue) } }
+
+    /// How the text gets into the app you are writing in.
+    @Published var insertionMode: TextInsertionMode { didSet { persist("insertionMode", insertionMode.rawValue) } }
+
+    /// Say so when the fidelity guard threw the model's version away.
+    @Published var notifyCleanupRejected: Bool { didSet { persist("notifyCleanupRejected", notifyCleanupRejected) } }
+
+    /// Start every dictation in lowercase — for search fields, terminals, and
+    /// anywhere a capital is noise.
+    @Published var lowercaseFirstLetter: Bool { didSet { persist("lowercaseFirstLetter", lowercaseFirstLetter) } }
+
+    /// Drop the full stop the cleanup adds at the end.
+    @Published var removeTrailingPeriod: Bool { didSet { persist("removeTrailingPeriod", removeTrailingPeriod) } }
 
     /// Chain consecutive dictations with a space, so you do not reach for the
     /// space bar between one and the next.
@@ -233,6 +259,11 @@ final class AppState: ObservableObject {
             triggerMode = ((defaults.object(forKey: "pushToTalkEnabled") as? Bool) ?? true)
                 ? .both : .doubleTap
         }
+        insertionMode = TextInsertionMode(rawValue: defaults.string(forKey: "insertionMode") ?? "")
+            ?? .clipboard
+        notifyCleanupRejected = (defaults.object(forKey: "notifyCleanupRejected") as? Bool) ?? true
+        lowercaseFirstLetter = (defaults.object(forKey: "lowercaseFirstLetter") as? Bool) ?? false
+        removeTrailingPeriod = (defaults.object(forKey: "removeTrailingPeriod") as? Bool) ?? false
         spaceBetweenDictations = (defaults.object(forKey: "spaceBetweenDictations") as? Bool) ?? false
         smartCapitalization = (defaults.object(forKey: "smartCapitalization") as? Bool) ?? false
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
