@@ -27,17 +27,51 @@ final class DictationController {
         self.history = history
     }
 
-    /// Preload the speech model at launch (background) so dictation is instant.
+    /// Preload at launch (in the background) so the first dictation is instant.
+    ///
+    /// The speech model always. The cleanup model only when the setting says
+    /// **never free the memory** — because that is what "never" means. Until
+    /// 2026-07-31 it did not: the cleanup model was left to load lazily on first
+    /// use in every case, so someone who had chosen "always ready" still watched
+    /// "opening the cleanup model…" after every restart of the app, having asked
+    /// for precisely the opposite. The idle timer was not the culprit and turning
+    /// it off could not have fixed it.
+    ///
+    /// On any other setting the old behaviour stands: a model that is going to be
+    /// released in five minutes should not be fetched into memory at launch.
     func warmUp() {
         let transcriber = self.transcriber
         Task.detached(priority: .utility) {
             Log.write("warmUp: preloading speech model")
             try? await transcriber.prepare()
             await MainActor.run {
-                if case .loadingModel = AppState.shared.status { AppState.shared.status = .idle }
+                // Whoever asked for the model puts the status back — but only if
+                // the status is still about THIS model. The two warm-ups run at
+                // once, and clearing on `isModelBusy` alone let the speech model
+                // erase the cleanup model's download.
+                if AppState.shared.status.modelKind == .speech { AppState.shared.status = .idle }
             }
             Log.write("warmUp: done")
         }
+
+        #if canImport(MLXLLM)
+        let keepResident = Tuning.idleUnloadSeconds == nil
+        // Edit Mode runs on the same engine, so it is the same reason to have it
+        // ready — it was missing from this test, and someone who uses the model
+        // ONLY to rewrite selections got the cold load they had asked to avoid.
+        let usesCleanupModel = state.formatterMode == .localLLM
+            || state.translationEnabled
+            || state.editModeEnabled
+        guard keepResident, usesCleanupModel else { return }
+        Task.detached(priority: .utility) {
+            Log.write("warmUp: preloading cleanup model (memory set to never free)")
+            await MLXEngine.shared.warmUp()
+            await MainActor.run {
+                if AppState.shared.status.modelKind == .cleanup { AppState.shared.status = .idle }
+            }
+            Log.write("warmUp: cleanup model ready")
+        }
+        #endif
     }
 
     func handle(_ action: DictationAction, editMode: Bool = false) {
@@ -129,7 +163,7 @@ final class DictationController {
                     history.add(edited, language: sourceLang)
                     TextInjector.inject(edited)
                     UsageLog.record()
-                    state.status = .idle
+                    finishQuietly()
                     Log.write("editMode: replaced ✓")
                     return
                 }
@@ -155,13 +189,24 @@ final class DictationController {
                 history.add(text, language: outputLang)
                 TextInjector.inject(text)
                 UsageLog.record()
-                state.status = .idle
+                finishQuietly()
                 Log.write("injected ✓")
             } catch {
                 state.status = .error(error.localizedDescription)
                 Log.write("ERROR: \(error)")
             }
         }
+    }
+
+    /// Back to idle — unless the microphone is already open again.
+    ///
+    /// In hands-free mode you can start the next dictation while the previous one
+    /// is still being cleaned up, and this task would then blindly overwrite
+    /// `.listening` with `.idle`: the icon stops saying it is recording while the
+    /// mic is live, which is the worst direction for that particular lie.
+    /// (Gemini audit, 2026-07-31.)
+    private func finishQuietly() {
+        if state.status != .listening { state.status = .idle }
     }
 
     private func makeFormatter() -> TextFormatter {

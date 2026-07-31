@@ -107,7 +107,7 @@ skipped in the terminal for months, with no visible symptom at all. That class o
 failure now has tests, and `--doctor` exists to make the rest of it visible.
 
 **Your Mac is not a datacenter.** Both models unload themselves from memory after
-you stop dictating and reload in about a second. The idle timeout is yours to set,
+you stop dictating and come back in a few seconds. The idle timeout is yours to set,
 including "never".
 
 ## Install
@@ -135,7 +135,11 @@ and settings with it.
    discarded — nothing is transcribed, nothing is typed. Escape behaves normally
    whenever Kalamos is not recording, so it stays yours everywhere else.
 
-Everything else lives in the menu-bar icon.
+Everything you *do* lives in the menu-bar icon; everything you *decide* lives in
+**Preferences** (⌘, from the icon), in four sections — Dictation, Cleanup, Words &
+corrections, Advanced. Kalamos speaks Italian, English and French, and the
+language you pick on the first screen is the language of the whole app, menu
+included.
 
 | | |
 |---|---|
@@ -146,12 +150,20 @@ Everything else lives in the menu-bar icon.
 | **Vocabulary** | teach it names and jargon it keeps getting wrong |
 | **Corrections** | hard rules: "when you hear X, write Y" |
 | **Tone** | adapts register to the app you are writing into |
-| **Models** | swap the speech and cleanup models from the menu |
-| **Prompt** | edit the cleanup instructions yourself |
+| **Models** | swap the speech and cleanup models in Preferences — the first one is chosen for your Mac |
+| **Prompt** | replace the cleanup instructions with your own |
 | **Memory** | keep the models resident, or let them unload after N minutes — your call |
 | **History** | the last 25 transcriptions, one click to copy any of them back |
 
-First run downloads about 6 GB of models. After that, nothing.
+First run downloads the two models — between 3.4 and 6 GB depending on which
+cleanup model your Mac was given — with a progress panel that says so while it
+happens. After that, nothing: no network, no account, no subscription.
+
+**You are not asked which cleanup model to use.** Nobody installing a dictation
+app knows how much RAM their Mac has, and nobody who does knows what changes
+between a 3B and a 7B. Kalamos reads the memory and picks: the small model below
+16 GB, the full one above. It says which one it chose, and Preferences ▸ Cleanup
+changes it in one click.
 
 ## Edit Mode — rewriting what is already there
 
@@ -208,7 +220,7 @@ you say:  Ciao, come stai oggi? Spero che tu stia bene.
 you get:  Hi, how are you today? I hope you're doing well.
 ```
 
-Pick the target from **menu ▸ Translate to**. Set it back to *Off* and dictation
+Pick the target in **Preferences ▸ Dictation ▸ Instant translation**. Set it back to *Off* and dictation
 stays in whatever language you spoke.
 
 ## Nothing is ever lost
@@ -239,10 +251,11 @@ mistake **varies**. The fast path: select a word anywhere on your Mac and press
 The difference matters. A correction is a hammer that always swings; vocabulary is
 a hint the model weighs against the sentence. A surname you always want spelled one
 way is a correction. A technical term Whisper mangles differently every time is
-vocabulary.
+vocabulary. Both are lists you edit in **Preferences ▸ Words & corrections** —
+type, add, delete.
 
-**Your own cleanup prompt.** *Cleanup ▸ Edit Prompt…* replaces the built-in
-instructions completely, so you can make it more literal, more aggressive, or
+**Your own cleanup prompt.** **Preferences ▸ Cleanup ▸ Instructions for the
+model** replaces the built-in instructions completely, so you can make it more literal, more aggressive, or
 teach it a house style. Your vocabulary is still appended, whatever you write.
 *Reset* puts the original back.
 
@@ -256,12 +269,12 @@ The two models are the whole cost of running Kalamos, and you decide whether you
 pay it continuously or on demand.
 
 **Unload after a while** *(default: 5 minutes)* — the models free their memory when
-you stop dictating, and reload in about a second next time. Between dictations
-Kalamos holds almost nothing.
+you stop dictating, and are read back from disk next time, which costs a few
+seconds. Between dictations Kalamos holds almost nothing.
 
-**Or keep them resident** — *Advanced ▸ Unload Models After ▸ Never*. First
-dictation of the session is as fast as the tenth, at the price of the RAM staying
-occupied.
+**Or keep them resident** — **Preferences ▸ Advanced ▸ Never**. Both models are
+then loaded at launch and stay loaded, so the first dictation of the session is as
+fast as the tenth, at the price of the RAM staying occupied.
 
 Anything in between: 1, 2, 5, 10, 15 or 30 minutes. And if you have no idea which
 to pick, `Scripts/analyze-idle.ts` reads the timestamp-only usage log and tells you
@@ -277,7 +290,7 @@ Two models sit in memory: one that hears you, one that cleans up what you said. 
 Apple Silicon both live in unified memory, shared with everything else you have
 open — so what matters is your **total RAM**, and the sum of the two.
 
-Swap either from **menu ▸ Speech Model** and **menu ▸ Cleanup ▸ AI Model**.
+Swap either in **Preferences ▸ Dictation** and **Preferences ▸ Cleanup**.
 Switching frees the old one at once and loads the new one on your next dictation.
 No rebuild, no reinstall. Any MLX repo id works, not just the ones in the menu.
 
@@ -289,7 +302,7 @@ No rebuild, no reinstall. Any MLX repo id works, not just the ones in the menu.
 | **36 GB+** | up to ~20 GB | any | ~22 GB |
 
 And it is a **peak, not a resting cost**: both models unload themselves after the
-idle timeout and reload in about a second.
+idle timeout, and come back in a few seconds when you next dictate.
 
 ## What I would actually use
 
@@ -347,7 +360,7 @@ up the self-corrections, which are the part worth having.
 It checks permissions, downloaded models, the compiled Metal shaders, the trigger
 key and free disk, and prints the fix for whatever is missing.
 
-For the two privacy permissions use **menu ▸ Advanced ▸ Diagnostics…** instead.
+For the two privacy permissions use **Preferences ▸ Advanced ▸ Diagnostics…** instead.
 macOS attributes those grants to the process that started the app, so a terminal
 invocation reports your terminal's permissions rather than Kalamos's — and a
 diagnostic that answers a question you did not ask is worse than none. The
@@ -402,7 +415,6 @@ Design notes, and the reasoning behind the parts that look strange:
 Working, and used daily by its author. Not there yet:
 
 - **Not code-signed or notarized** — hence the quarantine step above.
-- **No settings window** — everything is in the menu bar.
 - **Three languages.** Adding one is mostly a matter of teaching it that
   language's Whisper hallucinations and its self-correction markers; see
   `WhisperKitTranscriber.swift` and `MLXFormatter.swift`.

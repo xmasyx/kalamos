@@ -28,7 +28,7 @@ struct MLXEditor {
         let user = "INSTRUCTION: \(instruction)\n\nSELECTED TEXT:\n\(selection)"
         do {
             let out = try await engine.generate(
-                system: system, user: user,
+                system: system, user: user, purpose: .editing,
                 maxTokens: max(200, selection.count + 160), temperature: 0.2)
             let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleaned.isEmpty ? selection : cleaned

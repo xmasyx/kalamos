@@ -20,7 +20,7 @@ struct Summarizer {
         Be faithful to the content; do not invent anything. Output only the summary.
         """
         return try await engine.generate(
-            system: system, user: joined, maxTokens: 700, temperature: 0.3)
+            system: system, user: joined, purpose: .summarizing, maxTokens: 700, temperature: 0.3)
     }
 }
 #endif

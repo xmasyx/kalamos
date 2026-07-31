@@ -46,14 +46,13 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         } else {
             // First run: download fully (progress in the menu bar), into the
             // persistent App Support base so it's reused on every later launch.
-            Self.report("Downloading speech model…")
+            Self.report(.downloading(.speech, fraction: nil))
             folder = try await WhisperKit.download(variant: modelName, downloadBase: base) { progress in
-                let pct = Int((progress.fractionCompleted * 100).rounded())
-                Self.report("Downloading speech model \(pct)%")
+                Self.report(.downloading(.speech, fraction: progress.fractionCompleted))
             }
         }
 
-        Self.report("Loading speech model…")
+        Self.report(.loading(.speech))
         // Set downloadBase too so the text tokenizer (openai/whisper-large-v3,
         // ~3 MB) also lands in App Support instead of ~/Documents (WhisperKit:
         // tokenizerFolder = config.downloadBase). Keeps ~/Documents untouched.
@@ -88,14 +87,17 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         Log.write("Whisper model unloaded (idle) — RAM freed")
     }
 
-    private static func report(_ message: String) {
-        Task { @MainActor in AppState.shared.status = .loadingModel(message) }
+    private static func report(_ status: DictationStatus) {
+        Task { @MainActor in AppState.shared.status = status }
     }
 
     func transcribe(_ samples: [Float],
                     allowedLanguages: Set<Language>,
                     forced: Language?) async throws -> TranscriptionResult {
         try await prepare()
+        // `prepare` may have put "opening the speech model" on screen. The model
+        // is open now and the app is back to what the user asked for.
+        Self.report(.transcribing)
         guard let pipe = pipeBox.withLock({ $0 }) else {
             return TranscriptionResult(text: "", detectedLanguage: nil)
         }

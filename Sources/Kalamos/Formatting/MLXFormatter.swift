@@ -38,7 +38,7 @@ struct MLXFormatter: TextFormatter {
            !override.isEmpty {
             do {
                 let out = try await engine.generate(
-                    system: override + vocabLine, user: trimmed,
+                    system: override + vocabLine, user: trimmed, purpose: .cleaning,
                     maxTokens: max(160, trimmed.count + 80), temperature: 0)
                 let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
                 if cleaned.isEmpty || cleaned.count > trimmed.count * 3 + 80 {
@@ -90,7 +90,7 @@ struct MLXFormatter: TextFormatter {
             """
             do {
                 let out = try await engine.generate(
-                    system: strict, user: trimmed,
+                    system: strict, user: trimmed, purpose: .cleaning,
                     maxTokens: max(160, trimmed.count + 80), temperature: 0)
                 let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
                 // Zero tolerance here, unlike the general path: one word gained or
@@ -171,7 +171,7 @@ struct MLXFormatter: TextFormatter {
         """
         do {
             let out = try await engine.generate(
-                system: system, user: trimmed,
+                system: system, user: trimmed, purpose: .cleaning,
                 maxTokens: max(160, trimmed.count + 80), temperature: 0)
             let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
             // Safety nets, for the ways this stops being a cleanup engine.

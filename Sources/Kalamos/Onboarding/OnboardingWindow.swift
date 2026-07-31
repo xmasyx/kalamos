@@ -56,11 +56,16 @@ final class OnboardingWindow: NSObject, NSWindowDelegate {
         window?.delegate = nil
         window?.close()
         window = nil
-        NSApp.setActivationPolicy(.accessory)
+        DispatchQueue.main.async { PreferencesWindow.restoreAccessoryPolicyIfIdle() }
     }
 
     func windowWillClose(_ notification: Notification) {
         window = nil
-        NSApp.setActivationPolicy(.accessory)
+        // Not unconditionally `.accessory`: setup can be open on top of
+        // Preferences (it is reachable from there), and the first window to close
+        // must not push the other one behind every other app on the desk. The
+        // check runs a turn later, when `isVisible` states a fact rather than an
+        // intention.
+        DispatchQueue.main.async { PreferencesWindow.restoreAccessoryPolicyIfIdle() }
     }
 }

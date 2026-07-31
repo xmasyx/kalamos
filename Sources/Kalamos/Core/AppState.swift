@@ -23,13 +23,83 @@ enum FormatterMode: String, CaseIterable, Codable {
     case localLLM     // MLX on-device model (Phase 2)
 }
 
+/// Which of the two models a status is about. Kalamos runs two: one that hears
+/// (WhisperKit), one that tidies up and translates (MLX).
+enum ModelKind: String, Equatable, Sendable {
+    case speech
+    case cleanup
+}
+
+/// Work that keeps the app busy without moving a single byte over the network.
+enum WorkKind: String, Equatable, Sendable {
+    case cleaning
+    case translating
+    case summarizing
+    case editing
+}
+
 /// What the dictation pipeline is currently doing — drives the menu-bar icon.
+///
+/// The three middle cases used to be one, `loadingModel(String)`, and the icon
+/// drew a **download arrow** for all of them. So the arrow appeared when the app
+/// was reading an already-downloaded model off the disk (every launch, and again
+/// after every idle unload), and even while summarising — which downloads
+/// nothing at all. Reported on 2026-07-31 as "why does a download keep starting
+/// when I turned the model download off?": nothing was being downloaded. The
+/// icon was lying.
+///
+/// They carry a `ModelKind`, not a prose string, for a second reason: the words
+/// the user reads are now written where the language is known, instead of being
+/// hardcoded in English deep inside an engine.
 enum DictationStatus: Equatable {
     case idle
     case listening
     case transcribing
-    case loadingModel(String)   // one-time model download / load progress
+    /// Coming down from the network. `fraction` is 0…1 once the transfer reports
+    /// progress, `nil` in the moment before the first byte lands.
+    case downloading(ModelKind, fraction: Double?)
+    /// Already on disk, being read into memory. No network involved.
+    case loading(ModelKind)
+    /// The model is thinking. Nothing is being fetched or loaded.
+    case working(WorkKind)
     case error(String)
+
+    /// True only while bytes are actually arriving — the one state that earns a
+    /// download arrow, and the one the progress panel watches.
+    var isDownloading: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
+
+    /// How far along the download is, when the transfer says.
+    var downloadFraction: Double? {
+        if case .downloading(_, let fraction) = self { return fraction }
+        return nil
+    }
+
+    /// A model is being fetched or opened. The engines set these; whoever asked
+    /// for the model clears them, so "opening…" never outlives the opening.
+    var isModelBusy: Bool {
+        switch self {
+        case .downloading, .loading: return true
+        default: return false
+        }
+    }
+
+    /// Which model this status is about, if any.
+    ///
+    /// Needed because two models can be loading at once — on a first run with the
+    /// memory set to "never", the speech and cleanup models are fetched together.
+    /// Whoever finishes first used to clear the status on the strength of
+    /// `isModelBusy` alone, wiping the OTHER one's download: the panel vanished
+    /// and the icon went idle in the middle of a 4 GB transfer. Clear only what
+    /// is yours. (Found by the Gemini audit, 2026-07-31.)
+    var modelKind: ModelKind? {
+        switch self {
+        case .downloading(let kind, _), .loading(let kind): return kind
+        default: return nil
+        }
+    }
 }
 
 /// Single source of truth for user configuration + live status.
@@ -42,6 +112,17 @@ final class AppState: ObservableObject {
     @Published var status: DictationStatus = .idle
 
     // MARK: Configuration (persisted)
+
+    /// The language everything the user READS is written in — the menu bar, the
+    /// preferences, the dialogs. Not the language he speaks: that is
+    /// `defaultLanguage`, and setup asks the two separately.
+    ///
+    /// Setup asked this on its very first page and then threw the answer away —
+    /// it lived in a `@State` that died with the window, so the menu stayed
+    /// English whatever you chose. Persisted since 2026-07-31, on his point:
+    /// the answer to that question is the language of the person.
+    @Published var uiLanguage: Language { didSet { persist("uiLanguage", uiLanguage.rawValue) } }
+
     @Published var hotKeyCode: UInt16 { didSet { persist("hotKeyCode", Int(hotKeyCode)) } }
     @Published var formatterMode: FormatterMode { didSet { persist("formatterMode", formatterMode.rawValue) } }
     @Published var enabledLanguages: Set<Language> { didSet { persistLanguages() } }
@@ -105,8 +186,36 @@ final class AppState: ObservableObject {
         translationEnabled = (defaults.object(forKey: "translationEnabled") as? Bool) ?? false
         translationTarget = Language(rawValue: defaults.string(forKey: "translationTarget") ?? "") ?? .english
         whisperModel = defaults.string(forKey: "whisperModel") ?? "openai_whisper-large-v3-v20240930_turbo"
-        cleanupModelID = defaults.string(forKey: "cleanupModelID") ?? "mlx-community/Qwen2.5-7B-Instruct-4bit"
         cleanupPromptOverride = defaults.string(forKey: "cleanupPromptOverride")
+
+        // The interface language: whatever was chosen at setup, else the Mac's own.
+        uiLanguage = Language(rawValue: defaults.string(forKey: "uiLanguage") ?? "")
+            ?? Self.systemLanguage
+
+        // The cleanup model is NOT a question to ask: whoever installs this does
+        // not know how much RAM the Mac has, and could not say what changes
+        // between a 3B and a 7B if they did. The machine knows both, so it
+        // chooses — and the choice is written down at once, so it is a starting
+        // point in Preferences rather than a rule that keeps re-deciding.
+        //
+        // An install that predates this line keeps the 7B it has been running:
+        // an app that swaps your model underneath you on an update is a worse
+        // failure than a model that is one size too big.
+        if let saved = defaults.string(forKey: "cleanupModelID") {
+            cleanupModelID = saved
+        } else {
+            let established = savedKey != nil
+                || defaults.bool(forKey: "migratedFromParla")
+                || defaults.object(forKey: "vocabulary") != nil
+            let chosen = established
+                ? ModelCatalog.previousDefaultCleanupID
+                : ModelCatalog.recommendedCleanupID()
+            cleanupModelID = chosen
+            // `didSet` does not fire for a value assigned during init, so the
+            // choice is written down here — otherwise it would be re-decided on
+            // every launch and would move under someone who upgrades their Mac.
+            defaults.set(chosen, forKey: "cleanupModelID")
+        }
         // Migrate the old boolean rather than resetting people to the default:
         // it carried two of the three modes, and which two is unambiguous.
         if let raw = defaults.string(forKey: "triggerMode"), let m = TriggerMode(rawValue: raw) {
@@ -143,6 +252,16 @@ final class AppState: ObservableObject {
             enabledLanguages = [.italian, .english, .french]
         }
         if enabledLanguages.isEmpty { enabledLanguages = [.english] }
+    }
+
+    /// The Mac's own language, for the first screen someone ever sees — explaining
+    /// an app in a language the reader may not have is a strange way to begin.
+    nonisolated static var systemLanguage: Language {
+        switch Locale.preferredLanguages.first?.prefix(2).lowercased() {
+        case "it": return .italian
+        case "fr": return .french
+        default:   return .english
+        }
     }
 
     private func persist(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }

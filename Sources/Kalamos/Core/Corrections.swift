@@ -6,6 +6,12 @@ import Foundation
 /// the transcription BEFORE formatting/translation. Stored in UserDefaults as a
 /// `[wrong(lowercased): correct]` map so the menu and the dictation task share
 /// one source of truth.
+/// One replacement rule: what Kalamos hears, and what it should write instead.
+struct CorrectionRule: Hashable, Sendable {
+    let wrong: String
+    let correct: String
+}
+
 enum Corrections {
     private static let key = "corrections"
 
@@ -13,9 +19,12 @@ enum Corrections {
         UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
     }
 
-    /// Rules as (wrong, correct), sorted for stable menu display.
-    static var rules: [(wrong: String, correct: String)] {
-        map().map { (wrong: $0.key, correct: $0.value) }
+    /// Rules, sorted for stable display.
+    ///
+    /// A named type rather than the `(wrong:correct:)` tuple it used to be: a
+    /// tuple is not `Hashable`, so a SwiftUI list cannot identify its rows by it.
+    static var rules: [CorrectionRule] {
+        map().map { CorrectionRule(wrong: $0.key, correct: $0.value) }
             .sorted { $0.wrong.localizedCaseInsensitiveCompare($1.wrong) == .orderedAscending }
     }
 

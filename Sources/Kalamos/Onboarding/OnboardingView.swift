@@ -31,7 +31,10 @@ struct OnboardingView: View {
     let actions: OnboardingActions
 
     @State private var step = 0
-    @State private var ui: Language = Self.systemLanguage
+    /// Read straight from the settings, never copied into a `@State`. The copy is
+    /// what made the first question pointless: whatever you chose here died with
+    /// the window, and the menu bar stayed in English.
+    private var ui: Language { state.uiLanguage }
     @State private var micGranted = Permissions.microphoneAuthorized
     @State private var axGranted = Permissions.accessibilityTrusted(prompt: false)
     @State private var micRefused = false
@@ -71,22 +74,8 @@ struct OnboardingView: View {
         }
     }
 
-    /// The flow's own language. Set by the first question; defaults to whatever the
-    /// Mac is already set to, so even the first screen usually reads correctly.
-    private static var systemLanguage: Language {
-        switch Locale.preferredLanguages.first?.prefix(2).lowercased() {
-        case "it": return .italian
-        case "fr": return .french
-        default:   return .english
-        }
-    }
-
     private func t(_ it: String, _ en: String, _ fr: String) -> String {
-        switch ui {
-        case .italian: return it
-        case .french:  return fr
-        case .english: return en
-        }
+        L.t(it, en, fr)
     }
 
     // MARK: Steps
@@ -112,7 +101,7 @@ struct OnboardingView: View {
                    "La langue de dictée vient ensuite.")) {
             grid([(1, "Italiano", ""), (2, "English", ""), (3, "Français", "")],
                  selected: { ui == Self.language($0) },
-                 pick: { ui = Self.language($0) })
+                 pick: { state.uiLanguage = Self.language($0) })
         }
     }
 
@@ -192,26 +181,53 @@ struct OnboardingView: View {
     private var cleanupStep: some View {
         question(t("Vuoi che sistemi quello che dici?", "Should it tidy up what you say?",
                    "Doit-il corriger ce que vous dites ?"),
-                 t("Il modello locale mette la punteggiatura, toglie gli intercalari e sistema le frasi lasciate a metà. Si scarica una volta sola, circa 4 GB, e non esce mai dal tuo Mac.",
-                   "The local model adds punctuation, drops filler and resolves the sentences you abandon halfway. It downloads once, about 4 GB, and never leaves your Mac.",
-                   "Le modèle local ponctue, retire les hésitations et résout les phrases abandonnées. Il se télécharge une fois, environ 4 Go, et ne quitte jamais votre Mac.")) {
-            grid([
-                (1, t("Sì, con il modello", "Yes, use the model", "Oui, avec le modèle"),
-                    t("~4 GB, una volta sola", "~4 GB, once", "~4 Go, une seule fois")),
-                (0, t("Solo punteggiatura", "Punctuation only", "Ponctuation seule"),
-                    t("istantaneo, niente da scaricare", "instant, nothing to download",
-                      "instantané, rien à télécharger")),
-            ], selected: { state.formatterMode == ($0 == 1 ? .localLLM : .ruleBased) },
-               pick: { state.formatterMode = $0 == 1 ? .localLLM : .ruleBased })
+                 t("Il modello locale mette la punteggiatura, toglie gli intercalari e sistema le frasi lasciate a metà. Si scarica una volta sola e non esce mai dal tuo Mac.",
+                   "The local model adds punctuation, drops filler and resolves the sentences you abandon halfway. It downloads once and never leaves your Mac.",
+                   "Le modèle local ponctue, retire les hésitations et résout les phrases abandonnées. Il se télécharge une fois et ne quitte jamais votre Mac.")) {
+            VStack(alignment: .leading, spacing: 12) {
+                grid([
+                    (1, t("Sì, con il modello", "Yes, use the model", "Oui, avec le modèle"),
+                        t("\(modelSize), una volta sola", "\(modelSize), once",
+                          "\(modelSize), une seule fois")),
+                    (0, t("Solo punteggiatura", "Punctuation only", "Ponctuation seule"),
+                        t("istantaneo, niente da scaricare", "instant, nothing to download",
+                          "instantané, rien à télécharger")),
+                ], selected: { state.formatterMode == ($0 == 1 ? .localLLM : .ruleBased) },
+                   pick: { state.formatterMode = $0 == 1 ? .localLLM : .ruleBased })
+
+                // Which model, decided by the machine instead of asked. Said out
+                // loud: a choice made for you in silence is one you cannot
+                // disagree with. Nobody installing a dictation app knows their RAM.
+                Text(t("Modello \(chosenModel.title), scelto per il tuo Mac. Si cambia nelle Preferenze.",
+                       "The \(chosenModel.title) model, chosen for your Mac. Change it in Preferences.",
+                       "Modèle \(chosenModel.title), choisi pour votre Mac. Modifiable dans les Préférences."))
+                    .font(Theme.font(11.5))
+                    .foregroundStyle(Theme.inkFaded)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// The cleanup model this Mac was given, and how big its download is — the
+    /// number in the tile used to be a hardcoded "~4 GB", which is the 7B's size
+    /// and simply wrong on a Mac that got the 3B.
+    private var chosenModel: ModelChoice {
+        ModelCatalog.cleanup.first { $0.id == state.cleanupModelID }
+            ?? ModelCatalog.cleanup[0]
+    }
+
+    private var modelSize: String {
+        // "~4.3 GB · default" → "~4.3 GB"
+        chosenModel.note.split(separator: "·").first?
+            .trimmingCharacters(in: .whitespaces) ?? "~4 GB"
     }
 
     private var memoryStep: some View {
         question(t("Quando deve liberare la memoria?", "When should it free the memory?",
                    "Quand doit-il libérer la mémoire ?"),
-                 t("Mentre stanno in memoria i modelli occupano circa 6 GB, e per ricaricarsi ci mettono un secondo.",
-                   "While loaded, the models hold about 6 GB, and take a second to come back.",
-                   "En mémoire, les modèles occupent environ 6 Go et reviennent en une seconde.")) {
+                 t("Mentre stanno in memoria i modelli occupano circa 6 GB, e per tornare ci mettono qualche secondo.",
+                   "While loaded, the models hold about 6 GB, and take a few seconds to come back.",
+                   "En mémoire, les modèles occupent environ 6 Go et reviennent en quelques secondes.")) {
             grid([
                 (300, t("Dopo 5 minuti", "After 5 minutes", "Après 5 minutes"),
                       t("se hai 8 o 16 GB di RAM", "on 8 or 16 GB of RAM", "avec 8 ou 16 Go de RAM")),

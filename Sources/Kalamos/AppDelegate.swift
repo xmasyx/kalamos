@@ -12,27 +12,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editHotkey: HotkeyManager?   // Edit-Mode trigger (optional feature)
     private var controller: DictationController!
     private var recentMenu: NSMenu!
-    private var cleanupMenu: NSMenu!
-    private var speechModelMenu: NSMenu!
-    private var cleanupModelMenu: NSMenu!
-    private var editKeyMenu: NSMenu!
-    private var modeMenu: NSMenu!
-    private var editModeItem: NSMenuItem!
-    private var inputLangMenu: NSMenu!
-    private var translateMenu: NSMenu!
-    private var triggerMenu: NSMenu!
-    private var idleMenu: NSMenu!
-    private var vocabMenu: NSMenu!
-    private var corrMenu: NSMenu!
     private var hintItem: NSMenuItem!
-    private var launchAtLoginItem: NSMenuItem!
     private var accessibilityTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupEditMenu()
+        setupMainMenu()
         setupMenuBar()
         observeStatus()
+        observeLanguage()
 
         let transcriber: Transcriber
         #if canImport(WhisperKit)
@@ -59,8 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Task { @MainActor in self?.learnSelectedWord() }
         }
 
-        // Pin the on-device cleanup model to the saved choice (default 7B → no-op)
-        // and apply the saved push-to-talk preference before the tap goes live.
+        // Pin the on-device cleanup model to the saved choice and apply the saved
+        // push-to-talk preference before the tap goes live.
         controller.setCleanupModel(state.cleanupModelID)
         hotkey.setMode(state.triggerMode)
 
@@ -75,57 +63,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: Edit menu (⌘X ⌘C ⌘V ⌘A ⌘Z)
+    // MARK: Main menu (only visible while a window of ours is up)
+
     /// macOS does NOT implement copy & paste inside the text field: it routes
     /// ⌘X/⌘C/⌘V/⌘A/⌘Z through the application's MAIN menu. `NSApp.sendEvent`
     /// offers every key-down to `mainMenu.performKeyEquivalent(with:)` before
     /// any window sees it, and a menu-bar app has no main menu unless it builds
-    /// one. Without this, every text field in Kalamos — Add Correction, Add
-    /// Vocabulary Word, Edit Cleanup Prompt — silently refuses paste: the field
+    /// one. Without this, every text field in Kalamos — the vocabulary, the
+    /// corrections, the cleanup instructions — silently refuses paste: the field
     /// works fine, the keystroke just never reaches it.
     ///
-    /// The menu is never visible. An `.accessory` app never owns the menu bar
-    /// (see `main.swift`), so this exists purely as the dispatch table for the
-    /// shortcuts. Each item keeps `target == nil`, which sends the action down
-    /// the responder chain to whichever field editor currently has focus — so
-    /// it also covers any text field added later, with no extra wiring.
+    /// An `.accessory` app never owns the menu bar, so most of the time this is
+    /// invisible dispatch table. It becomes visible for exactly as long as
+    /// Preferences or setup is open (those switch the app to `.regular`), which
+    /// is why it carries a proper application menu and not only Edit.
     ///
     /// Selectors are written as strings on purpose: `undo:`/`redo:` are declared
     /// on no public type (NSUndoManager receives them through the chain), and
     /// `#selector(NSText.copy(_:))` is ambiguous against `NSObject.copy()`.
-    private func setupEditMenu() {
-        let edit = NSMenu(title: "Edit")
+    private func setupMainMenu() {
+        let app = NSMenu()
+        let prefs = NSMenuItem(title: L.t("Preferenze…", "Preferences…", "Préférences…"),
+                               action: #selector(showPreferences), keyEquivalent: ",")
+        prefs.target = self
+        app.addItem(prefs)
+        app.addItem(.separator())
+        let quit = NSMenuItem(title: L.t("Esci da Kalamos", "Quit Kalamos", "Quitter Kalamos"),
+                              action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        app.addItem(quit)
+        let appItem = NSMenuItem()
+        appItem.submenu = app
+
+        let edit = NSMenu(title: L.t("Modifica", "Edit", "Édition"))
         func add(_ title: String, _ selector: String, _ key: String,
                  _ modifiers: NSEvent.ModifierFlags = .command) {
             let item = NSMenuItem(title: title, action: Selector((selector)), keyEquivalent: key)
             item.keyEquivalentModifierMask = modifiers
             edit.addItem(item)
         }
-        add("Undo", "undo:", "z")
-        add("Redo", "redo:", "z", [.command, .shift])
+        add(L.t("Annulla", "Undo", "Annuler"), "undo:", "z")
+        add(L.t("Ripristina", "Redo", "Rétablir"), "redo:", "z", [.command, .shift])
         edit.addItem(.separator())
-        add("Cut", "cut:", "x")
-        add("Copy", "copy:", "c")
-        add("Paste", "paste:", "v")
-        add("Paste and Match Style", "pasteAsPlainText:", "v", [.command, .option, .shift])
+        add(L.t("Taglia", "Cut", "Couper"), "cut:", "x")
+        add(L.t("Copia", "Copy", "Copier"), "copy:", "c")
+        add(L.t("Incolla", "Paste", "Coller"), "paste:", "v")
+        add(L.t("Incolla senza formato", "Paste and Match Style", "Coller sans mise en forme"),
+            "pasteAsPlainText:", "v", [.command, .option, .shift])
         edit.addItem(.separator())
-        add("Select All", "selectAll:", "a")
-
+        add(L.t("Seleziona tutto", "Select All", "Tout sélectionner"), "selectAll:", "a")
         let editItem = NSMenuItem()
         editItem.submenu = edit
+
         let main = NSMenu()
+        main.addItem(appItem)
         main.addItem(editItem)
         NSApp.mainMenu = main
     }
 
     // MARK: Menu bar
+
+    /// What you DO, not what you decide.
+    ///
+    /// This menu used to carry every setting the app has, three levels deep —
+    /// Cleanup ▸ AI Model ▸ a list of models, Speech & Language ▸ Vocabulary ▸ a
+    /// list of words. Choosing anything meant holding the mouse still through two
+    /// hover-open animations, and the deeper a setting sat the less it existed.
+    /// All of it moved to Preferences on 2026-07-31; what stays here is the
+    /// handful of things you reach for while working.
     private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        updateIcon(for: .idle)
+        if statusItem == nil {
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        }
+        updateIcon(for: state.status)
 
         let menu = NSMenu()
         menu.delegate = self
-        menu.addItem(NSMenuItem(title: "Kalamos — idle", action: nil, keyEquivalent: ""))  // status (idx 0)
+        menu.addItem(NSMenuItem(title: L.statusLine(state.status), action: nil, keyEquivalent: ""))
         menu.addItem(.separator())
 
         hintItem = NSMenuItem(title: triggerHint(), action: nil, keyEquivalent: "")
@@ -133,117 +147,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(hintItem)
         menu.addItem(.separator())
 
-        // ─── Actions (frequent — kept at the top) ─────────────────────────
-        let copyLast = NSMenuItem(title: "Copy Last Transcription", action: #selector(copyLast), keyEquivalent: "c")
+        let copyLast = NSMenuItem(title: L.t("Copia l'ultima trascrizione",
+                                             "Copy Last Transcription",
+                                             "Copier la dernière transcription"),
+                                  action: #selector(copyLast), keyEquivalent: "c")
         menu.addItem(copyLast)
-        let summarize = NSMenuItem(title: "Summarize Recent Dictations", action: #selector(summarizeRecent), keyEquivalent: "s")
+        let summarize = NSMenuItem(title: L.t("Riassumi le ultime dettature",
+                                              "Summarize Recent Dictations",
+                                              "Résumer les dictées récentes"),
+                                   action: #selector(summarizeRecent), keyEquivalent: "s")
         menu.addItem(summarize)
         recentMenu = NSMenu()
-        addSubmenu(to: menu, title: "Recent Transcriptions", submenu: recentMenu)
-        menu.addItem(.separator())
-
-        // ─── Cleanup ▸ — AI cleanup: mode · model · prompt ────────────────
-        cleanupMenu = NSMenu()
-        addRadio(to: cleanupMenu, title: "Off", raw: FormatterMode.off.rawValue, action: #selector(setFormatter(_:)))
-        addRadio(to: cleanupMenu, title: "Rule-based (instant)", raw: FormatterMode.ruleBased.rawValue, action: #selector(setFormatter(_:)))
-        addRadio(to: cleanupMenu, title: "Local AI (downloads model)", raw: FormatterMode.localLLM.rawValue, action: #selector(setFormatter(_:)))
-        cleanupMenu.addItem(.separator())
-        cleanupModelMenu = NSMenu()
-        for m in ModelCatalog.cleanup {
-            addRadio(to: cleanupModelMenu, title: m.menuLabel, raw: m.id, action: #selector(setCleanupModelMenu(_:)))
-        }
-        addSubmenu(to: cleanupMenu, title: "AI Model", submenu: cleanupModelMenu)
-        let editPrompt = NSMenuItem(title: "Edit Prompt…", action: #selector(editCleanupPrompt), keyEquivalent: "")
-        editPrompt.target = self
-        cleanupMenu.addItem(editPrompt)
-        let resetPrompt = NSMenuItem(title: "Reset Prompt to Default", action: #selector(resetCleanupPrompt), keyEquivalent: "")
-        resetPrompt.target = self
-        cleanupMenu.addItem(resetPrompt)
-        addSubmenu(to: menu, title: "Cleanup", submenu: cleanupMenu)
-
-        // ─── Speech & Language ▸ — models · languages · custom words ──────
-        speechModelMenu = NSMenu()
-        for m in ModelCatalog.speech {
-            addRadio(to: speechModelMenu, title: m.menuLabel, raw: m.id, action: #selector(setSpeechModelMenu(_:)))
-        }
-        inputLangMenu = NSMenu()   // pin the spoken language (auto-detect is unreliable on short clips)
-        addRadio(to: inputLangMenu, title: "Auto-detect", raw: "auto", action: #selector(setInputLanguage(_:)))
-        for lang in Language.allCases {
-            addRadio(to: inputLangMenu, title: lang.displayName, raw: lang.rawValue, action: #selector(setInputLanguage(_:)))
-        }
-        translateMenu = NSMenu()
-        addRadio(to: translateMenu, title: "Off", raw: "off", action: #selector(setTranslate(_:)))
-        for lang in Language.allCases {
-            addRadio(to: translateMenu, title: lang.displayName, raw: lang.rawValue, action: #selector(setTranslate(_:)))
-        }
-        vocabMenu = NSMenu()
-        corrMenu = NSMenu()
-        let speechLangMenu = NSMenu()
-        addSubmenu(to: speechLangMenu, title: "Speech Model", submenu: speechModelMenu)
-        addSubmenu(to: speechLangMenu, title: "Input Language", submenu: inputLangMenu)
-        addSubmenu(to: speechLangMenu, title: "Translate to", submenu: translateMenu)
-        speechLangMenu.addItem(.separator())
-        addSubmenu(to: speechLangMenu, title: "Vocabulary", submenu: vocabMenu)
-        addSubmenu(to: speechLangMenu, title: "Corrections", submenu: corrMenu)
-        addSubmenu(to: menu, title: "Speech & Language", submenu: speechLangMenu)
-
-        // ─── Dictation Trigger ▸ — the key + push-to-talk ─────────────────
-        triggerMenu = NSMenu()
-        for k in [UInt16(0x36), 0x3D, 0x3C, 0x3F] {   // R-Command, R-Option, R-Shift, Fn/Globe
-            addRadio(to: triggerMenu, title: HotkeyManager.displayName(for: k), raw: String(k), action: #selector(setTriggerKey(_:)))
-        }
-        triggerMenu.addItem(.separator())
-        // Three radios, not one checkbox. The setting has three states since setup
-        // learned to offer them, and a tick can carry two — so "hold only" chosen in
-        // setup was unrepresentable here, and toggling the box silently discarded it.
-        modeMenu = NSMenu()
-        for m in TriggerMode.allCases {
-            addRadio(to: modeMenu, title: Self.modeTitle(m), raw: m.rawValue,
-                     action: #selector(setTriggerMode(_:)))
-        }
-        addSubmenu(to: triggerMenu, title: "Activation", submenu: modeMenu)
-        addSubmenu(to: menu, title: "Dictation Trigger", submenu: triggerMenu)
-
-        // ─── Edit Mode ▸ — transform the selected text by voice ───────────
-        editKeyMenu = NSMenu()
-        editModeItem = NSMenuItem(title: "Enabled", action: #selector(toggleEditMode), keyEquivalent: "")
-        editModeItem.target = self
-        editKeyMenu.addItem(editModeItem)
-        let editHelp = NSMenuItem(title: "Hold the key + speak an instruction to transform your selection", action: nil, keyEquivalent: "")
-        editHelp.isEnabled = false
-        editKeyMenu.addItem(editHelp)
-        editKeyMenu.addItem(.separator())
-        let editKeyLabel = NSMenuItem(title: "Activation Key", action: nil, keyEquivalent: "")
-        editKeyLabel.isEnabled = false
-        editKeyMenu.addItem(editKeyLabel)
-        for k in [UInt16(0x3F), 0x3D, 0x3C] {   // Fn/Globe, R-Option, R-Shift
-            addRadio(to: editKeyMenu, title: HotkeyManager.displayName(for: k), raw: String(k), action: #selector(setEditKey(_:)))
-        }
-        addSubmenu(to: menu, title: "Edit Mode", submenu: editKeyMenu)
+        let recentItem = NSMenuItem(title: L.t("Trascrizioni recenti", "Recent Transcriptions",
+                                               "Transcriptions récentes"),
+                                    action: nil, keyEquivalent: "")
+        recentItem.submenu = recentMenu
+        menu.addItem(recentItem)
 
         menu.addItem(.separator())
+        let prefs = NSMenuItem(title: L.t("Preferenze…", "Preferences…", "Préférences…"),
+                               action: #selector(showPreferences), keyEquivalent: ",")
+        menu.addItem(prefs)
+        menu.addItem(.separator())
 
-        // ─── Advanced ▸ — memory + login ──────────────────────────────────
-        idleMenu = NSMenu()
-        for (title, secs) in [("1 min", 60), ("2 min", 120), ("5 min", 300),
-                              ("10 min", 600), ("15 min", 900), ("30 min", 1800),
-                              ("Never (keep in memory)", 0)] {
-            addRadio(to: idleMenu, title: title, raw: String(secs), action: #selector(setIdleTimeout(_:)))
-        }
-        launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-        launchAtLoginItem.target = self
-        let diagnosticsItem = NSMenuItem(title: "Diagnostics…", action: #selector(showDiagnostics), keyEquivalent: "")
-        diagnosticsItem.target = self
-        let setupItem = NSMenuItem(title: "Run Setup Again…", action: #selector(rerunOnboarding), keyEquivalent: "")
-        setupItem.target = self
-        let advancedMenu = NSMenu()
-        addSubmenu(to: advancedMenu, title: "Unload Models After", submenu: idleMenu)
-        advancedMenu.addItem(launchAtLoginItem)
-        advancedMenu.addItem(diagnosticsItem)
-        advancedMenu.addItem(setupItem)
-        addSubmenu(to: menu, title: "Advanced", submenu: advancedMenu)
-
-        let quit = NSMenuItem(title: "Quit Kalamos", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L.t("Esci da Kalamos", "Quit Kalamos", "Quitter Kalamos"),
+                              action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp   // terminate: lives on NSApplication, not AppDelegate
         menu.addItem(quit)
 
@@ -251,90 +179,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
     }
 
-    private func addRadio(to menu: NSMenu, title: String, raw: String, action: Selector) {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        item.representedObject = raw
-        menu.addItem(item)
-    }
-
-    /// Add a titled parent item that opens `submenu` (grouping helper).
-    private func addSubmenu(to menu: NSMenu, title: String, submenu: NSMenu) {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.submenu = submenu
-        menu.addItem(item)
-    }
-
     private func triggerHint() -> String {
         let key = HotkeyManager.displayName(for: state.hotKeyCode)
-        return state.triggerMode == .both || state.triggerMode == .hold
-            ? "Hold \(key) to talk · double-tap = hands-free"
-            : "Double-tap \(key) = hands-free"
+        switch state.triggerMode {
+        case .both:
+            return L.t("Tieni premuto \(key) per parlare · doppio tocco = mani libere",
+                       "Hold \(key) to talk · double-tap = hands-free",
+                       "Maintenez \(key) · double-appui = mains libres")
+        case .hold:
+            return L.t("Tieni premuto \(key) per parlare",
+                       "Hold \(key) to talk",
+                       "Maintenez \(key) pour parler")
+        case .doubleTap:
+            return L.t("Doppio tocco su \(key) = mani libere",
+                       "Double-tap \(key) = hands-free",
+                       "Double-appui sur \(key) = mains libres")
+        }
     }
 
-    // MARK: Menu refresh (checkmarks + recent)
+    // MARK: Menu refresh
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
+        menu.items.first?.title = L.statusLine(state.status)
         hintItem.title = triggerHint()
-        for item in cleanupMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (raw == state.formatterMode.rawValue) ? .on : .off
-            }
-        }
-        for item in translateMenu.items {
-            guard let raw = item.representedObject as? String else { continue }
-            let on = raw == "off" ? !state.translationEnabled
-                                  : (state.translationEnabled && state.translationTarget.rawValue == raw)
-            item.state = on ? .on : .off
-        }
-        for item in triggerMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (raw == String(state.hotKeyCode)) ? .on : .off
-            }
-        }
-        for item in inputLangMenu.items {
-            guard let raw = item.representedObject as? String else { continue }
-            let on = raw == "auto" ? state.autoDetectLanguage
-                                   : (!state.autoDetectLanguage && state.defaultLanguage.rawValue == raw)
-            item.state = on ? .on : .off
-        }
-        for item in idleMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (Int(raw) == Tuning.idleUnloadRaw) ? .on : .off
-            }
-        }
-        for item in speechModelMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (raw == state.whisperModel) ? .on : .off
-            }
-        }
-        for item in cleanupModelMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (raw == state.cleanupModelID) ? .on : .off
-            }
-        }
-        for item in editKeyMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (raw == String(state.editModeKeyCode)) ? .on : .off
-            }
-        }
-        for item in modeMenu.items {
-            if let raw = item.representedObject as? String {
-                item.state = (raw == state.triggerMode.rawValue) ? .on : .off
-            }
-        }
-        editModeItem.state = state.editModeEnabled ? .on : .off
-        launchAtLoginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
         rebuildRecentMenu()
-        rebuildVocabMenu()
-        rebuildCorrMenu()
     }
 
     private func rebuildRecentMenu() {
         recentMenu.removeAllItems()
         let entries = history.entries
         if entries.isEmpty {
-            let empty = NSMenuItem(title: "No transcriptions yet", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: L.t("Ancora niente", "No transcriptions yet",
+                                              "Rien pour l’instant"),
+                                   action: nil, keyEquivalent: "")
             empty.isEnabled = false
             recentMenu.addItem(empty)
             return
@@ -347,107 +224,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             recentMenu.addItem(item)
         }
         recentMenu.addItem(.separator())
-        let clear = NSMenuItem(title: "Clear History", action: #selector(clearHistory), keyEquivalent: "")
+        let clear = NSMenuItem(title: L.t("Svuota la cronologia", "Clear History",
+                                          "Vider l’historique"),
+                               action: #selector(clearHistory), keyEquivalent: "")
         clear.target = self
         recentMenu.addItem(clear)
     }
 
-    private func rebuildVocabMenu() {
-        vocabMenu.removeAllItems()
-        let add = NSMenuItem(title: "Add Word…", action: #selector(addVocabWord), keyEquivalent: "")
-        add.target = self
-        vocabMenu.addItem(add)
-        let hint = NSMenuItem(title: "Or select a word and press ⌃⌥L", action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        vocabMenu.addItem(hint)
-        let terms = Vocabulary.terms
-        if !terms.isEmpty {
-            vocabMenu.addItem(.separator())
-            for term in terms {
-                let item = NSMenuItem(title: term, action: #selector(removeVocabWord(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = term
-                item.toolTip = "Click to remove"
-                vocabMenu.addItem(item)
+    // MARK: Preferences
+
+    @objc private func showPreferences() {
+        PreferencesWindow.shared.show(state: state, actions: PreferencesActions(
+            apply: { [weak self] draft in self?.apply(draft) },
+            isLaunchAtLogin: { SMAppService.mainApp.status == .enabled },
+            showDiagnostics: { [weak self] in self?.showDiagnostics() },
+            rerunOnboarding: { [weak self] in self?.showOnboarding() }))
+    }
+
+    /// Take a draft and make it true.
+    ///
+    /// One writer for every setting the window can change, and every field is
+    /// compared before it is written: re-registering the event tap tears down a
+    /// global tap, and swapping a model throws away a loaded one. Applying what
+    /// did not change would pay both costs for nothing.
+    func apply(_ draft: SettingsDraft) {
+        if draft.uiLanguage != state.uiLanguage { state.uiLanguage = draft.uiLanguage }
+        if draft.hotKeyCode != state.hotKeyCode { applyTriggerKey(draft.hotKeyCode) }
+        if draft.triggerMode != state.triggerMode { applyTriggerMode(draft.triggerMode) }
+
+        state.autoDetectLanguage = draft.autoDetectLanguage
+        state.defaultLanguage = draft.defaultLanguage
+        state.translationEnabled = draft.translationEnabled
+        state.translationTarget = draft.translationTarget
+        state.formatterMode = draft.formatterMode
+
+        applySpeechModel(draft.whisperModel)
+        applyCleanupModel(draft.cleanupModelID)
+
+        let prompt = draft.cleanupPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        state.cleanupPromptOverride = prompt.isEmpty ? nil : prompt
+
+        if draft.idleSeconds != Tuning.idleUnloadRaw { Tuning.setIdleUnload(draft.idleSeconds) }
+
+        if draft.editModeEnabled != state.editModeEnabled
+            || draft.editModeKeyCode != state.editModeKeyCode {
+            state.editModeEnabled = draft.editModeEnabled
+            state.editModeKeyCode = draft.editModeKeyCode
+            startEditHotkeyIfNeeded()
+        }
+
+        if draft.launchAtLogin != (SMAppService.mainApp.status == .enabled) {
+            setLaunchAtLogin(draft.launchAtLogin)
+        }
+    }
+
+    /// The menu is built once, in one language. When that language changes the
+    /// menu has to be built again — otherwise the setting appears to do nothing
+    /// until the next launch, which is indistinguishable from a broken control.
+    private func observeLanguage() {
+        state.$uiLanguage
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.setupMainMenu()
+                    self?.setupMenuBar()
+                }
             }
-            vocabMenu.addItem(.separator())
-            let clear = NSMenuItem(title: "Clear All", action: #selector(clearVocab), keyEquivalent: "")
-            clear.target = self
-            vocabMenu.addItem(clear)
-        }
+            .store(in: &cancellables)
     }
-
-    private func rebuildCorrMenu() {
-        corrMenu.removeAllItems()
-        let add = NSMenuItem(title: "Add Correction…", action: #selector(addCorrection), keyEquivalent: "")
-        add.target = self
-        corrMenu.addItem(add)
-        let hint = NSMenuItem(title: "Fix a word Kalamos keeps hearing wrong", action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        corrMenu.addItem(hint)
-        let rules = Corrections.rules
-        if !rules.isEmpty {
-            corrMenu.addItem(.separator())
-            for rule in rules {
-                let item = NSMenuItem(title: "\(rule.wrong)  →  \(rule.correct)",
-                                      action: #selector(removeCorrection(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = rule.wrong
-                item.toolTip = "Click to remove"
-                corrMenu.addItem(item)
-            }
-            corrMenu.addItem(.separator())
-            let clear = NSMenuItem(title: "Clear All", action: #selector(clearCorrections), keyEquivalent: "")
-            clear.target = self
-            corrMenu.addItem(clear)
-        }
-    }
-
-    @objc private func addCorrection() {
-        let alert = NSAlert()
-        alert.messageText = "Add Correction"
-        alert.informativeText = "When Kalamos transcribes the word on the left, it will write the one on the right instead."
-        let heard = NSTextField(frame: NSRect(x: 0, y: 30, width: 240, height: 24))
-        heard.placeholderString = "Kalamos hears… (e.g. rosi)"
-        let written = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        written.placeholderString = "…write instead (e.g. Rossi)"
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 54))
-        container.addSubview(heard); container.addSubview(written)
-        alert.accessoryView = container
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.window.initialFirstResponder = heard
-        heard.nextKeyView = written
-        if alert.runModal() == .alertFirstButtonReturn {
-            Corrections.add(wrong: heard.stringValue, correct: written.stringValue)
-        }
-    }
-
-    @objc private func removeCorrection(_ sender: NSMenuItem) {
-        if let wrong = sender.representedObject as? String { Corrections.remove(wrong: wrong) }
-    }
-
-    @objc private func clearCorrections() { Corrections.clear() }
-
-    @objc private func addVocabWord() {
-        let alert = NSAlert()
-        alert.messageText = "Add Vocabulary Word"
-        alert.informativeText = "A name, term, or special spelling Kalamos should always recognize."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.window.initialFirstResponder = field
-        if alert.runModal() == .alertFirstButtonReturn { Vocabulary.add(field.stringValue) }
-    }
-
-    @objc private func removeVocabWord(_ sender: NSMenuItem) {
-        if let term = sender.representedObject as? String { Vocabulary.remove(term) }
-    }
-
-    @objc private func clearVocab() { Vocabulary.clear() }
 
     /// Learn the currently-selected word (⌃⌥L). Two strategies, in order:
     ///  1. Accessibility API — read the focused element's selected text
@@ -501,47 +346,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return value as? String
     }
 
-    // MARK: Actions
-    @objc private func setFormatter(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let mode = FormatterMode(rawValue: raw) {
-            state.formatterMode = mode
-        }
-    }
-
-    @objc private func setTranslate(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String else { return }
-        if raw == "off" {
-            state.translationEnabled = false
-        } else if let lang = Language(rawValue: raw) {
-            state.translationTarget = lang
-            state.translationEnabled = true
-        }
-    }
-
-    @objc private func setInputLanguage(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String else { return }
-        if raw == "auto" {
-            state.autoDetectLanguage = true
-        } else if let lang = Language(rawValue: raw) {
-            state.autoDetectLanguage = false
-            state.defaultLanguage = lang
-        }
-    }
-
-    @objc private func setIdleTimeout(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let secs = Int(raw) {
-            Tuning.setIdleUnload(secs)
-        }
-    }
-
-    @objc private func setTriggerKey(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let code = UInt16(raw) else { return }
-        applyTriggerKey(code)
-    }
+    // MARK: Settings that need more than being written down
 
     /// Changing the trigger is not a matter of writing a number down: the global
-    /// event tap must be torn down and re-registered on the new key. Shared by the
-    /// menu and by first-run setup, so the two cannot drift apart.
+    /// event tap must be torn down and re-registered on the new key. Shared by
+    /// Preferences and first-run setup, so the two cannot drift apart.
     func applyTriggerKey(_ code: UInt16) {
         state.hotKeyCode = code
         hotkey.stop()
@@ -551,7 +360,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startEditHotkeyIfNeeded()   // re-evaluate the edit-key ≠ trigger-key guard
     }
 
-    /// Show first-run setup: at launch for a fresh install, on demand from the menu.
+    /// Writing the id down and telling the engine are one operation, done in one
+    /// place. Split between a view and a delegate they can disagree, and the
+    /// setting then shows a model the engine is not running.
+    func applySpeechModel(_ id: String) {
+        guard id != state.whisperModel else { return }
+        state.whisperModel = id
+        controller.setSpeechModel(id)
+    }
+
+    func applyCleanupModel(_ id: String) {
+        guard id != state.cleanupModelID else { return }
+        state.cleanupModelID = id
+        controller.setCleanupModel(id)
+    }
+
+    /// The live recogniser has to be told, or the setting only takes effect on the
+    /// next launch. Shared with setup, same reason as the trigger key.
+    func applyTriggerMode(_ mode: TriggerMode) {
+        state.triggerMode = mode
+        hotkey.setMode(mode)
+        hintItem.title = triggerHint()
+    }
+
+    static func modeTitle(_ mode: TriggerMode) -> String {
+        switch mode {
+        case .hold:      return L.t("Tieni premuto", "Hold to talk", "Maintenir")
+        case .doubleTap: return L.t("Doppio tocco", "Double-tap", "Double-appui")
+        case .both:      return L.t("Entrambi", "Both", "Les deux")
+        }
+    }
+
+    /// (Re)install the Edit-Mode hot key. Active only when Edit Mode is on AND
+    /// its key differs from the dictation trigger (else it would double-fire).
+    /// The edit recognizer is always hold-to-talk regardless of the global
+    /// push-to-talk setting — you hold the key and speak the instruction.
+    private func startEditHotkeyIfNeeded() {
+        editHotkey?.stop()
+        editHotkey = nil
+        guard state.editModeEnabled, state.editModeKeyCode != state.hotKeyCode else { return }
+        let h = HotkeyManager(keyCode: state.editModeKeyCode)
+        h.onAction = { [weak self] action in
+            Task { @MainActor in self?.controller.handle(action, editMode: true) }
+        }
+        if Permissions.accessibilityTrusted(prompt: false) { _ = h.start() }
+        editHotkey = h
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() }
+            else { try SMAppService.mainApp.unregister() }
+        } catch {
+            state.status = .error(L.t("Avvio al login non riuscito", "Login item failed",
+                                      "Élément d’ouverture impossible")
+                                  + ": \(error.localizedDescription)")
+        }
+    }
+
+    /// Show first-run setup: at launch for a fresh install, on demand from Preferences.
     func showOnboarding() {
         OnboardingWindow.shared.show(state: state, actions: OnboardingActions(
             applyTriggerKey: { [weak self] in self?.applyTriggerKey($0) },
@@ -571,96 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }))
     }
 
-    @objc private func rerunOnboarding() { showOnboarding() }
-
-    @objc private func setSpeechModelMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, id != state.whisperModel else { return }
-        state.whisperModel = id
-        controller.setSpeechModel(id)
-    }
-
-    @objc private func setCleanupModelMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, id != state.cleanupModelID else { return }
-        state.cleanupModelID = id
-        controller.setCleanupModel(id)
-    }
-
-    @objc private func editCleanupPrompt() {
-        let alert = NSAlert()
-        alert.messageText = "Edit Cleanup Prompt"
-        alert.informativeText = "ADVANCED. Leave this EMPTY to use Kalamos's built-in cleanup prompt (recommended — it's tuned for punctuation and fidelity). Type here ONLY to fully replace it with your own instructions."
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 420, height: 180))
-        let text = NSTextView(frame: scroll.bounds)
-        text.isEditable = true
-        text.isRichText = false
-        text.font = .userFixedPitchFont(ofSize: 12)
-        text.string = state.cleanupPromptOverride ?? ""
-        scroll.documentView = text
-        scroll.hasVerticalScroller = true
-        alert.accessoryView = scroll
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        alert.window.initialFirstResponder = text
-        if alert.runModal() == .alertFirstButtonReturn {
-            let v = text.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            state.cleanupPromptOverride = v.isEmpty ? nil : v
-        }
-    }
-
-    @objc private func resetCleanupPrompt() {
-        state.cleanupPromptOverride = nil
-        NSSound(named: "Glass")?.play()
-    }
-
-    @objc private func setTriggerMode(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let mode = TriggerMode(rawValue: raw) else { return }
-        applyTriggerMode(mode)
-    }
-
-    static func modeTitle(_ mode: TriggerMode) -> String {
-        switch mode {
-        case .hold:      return "Hold to talk"
-        case .doubleTap: return "Double-tap (hands-free)"
-        case .both:      return "Both"
-        }
-    }
-
-    /// The live recogniser has to be told, or the setting only takes effect on the
-    /// next launch. Shared with setup, same reason as the trigger key.
-    func applyTriggerMode(_ mode: TriggerMode) {
-        state.triggerMode = mode
-        hotkey.setMode(mode)
-        hintItem.title = triggerHint()
-    }
-
-    @objc private func toggleEditMode() {
-        state.editModeEnabled.toggle()
-        startEditHotkeyIfNeeded()
-    }
-
-    @objc private func setEditKey(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let code = UInt16(raw) else { return }
-        state.editModeKeyCode = code
-        startEditHotkeyIfNeeded()
-    }
-
-    /// (Re)install the Edit-Mode hot key. Active only when Edit Mode is on AND
-    /// its key differs from the dictation trigger (else it would double-fire).
-    /// The edit recognizer is always hold-to-talk regardless of the global
-    /// push-to-talk setting — you hold the key and speak the instruction.
-    private func startEditHotkeyIfNeeded() {
-        editHotkey?.stop()
-        editHotkey = nil
-        guard state.editModeEnabled, state.editModeKeyCode != state.hotKeyCode else { return }
-        let h = HotkeyManager(keyCode: state.editModeKeyCode)
-        h.onAction = { [weak self] action in
-            Task { @MainActor in self?.controller.handle(action, editMode: true) }
-        }
-        if Permissions.accessibilityTrusted(prompt: false) { _ = h.start() }
-        editHotkey = h
-    }
+    // MARK: Actions
 
     @objc private func copyLast() {
         guard let last = history.last else { NSSound.beep(); return }
@@ -679,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !texts.isEmpty else { NSSound.beep(); return }
         let language = state.translationEnabled ? state.translationTarget : state.defaultLanguage
         #if canImport(MLXLLM)
-        state.status = .loadingModel("Summarizing…")
+        state.status = .working(.summarizing)
         Task {
             do {
                 let summary = try await Summarizer().summarize(Array(texts), language: language)
@@ -688,7 +466,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 state.status = .idle
                 self.showSummary(summary)
             } catch {
-                state.status = .error("Summary failed")
+                state.status = .error(L.t("Riassunto non riuscito", "Summary failed",
+                                          "Résumé impossible"))
             }
         }
         #else
@@ -698,7 +477,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func showSummary(_ text: String) {
         let alert = NSAlert()
-        alert.messageText = "Summary (copied to clipboard)"
+        alert.messageText = L.t("Riassunto (copiato negli appunti)",
+                                "Summary (copied to clipboard)",
+                                "Résumé (copié dans le presse-papiers)")
         alert.informativeText = text
         alert.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
@@ -734,28 +515,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let alert = NSAlert()
         alert.messageText = failures == 0
-            ? "Kalamos is healthy"
-            : "\(failures) problem\(failures == 1 ? "" : "s") found"
+            ? L.t("Kalamos sta bene", "Kalamos is healthy", "Kalamos va bien")
+            : L.t("\(failures) problem\(failures == 1 ? "a" : "i")",
+                  "\(failures) problem\(failures == 1 ? "" : "s") found",
+                  "\(failures) problème\(failures == 1 ? "" : "s")")
         alert.alertStyle = failures == 0 ? .informational : .warning
         alert.accessoryView = scroll
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Copy")   // so it can be pasted into a bug report
+        alert.addButton(withTitle: L.t("Copia", "Copy", "Copier"))   // for a bug report
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertSecondButtonReturn {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-        }
-    }
-
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            state.status = .error("Login item failed: \(error.localizedDescription)")
         }
     }
 
@@ -764,21 +535,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state.$status
             .receive(on: RunLoop.main)
             .sink { [weak self] s in
-                MainActor.assumeIsolated { self?.updateIcon(for: s) }
+                MainActor.assumeIsolated {
+                    self?.updateIcon(for: s)
+                    DownloadPanel.shared.update(for: s)
+                }
             }
             .store(in: &cancellables)
     }
 
+    /// One icon per thing that is actually happening.
+    ///
+    /// Every one of these used to be a download arrow, because three different
+    /// states shared one case. So the arrow appeared when a cached model was
+    /// being read off the disk — every launch, and again after every idle unload
+    /// — and while summarising, which touches no network at all. Reported on
+    /// 2026-07-31 as "why does a download keep starting?"; nothing was starting.
+    /// At rest and while recording, the app's own mark — a reed pen and the
+    /// stroke it left. For everything else, the system symbol that says what is
+    /// happening: those states are information, and information beats identity
+    /// while you are waiting for something.
     private func updateIcon(for status: DictationStatus) {
-        let symbol: String, label: String
+        let label = L.statusLine(status)
+        let image: NSImage?
         switch status {
-        case .idle:               symbol = "mic"; label = "Kalamos — idle"
-        case .listening:          symbol = "mic.fill"; label = "Kalamos — listening…"
-        case .transcribing:       symbol = "waveform"; label = "Kalamos — working…"
-        case .loadingModel(let m):symbol = "arrow.down.circle"; label = "Kalamos — \(m)"
-        case .error(let m):       symbol = "exclamationmark.triangle"; label = "Kalamos — \(m)"
+        case .idle:         image = CalamoIcon.image(filled: false)
+        case .listening:    image = CalamoIcon.image(filled: true)
+        case .transcribing: image = NSImage(systemSymbolName: "waveform", accessibilityDescription: label)
+        case .downloading:  image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: label)
+        case .loading:      image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: label)
+        case .working:      image = NSImage(systemSymbolName: "wand.and.sparkles", accessibilityDescription: label)
+        case .error:        image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: label)
         }
-        statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        statusItem.button?.image = image
         statusItem.menu?.items.first?.title = label
     }
 
@@ -796,7 +584,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             startHotkey()
             return
         }
-        state.status = .error("Grant Accessibility — Kalamos starts automatically")
+        state.status = .error(L.t("Concedi l'accessibilità — Kalamos parte da solo",
+                                  "Grant Accessibility — Kalamos starts automatically",
+                                  "Accordez l’accessibilité — Kalamos démarre seul"))
         Permissions.openAccessibilitySettings()
         accessibilityTimer?.invalidate()
         accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
@@ -816,7 +606,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             state.status = .idle
             startEditHotkeyIfNeeded()   // needs Accessibility → start it here too
         } else {
-            state.status = .error("Couldn't install hot key (Accessibility?)")
+            state.status = .error(L.t("Non riesco a installare il tasto (accessibilità?)",
+                                      "Couldn't install hot key (Accessibility?)",
+                                      "Impossible d’installer la touche (accessibilité ?)"))
         }
     }
 }

@@ -19,7 +19,48 @@ actor MLXEngine {
     private var container: ModelContainer?
     private var idleTask: Task<Void, Never>?
 
-    init(modelID: String) { self.modelID = modelID }
+    init(modelID: String) {
+        self.modelID = modelID
+        Self.capTheBufferCacheOnce()
+    }
+
+    /// Put a ceiling on MLX's Metal buffer cache, once, before anything allocates.
+    ///
+    /// Left alone, that cache's limit defaults to the memory limit — measured on
+    /// this Mac: **35 020 MB**, i.e. 34 GB on a 36 GB machine. It is a pool of
+    /// freed buffers kept for reuse, and dictations of different lengths keep
+    /// asking for different sizes, so it only grows. A process left running all
+    /// day reached a 13 GB footprint (12 GB in IOAccelerator across 2391 regions)
+    /// while the same binary restarted two minutes earlier sat at 4.9 GB with
+    /// 1007 regions — same models, same settings, 7.5 GB of pure accumulation.
+    ///
+    /// Nothing ever emptied it: the only `clearCache()` lives in `unload()`, and
+    /// whoever sets the memory to "never free" — a legitimate choice, to avoid
+    /// paying the reload — never reaches `unload()` at all.
+    ///
+    /// Measured cost of the cap, 2 replicates, arms alternated A,B,A,B, 8 rounds ×
+    /// 5 dictations at temperature 0 so both arms generate identical tokens:
+    /// **−0.44% and −0.72% on time, inside a 6.6%/13.6% intra-arm noise band** —
+    /// no measurable cost. Memory: cache 1608 → 511 MB, footprint 5946 → 4844 MB
+    /// after only 40 generations. (An earlier block design, A,A,B,B, reported
+    /// "+15% slower"; that was thermal drift dumped entirely on the second arm.)
+    ///
+    /// Deliberately NOT `clearCache()` after each generation: that empties the
+    /// pool every time, so every generation re-pays for every allocation. A cap
+    /// self-regulates — MLX reclaims from its LRU queue on the first allocation
+    /// past the threshold. And never 0, which disables the cache outright.
+    ///
+    /// The model weights are not in here — they live in `activeMemory`, as does
+    /// the generation's KV cache. A cap shortens no context and costs no quality.
+    private static func capTheBufferCacheOnce() {
+        _ = capApplied
+    }
+
+    private static let capApplied: Bool = {
+        MLX.GPU.set(cacheLimit: 512 * 1024 * 1024)
+        Log.write("MLX buffer cache capped at 512 MB")
+        return true
+    }()
 
     var isLoaded: Bool { container != nil }
     var currentModelID: String { modelID }
@@ -34,21 +75,44 @@ actor MLXEngine {
     }
 
     private func load() async throws -> ModelContainer {
-        if let container { return container }
+        if let container {
+            // Stop the idle timer for the duration of the work that is about to
+            // start. Without this, the timer armed at the end of the PREVIOUS
+            // generation can expire in the middle of this one: `unload()` drops
+            // the container and clears the GPU cache while the model is running,
+            // so the next dictation pays a cold load nobody asked for — the very
+            // wait the "never free the memory" setting exists to avoid. The timer
+            // is re-armed when the work finishes. (Gemini audit, 2026-07-31.)
+            idleTask?.cancel()
+            idleTask = nil
+            return container
+        }
         // Distinguish "downloading from network" from "loading the cached model
         // into memory" (the 4 GB load takes ~10-30 s on first use per launch).
         let onDisk = FileManager.default.fileExists(
             atPath: ModelStorage.base.appendingPathComponent("models/\(modelID)/config.json").path)
-        report(onDisk ? "Loading AI model…" : "Downloading AI model…")
-        let configuration = LLMModelFactory.shared.configuration(id: modelID)
+        Self.report(onDisk ? .loading(.cleanup) : .downloading(.cleanup, fraction: nil))
+        // An actor releases its lock at every `await`, so `setModel` can run while
+        // this load is suspended. It would then find `container` still nil, unload
+        // nothing, and write the new id — and this line would install the OLD
+        // model under the new name: the engine runs one model while the settings
+        // show another, for the rest of the session. Compare before installing.
+        // (Gemini audit, 2026-07-31.)
+        let requested = modelID
+        let configuration = LLMModelFactory.shared.configuration(id: requested)
         let hub = HubApi(downloadBase: ModelStorage.base)
         let loaded = try await LLMModelFactory.shared.loadContainer(hub: hub, configuration: configuration) { progress in
-            let pct = Int((progress.fractionCompleted * 100).rounded())
             // progressHandler only fires for actual downloads.
-            Task { @MainActor in AppState.shared.status = .loadingModel("Downloading AI model \(pct)%") }
+            Self.report(.downloading(.cleanup, fraction: progress.fractionCompleted))
+        }
+        guard modelID == requested else {
+            Log.write("MLX: \(requested) finished loading but \(modelID) is now wanted — discarding")
+            return try await load()
         }
         container = loaded
-        report("Loading AI model…")
+        // The bytes are here; what is left is reading them into memory. Saying
+        // "downloading" past this point is the lie this whole split exists to end.
+        Self.report(.loading(.cleanup))
         scheduleIdleUnload()
         return loaded
     }
@@ -75,16 +139,31 @@ actor MLXEngine {
         Log.write("MLX model unloaded (idle) — RAM freed")
     }
 
-    private func report(_ message: String) {
-        Task { @MainActor in AppState.shared.status = .loadingModel(message) }
+    /// `nonisolated static` on purpose: the download progress handler is a
+    /// `@Sendable` closure that runs off the actor, and it has to be able to say
+    /// how far along it is.
+    private nonisolated static func report(_ status: DictationStatus) {
+        Task { @MainActor in AppState.shared.status = status }
     }
 
     /// Run one system+user turn, returning the model's text output.
+    ///
+    /// `purpose` is what the user is told while it runs. The model takes seconds
+    /// on a long dictation, and "cleaning up" and "translating" are different
+    /// enough that showing one for the other is worth avoiding.
     func generate(system: String,
                   user: String,
+                  purpose: WorkKind,
                   maxTokens: Int = 512,
                   temperature: Float = 0.2) async throws -> String {
         let container = try await load()
+        // `defer`, not a line at the end: `load()` cancelled the idle timer, and
+        // if generation throws — cancellation, a context overflow — a plain
+        // trailing call never runs and the model stays resident forever. The
+        // "free the memory after N minutes" setting would then quietly stop
+        // working, with no symptom but the RAM. (Gemini audit, 2026-07-31.)
+        defer { scheduleIdleUnload() }
+        Self.report(.working(purpose))
         let parameters = GenerateParameters(maxTokens: maxTokens, temperature: temperature)
 
         let result = try await container.perform { (context: ModelContext) in
@@ -99,7 +178,6 @@ actor MLXEngine {
             }
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        scheduleIdleUnload()   // reset the idle timer on every use
         return result
     }
 }

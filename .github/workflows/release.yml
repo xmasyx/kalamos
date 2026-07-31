@@ -46,7 +46,13 @@ jobs:
       - name: Build Kalamos.app
         env:
           KALAMOS_NO_INSTALL: "1"
-        run: ./Scripts/build-app.sh Release
+        run: |
+          # On a tag, the tag IS the version — the app must not be free to say
+          # something else. Off a tag there is no version to claim.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            export KALAMOS_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          ./Scripts/build-app.sh Release
 
       # A bundle missing default.metallib looks perfectly healthy until a user
       # turns on AI cleanup. Refuse to ship one.
@@ -57,7 +63,16 @@ jobs:
           test -f "$APP/Contents/Info.plist"           || { echo "::error::no Info.plist"; exit 1; }
           test -f "$APP/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
             || { echo "::error::default.metallib missing — AI cleanup would fail at runtime"; exit 1; }
-          "$APP/Contents/MacOS/Kalamos" --version
+          # Fail-closed on the version, because the failure is silent: a
+          # release whose binary reports the previous number looks perfect
+          # everywhere except in the one place a user checks it.
+          REPORTED="$("$APP/Contents/MacOS/Kalamos" --version)"
+          echo "$REPORTED"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            EXPECTED="Kalamos ${GITHUB_REF_NAME#v}"
+            [ "$REPORTED" = "$EXPECTED" ] \
+              || { echo "::error::binary says '$REPORTED', the tag says '$EXPECTED'"; exit 1; }
+          fi
 
       - name: Package
         run: ditto -c -k --keepParent build/Kalamos.app Kalamos.zip

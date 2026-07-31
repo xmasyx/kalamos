@@ -28,7 +28,7 @@ struct MLXTranslator: Translator {
         translation: no preamble, no quotes, no notes, no alternatives.
         """
         let out = try await engine.generate(
-            system: system, user: trimmed,
+            system: system, user: trimmed, purpose: .translating,
             maxTokens: max(128, trimmed.count * 2), temperature: 0.3)
         return out.isEmpty ? trimmed : out
     }

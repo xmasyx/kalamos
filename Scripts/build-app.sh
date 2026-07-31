@@ -36,6 +36,21 @@ for b in "${PRODUCTS}"/*.bundle; do
     [ -e "$b" ] && cp -R "$b" "${BUNDLE_DIR}/Contents/Resources/"
 done
 cp "Sources/Kalamos/Resources/Kalamos-Info.plist" "${BUNDLE_DIR}/Contents/Info.plist"
+
+# The version the app reports must be the version being shipped.
+#
+# Info.plist otherwise carries whatever number was last typed into it by hand,
+# and nobody remembers to type it: release v0.1.1 ships a binary that answers
+# "Kalamos 0.1.0" to --version and shows 0.1.0 in Get Info. The release workflow
+# passes the tag in here, and then refuses to publish if the two disagree.
+if [ -n "${KALAMOS_VERSION:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${KALAMOS_VERSION}" \
+        "${BUNDLE_DIR}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${KALAMOS_VERSION}" \
+        "${BUNDLE_DIR}/Contents/Info.plist"
+    echo "▶ version ${KALAMOS_VERSION}"
+fi
+
 [ -f "Sources/Kalamos/Resources/AppIcon.icns" ] && cp "Sources/Kalamos/Resources/AppIcon.icns" "${BUNDLE_DIR}/Contents/Resources/AppIcon.icns"
 
 # Stable identity if available (persistent permissions), else ad-hoc.
