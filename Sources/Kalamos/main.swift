@@ -1,5 +1,23 @@
 import AppKit
 
+/// Wait for a headless command WITHOUT parking the main thread.
+///
+/// Every `--clean` / `--selftest-*` / `--cache-probe` run hung forever, and the
+/// reason is one line in the cleanup path: `await MainActor.run { … }`, executed
+/// on every successful cleanup. A main thread sitting in `sem.wait()` never
+/// services the main actor, so that hop can never land and the whole process
+/// deadlocks — silently, at 0% CPU, after printing its first line. The README
+/// tells readers to reproduce its examples with `--clean`; that command could
+/// not have worked. Pumping the run loop while waiting lets the hop through.
+///
+/// Probe: `Kalamos --selftest-punct` returned exit 124 under `timeout 180`
+/// before this, and prints its cases after (2026-07-31).
+func waitServicingMainActor(_ sem: DispatchSemaphore) {
+    while sem.wait(timeout: .now()) == .timedOut {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+}
+
 // FIRST, before anything reads settings or touches Application Support: carry the
 // user's settings and downloaded models over from the app's former identity
 // (Parla). Runs once, then costs a single boolean read per launch.
@@ -53,7 +71,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
         #endif
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
     exit(0)
 }
 
@@ -85,7 +103,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--edit") {
         #endif
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
     exit(0)
 }
 
@@ -110,7 +128,7 @@ if CommandLine.arguments.contains("--selftest-translate") {
         #endif
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
     exit(0)
 }
 
@@ -133,7 +151,7 @@ if CommandLine.arguments.contains("--selftest-cleanup") {
         #endif
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
     exit(0)
 }
 
@@ -189,7 +207,46 @@ if CommandLine.arguments.contains("--selftest-punct") {
         #endif
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
+    exit(0)
+}
+
+// `Kalamos --cache-probe` — where does the cleanup second actually go?
+//
+// The system prompt is identical on every dictation, so caching it is an obvious
+// idea. Whether it is worth the complexity depends on one number nobody had
+// measured: what fraction of the time is spent READING the prompt versus WRITING
+// the answer. A prompt cache removes the first and cannot touch the second.
+//
+// Real dictations of increasing length through the real cleanup path, warm model,
+// first result discarded. The `mlx:` line in the log carries the split.
+if CommandLine.arguments.contains("--cache-probe") {
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        #if canImport(MLXLLM)
+        let f = MLXFormatter(engine: .shared)
+        let ctx = FormattingContext(language: .italian, frontmostBundleID: nil)
+        let cases = [
+            "confermo",
+            "allora senti facciamo così domani mattina ci vediamo alle nove e mezza in ufficio",
+            "una cosa che mi piacerebbe fare è che gli esercizi che necessitano di un tempo ad esempio la plank come tu dici quarantacinque secondi di plank e quel quarantacinque anzi no vorrei che venga aggiunto un tempo legato all'esercizio che si veda in quel caso",
+            "allora per l'organizzazione di sabato pensavo che potremmo trovarci tutti al parcheggio verso le nove e mezza così chi arriva prima aspetta gli altri e poi partiamo insieme con due macchine invece di quattro se qualcuno non riesce ad arrivare in tempo ci avvisa il giorno prima e vediamo se conviene spostare tutto al pomeriggio tenendo conto che il posto chiude alle sette e che l'ultimo ingresso è mezz'ora prima quindi non ha senso arrivare dopo le sei",
+        ]
+        FileHandle.standardError.write(Data("warm-up (scartato)…\n".utf8))
+        _ = await f.format(cases[0], context: ctx)
+        for t in cases {
+            let t0 = Date()
+            _ = await f.format(t, context: ctx)
+            print(String(format: "%3d parole dettate → %.2fs totali",
+                         t.split(separator: " ").count, Date().timeIntervalSince(t0)))
+        }
+        print("\nLa spaccatura prompt/generazione è nelle righe `mlx:` di kalamos.log")
+        #else
+        print("MLX not compiled in")
+        #endif
+        sem.signal()
+    }
+    waitServicingMainActor(sem)
     exit(0)
 }
 
@@ -217,7 +274,7 @@ if CommandLine.arguments.contains("--selftest-edit") {
         #endif
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
     exit(0)
 }
 
@@ -249,7 +306,7 @@ if CommandLine.arguments.contains("--selftest-format") {
         print(fails == 0 ? "\nALL PASS" : "\n\(fails) FAILED")
         sem.signal()
     }
-    sem.wait()
+    waitServicingMainActor(sem)
     exit(0)
 }
 

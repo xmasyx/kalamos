@@ -174,7 +174,19 @@ actor MLXEngine {
                 input: input, parameters: parameters, context: context)
             var output = ""
             for await item in stream {
-                if case .chunk(let text) = item { output += text }
+                switch item {
+                case .chunk(let text): output += text
+                case .info(let info):
+                    // The split between reading the prompt and writing the answer.
+                    // Without it, "the cleanup takes two seconds" is one number
+                    // hiding two very different jobs, and any optimisation is a
+                    // guess about which half it lands on.
+                    Log.write(String(
+                        format: "mlx: prompt %d tok in %.2fs (%.0f t/s) · gen %d tok in %.2fs (%.0f t/s)",
+                        info.promptTokenCount, info.promptTime, info.promptTokensPerSecond,
+                        info.generationTokenCount, info.generateTime, info.tokensPerSecond))
+                @unknown default: break
+                }
             }
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
         }
