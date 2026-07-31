@@ -221,7 +221,7 @@ struct CleanupSection: View {
                         .scrollContentBackground(.hidden)
                         .padding(8)
                         .frame(height: 130)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.6)))
+                        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
                         .overlay(RoundedRectangle(cornerRadius: 7)
                             .strokeBorder(Theme.rule, lineWidth: 1.5))
                     PrefButton(title: L.t("Ripristina le istruzioni di Kalamos",
@@ -322,7 +322,7 @@ struct WordsSection: View {
             .textFieldStyle(.plain)
             .font(Theme.font(12.5))
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.6)))
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
             .frame(maxWidth: 190)
     }
@@ -357,11 +357,11 @@ struct WordsSection: View {
                         .accessibilityLabel(L.t("Togli", "Remove", "Retirer"))
                     }
                     .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(index.isMultiple(of: 2) ? Color.white.opacity(0.45) : .clear)
+                    .background(index.isMultiple(of: 2) ? Theme.card.opacity(0.75) : .clear)
                 }
             }
         }
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.25)))
+        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card.opacity(0.45)))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
     }
 }

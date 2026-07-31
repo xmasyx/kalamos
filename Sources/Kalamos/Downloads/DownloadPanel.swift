@@ -50,7 +50,7 @@ final class DownloadPanel: NSObject, NSWindowDelegate {
         p.isFloatingPanel = true
         p.level = .floating
         p.hidesOnDeactivate = false
-        p.backgroundColor = NSColor(Theme.paper)
+        p.backgroundColor = Theme.paperNS
         p.isMovableByWindowBackground = true
         p.isReleasedWhenClosed = false
         p.delegate = self

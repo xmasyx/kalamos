@@ -38,7 +38,7 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         w.title = L.t("Preferenze di Kalamos", "Kalamos Preferences", "Préférences de Kalamos")
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.titlebarAppearsTransparent = true
-        w.backgroundColor = NSColor(Theme.paper)
+        w.backgroundColor = Theme.paperNS
         w.isReleasedWhenClosed = false
         w.delegate = self
         w.setContentSize(size)

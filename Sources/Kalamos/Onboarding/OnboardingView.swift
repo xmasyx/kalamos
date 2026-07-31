@@ -403,7 +403,7 @@ struct OnboardingView: View {
                    alignment: .center)
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 8)
-                .fill(on ? Theme.penWash : Color.white.opacity(0.55)))
+                .fill(on ? Theme.penWash : Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(on ? Theme.pen : Theme.rule, lineWidth: 1.5))
             .contentShape(RoundedRectangle(cornerRadius: 8))
@@ -442,7 +442,7 @@ struct OnboardingView: View {
             }
         }
         .padding(.horizontal, 13).padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.55)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.rule, lineWidth: 1.5))
     }
 

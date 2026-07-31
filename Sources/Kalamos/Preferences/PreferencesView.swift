@@ -283,7 +283,7 @@ struct ChipRow<Value: Hashable>: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, card ? 8 : 13)
                     .background(RoundedRectangle(cornerRadius: 7)
-                        .fill(isOn(option.value) ? Theme.penWash : Color.white.opacity(0.55)))
+                        .fill(isOn(option.value) ? Theme.penWash : Theme.card))
                     .overlay(RoundedRectangle(cornerRadius: 7)
                         .strokeBorder(isOn(option.value) ? Theme.pen : Theme.rule, lineWidth: 1.5))
                     .contentShape(RoundedRectangle(cornerRadius: 7))

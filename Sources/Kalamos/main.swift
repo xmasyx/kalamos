@@ -275,6 +275,61 @@ if CommandLine.arguments.contains("--selftest-corrections") {
     exit(0)
 }
 
+// `--scatta=<file.png>` — photograph a window of this app and quit.
+//
+// It exists because the livery now has two faces, and "it looks fine" is not a
+// claim anyone can check afterwards. Two rules paid for elsewhere are built in:
+// it renders in a REAL window (an offscreen host draws no system material — a
+// sidebar comes out white and empty), and it takes the picture with
+// `screencapture`, because what a view draws for itself is not what the window
+// server composites on screen.
+//
+// It deliberately does NOT start the app: no event tap, no hotkey, no model
+// warm-up, nothing that would fight the running Kalamos. It builds the window and
+// nothing else. `--dark` and `--light` force the appearance, so the night face can
+// be looked at in the afternoon.
+if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
+   let path = flag.split(separator: "=", maxSplits: 1).last.map(String.init) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    if CommandLine.arguments.contains("--dark") {
+        app.appearance = NSAppearance(named: .darkAqua)
+    } else if CommandLine.arguments.contains("--light") {
+        app.appearance = NSAppearance(named: .aqua)
+    }
+
+    if CommandLine.arguments.contains("--onboarding") {
+        // The one screen that has no second chance: whoever installs the app sees it
+        // once. Its actions are all no-ops here — nothing asks for a permission, so
+        // the probe cannot pop a system prompt at somebody's desk.
+        OnboardingWindow.shared.show(state: AppState.shared, actions: OnboardingActions(
+            applyTriggerKey: { _ in }, applyTriggerMode: { _ in },
+            requestMicrophone: { _ in }, requestAccessibility: {},
+            openMicrophoneSettings: {}, finish: {}))
+    } else {
+        PreferencesWindow.shared.show(state: AppState.shared, actions: PreferencesActions(
+            apply: { _ in }, isLaunchAtLogin: { false },
+            showDiagnostics: {}, rerunOnboarding: {}))
+    }
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        guard let window = NSApp.windows.first(where: {
+            $0.isVisible && $0.styleMask.contains(.titled)
+        }) else {
+            FileHandle.standardError.write("scatta: no window\n".data(using: .utf8)!)
+            exit(2)
+        }
+        let shot = Process()
+        shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-o", "-l\(window.windowNumber)", path]
+        try? shot.run()
+        shot.waitUntilExit()
+        print(path)
+        exit(0)
+    }
+    app.run()
+}
+
 // Kalamos entry point.
 // A menu-bar-only app: `.accessory` keeps it out of the Dock and app switcher.
 let app = NSApplication.shared

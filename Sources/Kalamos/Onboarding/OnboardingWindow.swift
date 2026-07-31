@@ -38,7 +38,7 @@ final class OnboardingWindow: NSObject, NSWindowDelegate {
         w.title = "Welcome to Kalamos"
         w.styleMask = [.titled, .closable]
         w.titlebarAppearsTransparent = true
-        w.backgroundColor = NSColor(Theme.paper)
+        w.backgroundColor = Theme.paperNS
         w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false        // we hold the reference ourselves
         w.delegate = self
