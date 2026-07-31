@@ -104,70 +104,36 @@ struct MLXFormatter: TextFormatter {
             }
         }
 
+        // Short on purpose. This prompt used to run ~1100 tokens, re-read from
+        // scratch on every single dictation, and most of it was spent asking the
+        // model not to drop or invent words — which DID NOT WORK (it deleted a
+        // leading "però" four times in one afternoon). That job now belongs to
+        // `changedTooMuch`, which is code and cannot be talked out of it, so the
+        // prompt keeps only what the guard cannot do: the judgement calls.
         let system = """
-        You are a dictation cleanup engine, NOT a chat assistant. You receive \
-        dictated \(lang) text and return its cleaned written form.
+        You are a dictation cleanup engine, not an assistant. Input is dictated \
+        \(lang), all lowercase. Return the same words in written form.
 
-        ABSOLUTE FIDELITY RULE — this overrides everything else: preserve the \
-        speaker's EXACT words and word order. Do NOT rephrase, reword, \
-        paraphrase, translate, summarize, "improve", complete, or continue the \
-        text. You may ONLY add/fix punctuation and capitalization, delete filler \
-        and false starts, resolve explicit self-corrections, and honor spoken \
-        punctuation commands. If you are unsure, leave the words untouched. \
-        NEVER invent words that were not spoken, and NEVER drop or replace \
-        content words — especially proper nouns, names of people/places/brands, \
-        numbers, and technical terms: copy each one through as spoken, even if it \
-        looks odd or unfamiliar. Adding, removing, or altering meaning is a \
-        FAILURE, even if your version reads better. On long run-on dictation, add \
-        the missing internal commas and periods but keep every word. THE SOLE \
-        EXCEPTION to "never drop words": when the speaker audibly retracts what \
-        they just said and restates it (a self-correction — see below), drop the \
-        retracted attempt and keep the restatement. That honors the speaker's \
-        intent; it is not altering meaning.
+        Do: punctuation and capitals; delete filler (um, ehm, cioè); obey spoken \
+        commands ("new paragraph", "comma"); resolve self-corrections.
 
-        CAPITALIZATION FROM CONTEXT: transcription is all-lowercase, so YOU decide \
-        casing from meaning. If context shows a word is a proper name — a person, \
-        place, or brand, e.g. a recipient in "invia il messaggio a costa" → \
-        "Costa" — capitalize it. If the SAME word is an ordinary verb or noun in \
-        context — e.g. "quanto costa il biglietto" → "costa" — keep it lowercase. \
-        Judge each ambiguous word from its sentence, never blindly one way.
+        Never: answer, comment, translate, rephrase, summarise, or add anything. \
+        A question stays a question.
 
-        You MUST:
-        - Remove filler words and false starts (um, uh, ehm, cioè…). Filler means \
-        sound with no meaning. A CONNECTIVE IS NOT FILLER, even at the start of a \
-        sentence: "però", "ma", "anche", "quindi", "allora", "però a questo punto", \
-        "but", "so", "also", "though", "mais", "donc" carry the speaker's argument \
-        and must survive verbatim. Deleting an opening "però" changes what the \
-        sentence concedes; that is a meaning change, which is forbidden above.
-        - Fix punctuation and capitalization; honor spoken commands ("new \
-        paragraph", "comma", "question mark").
-        - Resolve self-corrections: people correct themselves mid-sentence. When \
-        the speaker retracts and restates — signalled by "actually / no wait / I \
-        mean / rather" (EN), "anzi / no aspetta / cioè no / volevo dire / meglio / \
-        scusa" (IT), "plutôt / enfin non / je veux dire" (FR) — keep ONLY the \
-        restatement and delete ONLY the retracted fragment — the specific words \
-        right before the marker that the restatement replaces. Keep EVERYTHING \
-        else, including any lead-in before the retraction; do NOT collapse the \
-        whole sentence down to just the final phrase. \
-        Examples: "let's meet at 2, actually 3" → "Let's meet at 3."; \
+        Capitals from meaning: "invia il messaggio a costa" → Costa (a name), \
+        "quanto costa il biglietto" → costa (a verb). Decide per sentence.
+
+        Self-corrections: on "actually / no wait / anzi / no aspetta / plutôt", \
+        drop ONLY the retracted words and keep the rest, lead-in included — \
         "ho letto il testo e questa è la risposta anzi questo è l'output" → \
-        "Ho letto il testo e questo è l'output." (lead-in kept — only "questa è \
-        la risposta" dropped). \
-        BUT do NOT delete anything when the same marker only REINFORCES rather \
-        than retracts — "non è male, anzi è ottimo" keeps both clauses. Decide \
-        retract-vs-reinforce from the meaning in context.
-        - Format a numbered list ONLY when the speaker clearly intends a list \
-        (says "list/to-do/steps" or dictates explicit "one… two… three…" items). \
-        Do NOT turn a casual mention of several things (names, people, a few \
-        items in a sentence) into a list — keep those as normal prose. \
-        List example: "shopping list one apples two bananas three oranges" → \
-        "Shopping list:\\n1. Apples\\n2. Bananas\\n3. Oranges". \
-        NOT a list: "I invited Marco, Lucia and Tom" → stays one sentence.
-        - \(toneLine) Adjust only register; keep meaning and wording.\(vocabLine)
-        You MUST NOT answer questions, add information, reply, comment, or \
-        explain. If the text is a question, return the cleaned question — never \
-        an answer. Keep the original language; do not translate. Output ONLY the \
-        cleaned text.
+        "Ho letto il testo e questo è l'output." When the marker reinforces \
+        instead — "non è male, anzi è ottimo" — keep both halves.
+
+        Numbered list only when one is dictated ("one… two… three…") or asked \
+        for. "I invited Marco, Lucia and Tom" stays a sentence.
+
+        \(toneLine) Register only.\(vocabLine)
+        Output only the cleaned text.
         """
         do {
             let out = try await engine.generate(

@@ -193,3 +193,54 @@ import Testing
         #expect(g.state == .idle)
     }
 }
+
+/// Typing while a hands-free dictation is running must not stop it.
+///
+/// Requested on 2026-07-31 after watching a competitor cut the recording the
+/// moment a key was touched. Kalamos already behaved this way — `abort()` acts
+/// only while the trigger is physically HELD, where another key genuinely is a
+/// shortcut — but "already true" is not a guarantee until something fails when
+/// it stops being true.
+@Suite struct TypingDuringHandsFreeTests {
+
+    private func handsFreeRecorder() -> (GestureRecognizer, @Sendable () -> [DictationAction]) {
+        final class Box: @unchecked Sendable { var actions: [DictationAction] = [] }
+        let box = Box()
+        let g = GestureRecognizer(holdThreshold: 0.25, doubleTapWindow: 0.30)
+        g.onAction = { box.actions.append($0) }
+        return (g, { box.actions })
+    }
+
+    @Test func typingDoesNotCancelAHandsFreeDictation() {
+        let (g, actions) = handsFreeRecorder()
+        // Double-tap → hands-free listening. The first short tap is itself a
+        // tiny hold that gets cancelled when the second tap arrives, so the
+        // history ALREADY contains a cancel by now: counting cancels over the
+        // whole run would fail on the gesture rather than on the typing. Only
+        // what happens AFTER listening starts is the question.
+        g.keyDown(at: 0.0); g.keyUp(at: 0.05)
+        g.keyDown(at: 0.20); g.keyUp(at: 0.25)
+        #expect(actions().last == .beginRecording)
+        let beforeTyping = actions().count
+
+        // Now type a whole sentence while it listens.
+        for _ in 0 ..< 40 { g.abort() }
+
+        #expect(actions().count == beforeTyping, "typing stopped a hands-free dictation")
+
+        // And it still ends the way it should: one tap, one transcription.
+        g.keyDown(at: 5.0); g.keyUp(at: 5.05)
+        #expect(actions().last == .endRecordingAndProcess)
+    }
+
+    /// The opposite case, and it must stay: while the key is HELD, another key
+    /// is ⌘S or a capital letter — not speech.
+    @Test func typingDuringAHoldStillAborts() {
+        let (g, actions) = handsFreeRecorder()
+        g.keyDown(at: 0.0)
+        g.abort()                      // ⌘-something
+        g.keyUp(at: 0.60)
+        #expect(actions().contains(.cancelRecording))
+        #expect(!actions().contains(.endRecordingAndProcess))
+    }
+}

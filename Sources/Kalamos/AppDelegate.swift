@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: DictationController!
     private var recentMenu: NSMenu!
     private var hintItem: NSMenuItem!
+    private var statusItem_: NSMenuItem!
+    private var headerSeparator: NSMenuItem!
     private var accessibilityTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
 
@@ -139,13 +141,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.delegate = self
-        menu.addItem(NSMenuItem(title: L.statusLine(state.status), action: nil, keyEquivalent: ""))
-        menu.addItem(.separator())
 
+        // The status line and the trigger hint are NOT permanent rows.
+        //
+        // "Kalamos — idle" says nothing is happening, which is true almost every
+        // time you open this menu, and the hint teaches a key you learned on day
+        // one. Two lines and a separator of pure furniture above the things you
+        // actually came here to click. Both are built here and then shown or
+        // hidden per open, in `menuNeedsUpdate`: the status when there IS
+        // something happening, the hint until you have dictated a few times.
+        statusItem_ = NSMenuItem(title: L.statusLine(state.status), action: nil, keyEquivalent: "")
+        statusItem_.isEnabled = false
+        menu.addItem(statusItem_)
         hintItem = NSMenuItem(title: triggerHint(), action: nil, keyEquivalent: "")
         hintItem.isEnabled = false
         menu.addItem(hintItem)
-        menu.addItem(.separator())
+        headerSeparator = NSMenuItem.separator()
+        menu.addItem(headerSeparator)
 
         let copyLast = NSMenuItem(title: L.t("Copia l'ultima trascrizione",
                                              "Copy Last Transcription",
@@ -200,8 +212,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Menu refresh
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
-        menu.items.first?.title = L.statusLine(state.status)
+
+        // Say what is happening only when something is.
+        let busy = state.status != .idle
+        statusItem_.title = L.statusLine(state.status)
+        statusItem_.isHidden = !busy
+
+        // The hint retires itself. Five dictations is enough to know which key
+        // you hold; after that it is a line you read past forever.
+        let stillLearning = history.entries.count < 5
         hintItem.title = triggerHint()
+        hintItem.isHidden = !stillLearning
+
+        headerSeparator.isHidden = !busy && !stillLearning
         rebuildRecentMenu()
     }
 
@@ -573,7 +596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .error:        image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: label)
         }
         statusItem.button?.image = image
-        statusItem.menu?.items.first?.title = label
+        statusItem_?.title = label
     }
 
     // MARK: Permissions → start hot key (auto-detects Accessibility grant; no restart)
