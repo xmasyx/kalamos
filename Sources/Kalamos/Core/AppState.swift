@@ -123,6 +123,15 @@ final class AppState: ObservableObject {
     /// the answer to that question is the language of the person.
     @Published var uiLanguage: Language { didSet { persist("uiLanguage", uiLanguage.rawValue) } }
 
+    /// Chain consecutive dictations with a space, so you do not reach for the
+    /// space bar between one and the next.
+    @Published var spaceBetweenDictations: Bool { didSet { persist("spaceBetweenDictations", spaceBetweenDictations) } }
+
+    /// Decide the first letter from what is already before the cursor: a capital
+    /// after a full stop, lowercase in the middle of a sentence you are still
+    /// finishing. Pointless without the space, and both are off by default.
+    @Published var smartCapitalization: Bool { didSet { persist("smartCapitalization", smartCapitalization) } }
+
     @Published var hotKeyCode: UInt16 { didSet { persist("hotKeyCode", Int(hotKeyCode)) } }
     @Published var formatterMode: FormatterMode { didSet { persist("formatterMode", formatterMode.rawValue) } }
     @Published var enabledLanguages: Set<Language> { didSet { persistLanguages() } }
@@ -224,6 +233,8 @@ final class AppState: ObservableObject {
             triggerMode = ((defaults.object(forKey: "pushToTalkEnabled") as? Bool) ?? true)
                 ? .both : .doubleTap
         }
+        spaceBetweenDictations = (defaults.object(forKey: "spaceBetweenDictations") as? Bool) ?? false
+        smartCapitalization = (defaults.object(forKey: "smartCapitalization") as? Bool) ?? false
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
         // 0x3F == Fn / Globe — default Edit-Mode modifier. Distinct from the
         // dictation trigger (Right Command), and NOT used to type text, so it

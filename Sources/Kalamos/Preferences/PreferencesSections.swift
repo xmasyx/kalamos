@@ -66,6 +66,36 @@ struct DictationSection: View {
                         })
             }
 
+            PrefRow(title: L.t("Dettature una dopo l'altra", "One dictation after another",
+                               "Dictées à la suite"),
+                    note: L.t("Quando detti più volte di seguito nello stesso punto, Kalamos può occuparsi dello spazio e della maiuscola al posto tuo.",
+                              "When you dictate several times into the same place, Kalamos can handle the space and the capital for you.",
+                              "Quand vous dictez plusieurs fois au même endroit, Kalamos peut gérer l’espace et la majuscule.")) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Toggle(isOn: $draft.spaceBetweenDictations) {
+                        Text(L.t("Metti uno spazio prima", "Add a space in front",
+                                 "Ajouter une espace devant"))
+                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                    }
+                    .toggleStyle(.switch).tint(Theme.pen)
+
+                    Toggle(isOn: $draft.smartCapitalization) {
+                        Text(L.t("Decidi la maiuscola da quello che c'è prima",
+                                 "Decide the capital from what comes before",
+                                 "Décider la majuscule d’après ce qui précède"))
+                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                    }
+                    .toggleStyle(.switch).tint(Theme.pen)
+
+                    Text(L.t("Maiuscola dopo un punto, minuscola se stai finendo una frase. Dove l'app non lascia leggere quello che c'è prima del cursore — terminali, Electron — la maiuscola resta com'è.",
+                             "A capital after a full stop, lowercase when you are still finishing a sentence. Where an app will not let Kalamos read what is before the cursor — terminals, Electron — the capital is left alone.",
+                             "Majuscule après un point, minuscule si la phrase continue. Là où l’app ne laisse pas lire ce qui précède le curseur, la majuscule reste telle quelle."))
+                        .font(Theme.font(11.5))
+                        .foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             PrefRow(title: L.t("Modello che ti ascolta", "The model that hears you",
                                "Le modèle qui vous écoute"),
                     note: L.t("Turbo è il compromesso giusto quasi sempre.",

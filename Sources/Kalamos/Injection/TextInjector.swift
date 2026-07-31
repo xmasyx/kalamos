@@ -29,6 +29,39 @@ enum TextInjector {
         return (s?.isEmpty == false) ? s : nil
     }
 
+    /// The characters immediately to the left of the cursor, as far back as
+    /// `limit`, or nil when the focused app will not say.
+    ///
+    /// This is how "space between dictations" and "smart capitalization" know
+    /// what they are continuing. Native apps answer; Electron and most terminals
+    /// do not expose a selected range, and there the two settings degrade to
+    /// their safe half rather than guessing.
+    static func textBeforeCursor(limit: Int = 80) -> String? {
+        let system = AXUIElementCreateSystemWide()
+        var focused: AnyObject?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let element = focused else { return nil }
+        let el = element as! AXUIElement
+
+        var rangeValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let boxed = rangeValue, CFGetTypeID(boxed) == AXValueGetTypeID() else { return nil }
+        var caret = CFRange()
+        guard AXValueGetValue(boxed as! AXValue, .cfRange, &caret) else { return nil }
+
+        let start = max(0, caret.location - limit)
+        let length = caret.location - start
+        guard length > 0 else { return "" }        // the cursor is at the very beginning
+
+        var wanted = CFRange(location: start, length: length)
+        guard let rangeArg = AXValueCreate(.cfRange, &wanted) else { return nil }
+        var text: AnyObject?
+        guard AXUIElementCopyParameterizedAttributeValue(
+                el, kAXStringForRangeParameterizedAttribute as CFString, rangeArg, &text) == .success
+        else { return nil }
+        return text as? String
+    }
+
     static func inject(_ text: String) {
         guard !text.isEmpty else { return }
         let pb = NSPasteboard.general

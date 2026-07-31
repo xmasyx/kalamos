@@ -257,6 +257,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state.translationEnabled = draft.translationEnabled
         state.translationTarget = draft.translationTarget
         state.formatterMode = draft.formatterMode
+        state.spaceBetweenDictations = draft.spaceBetweenDictations
+        state.smartCapitalization = draft.smartCapitalization
 
         applySpeechModel(draft.whisperModel)
         applyCleanupModel(draft.cleanupModelID)

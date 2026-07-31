@@ -19,6 +19,8 @@ import Foundation
 struct SettingsDraft: Equatable {
     var uiLanguage: Language
     var hotKeyCode: UInt16
+    var spaceBetweenDictations: Bool
+    var smartCapitalization: Bool
     var triggerMode: TriggerMode
     var autoDetectLanguage: Bool
     var defaultLanguage: Language
@@ -39,6 +41,8 @@ struct SettingsDraft: Equatable {
     init(state: AppState, launchAtLogin: Bool) {
         uiLanguage = state.uiLanguage
         hotKeyCode = state.hotKeyCode
+        spaceBetweenDictations = state.spaceBetweenDictations
+        smartCapitalization = state.smartCapitalization
         triggerMode = state.triggerMode
         autoDetectLanguage = state.autoDetectLanguage
         defaultLanguage = state.defaultLanguage
@@ -60,6 +64,8 @@ struct SettingsDraft: Equatable {
         var n = 0
         if uiLanguage != other.uiLanguage { n += 1 }
         if hotKeyCode != other.hotKeyCode { n += 1 }
+        if spaceBetweenDictations != other.spaceBetweenDictations { n += 1 }
+        if smartCapitalization != other.smartCapitalization { n += 1 }
         if triggerMode != other.triggerMode { n += 1 }
         if autoDetectLanguage != other.autoDetectLanguage || defaultLanguage != other.defaultLanguage { n += 1 }
         if translationEnabled != other.translationEnabled || translationTarget != other.translationTarget { n += 1 }

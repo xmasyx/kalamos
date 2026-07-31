@@ -125,6 +125,8 @@ final class DictationController {
         let autoDetect = state.autoDetectLanguage
         let enabledLanguages = state.enabledLanguages
         let promptOverride = state.cleanupPromptOverride
+        let addSpace = state.spaceBetweenDictations
+        let smartCapitals = state.smartCapitalization
 
         // Consume the Edit-Mode capture for this utterance (reset immediately so
         // the next dictation is normal unless the modifier is held again).
@@ -187,7 +189,16 @@ final class DictationController {
                 Log.write("output=\"\(text)\"")
 
                 history.add(text, language: outputLang)
-                TextInjector.inject(text)
+                // Fit it to what is already there — a space to chain onto the
+                // previous dictation, and a first letter that agrees with it.
+                // Both settings are off unless asked for; the context read is
+                // best-effort and skipped where the app will not answer.
+                let shaped = TextShaping.prepare(
+                    text,
+                    before: (addSpace || smartCapitals) ? TextInjector.textBeforeCursor() : nil,
+                    addSpace: addSpace,
+                    smartCapitals: smartCapitals)
+                TextInjector.inject(shaped)
                 UsageLog.record()
                 finishQuietly()
                 Log.write("injected ✓")
