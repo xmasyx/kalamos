@@ -76,11 +76,12 @@ struct DictationSection: View {
             // produced a wall — "troppo confusionario", and he was right: four
             // switches with a paragraph apiece is a page you skip rather than
             // read. The rule is a line that fits on one line.
+            // The terminal line sits BETWEEN the pairs, not above all four: the
+            // first two are for ordinary writing, the last two are for a shell
+            // prompt and a search box. As a heading it was simply false, which he
+            // said in as many words.
             PrefRow(title: L.t("Impostazioni aggiuntive", "Additional settings",
-                               "Réglages supplémentaires"),
-                    note: L.t("Soprattutto per il terminale e i campi di ricerca.",
-                              "Mostly for terminals and search fields.",
-                              "Surtout pour le terminal et les champs de recherche.")) {
+                               "Réglages supplémentaires")) {
                 VStack(alignment: .leading, spacing: 12) {
                     PrefToggle(title: L.t("Metti uno spazio prima", "Add a space in front",
                                           "Ajouter une espace devant"),
@@ -96,6 +97,13 @@ struct DictationSection: View {
                                          "A capital after a full stop, lowercase mid-sentence.",
                                          "Majuscule après un point, minuscule en milieu de phrase."),
                                isOn: $draft.smartCapitalization)
+
+                    Text(L.t("Soprattutto per il terminale e i campi di ricerca.",
+                             "Mostly for terminals and search fields.",
+                             "Surtout pour le terminal et les champs de recherche."))
+                        .font(Theme.font(11.5))
+                        .foregroundStyle(Theme.inkFaded)
+                        .padding(.top, 4)
 
                     PrefToggle(title: L.t("Comincia sempre in minuscolo", "Always start lowercase",
                                           "Toujours commencer en minuscule"),
