@@ -305,25 +305,37 @@ struct ChipRow<Value: Hashable>: View {
 /// — written once so the next setting cannot be added crooked.
 struct PrefToggle: View {
     let title: String
+    var note: String = ""
     @Binding var isOn: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(Theme.font(12.5))
-                .foregroundStyle(Theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Theme.font(12.5))
+                    .foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Each switch says what it does. Four labels and one paragraph
+                // underneath explaining all four meant reading the paragraph and
+                // then matching sentences back to switches — "metti uno spazio
+                // prima di cosa?" is the question that proved it.
+                if !note.isEmpty {
+                    Text(note)
+                        .font(Theme.font(11))
+                        .foregroundStyle(Theme.inkFaded)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Spacer(minLength: 8)
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .tint(Theme.pen)
         }
-        // Capped, not stretched. Flush against the window edge leaves a lonely
-        // switch a whole pane away from its own label; this puts every switch in
-        // the same column, close enough to read as one row. "Aligned and
-        // harmonious", which is exactly how he asked for it.
-        .frame(maxWidth: 430, alignment: .leading)
+        // Flush to the right edge of the pane. A capped column looked tidier to
+        // me and wrong to him: the switches ended up floating in the middle with
+        // empty pane to their right.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -72,36 +72,46 @@ struct DictationSection: View {
             // dictation starts and ends, which has nothing to do with chaining.
             PrefRow(title: L.t("Impostazioni aggiuntive", "Additional settings",
                                "Réglages supplémentaires"),
-                    note: L.t("Quattro dettagli sul testo che esce: come si attacca a quello che c'è già, e come comincia e come finisce.",
-                              "Four details about the text that comes out: how it joins what is already there, and how it starts and ends.",
-                              "Quatre détails sur le texte produit : comment il rejoint ce qui précède, et comment il commence et finit.")) {
-                VStack(alignment: .leading, spacing: 9) {
+                    note: L.t("Servono soprattutto quando detti in un terminale o in un campo di ricerca: lì la maiuscola iniziale e il punto finale sono rumore, e se detti due volte di fila lo spazio in mezzo lo devi mettere tu.",
+                              "These matter most when you dictate into a terminal or a search field: there a leading capital and a final full stop are noise, and dictating twice in a row leaves you to type the space between.",
+                              "Utiles surtout dans un terminal ou un champ de recherche : la majuscule initiale et le point final y sont du bruit.")) {
+                VStack(alignment: .leading, spacing: 14) {
                     PrefToggle(title: L.t("Metti uno spazio prima", "Add a space in front",
-                                 "Ajouter une espace devant"), isOn: $draft.spaceBetweenDictations)
+                                          "Ajouter une espace devant"),
+                               note: L.t("Uno spazio davanti al testo nuovo, così si attacca a quello che hai dettato un attimo fa invece di appiccicarcisi.",
+                                         "A space in front of the new text, so it joins what you dictated a moment ago instead of sticking to it.",
+                                         "Une espace devant le texte, pour qu’il rejoigne le précédent au lieu de s’y coller."),
+                               isOn: $draft.spaceBetweenDictations)
 
                     PrefToggle(title: L.t("Decidi la maiuscola da quello che c'è prima",
-                                 "Decide the capital from what comes before",
-                                 "Décider la majuscule d’après ce qui précède"), isOn: $draft.smartCapitalization)
+                                          "Decide the capital from what comes before",
+                                          "Décider la majuscule d’après ce qui précède"),
+                               note: L.t("Se prima del cursore c'è un punto, comincia maiuscolo; se stai finendo una frase, minuscolo. Dove l'app non lascia leggere quello che c'è prima — terminali, Electron — la lascia com'è.",
+                                         "If there is a full stop before the cursor it starts with a capital; mid-sentence it starts lowercase. Where an app will not let Kalamos read what is before the cursor — terminals, Electron — it leaves it alone.",
+                                         "Après un point, majuscule ; en milieu de phrase, minuscule. Là où l’app ne laisse pas lire, elle ne touche à rien."),
+                               isOn: $draft.smartCapitalization)
 
                     PrefToggle(title: L.t("Comincia sempre in minuscolo", "Always start lowercase",
-                                 "Toujours commencer en minuscule"), isOn: $draft.lowercaseFirstLetter)
+                                          "Toujours commencer en minuscule"),
+                               note: L.t("Sempre, senza guardare cosa c'è prima. È il modo giusto per il terminale e per i campi di ricerca.",
+                                         "Always, without looking at what comes before. The right setting for terminals and search fields.",
+                                         "Toujours, sans regarder ce qui précède. Le bon réglage pour le terminal."),
+                               isOn: $draft.lowercaseFirstLetter)
 
                     PrefToggle(title: L.t("Togli il punto finale", "Drop the final full stop",
-                                 "Retirer le point final"), isOn: $draft.removeTrailingPeriod)
+                                          "Retirer le point final"),
+                               note: L.t("Il punto in fondo alla frase, che in un comando o in una ricerca non serve. Il punto interrogativo resta, perché quello vuol dire qualcosa.",
+                                         "The full stop at the end, which a command or a search query does not want. A question mark stays: that one means something.",
+                                         "Le point final, inutile dans une commande. Le point d’interrogation reste."),
+                               isOn: $draft.removeTrailingPeriod)
 
-                    Text(L.t("Le ultime due servono per le ricerche e per il terminale, dove la maiuscola e il punto sono rumore. Il punto interrogativo resta: quello vuol dire qualcosa.",
-                             "The last two are for search fields and terminals, where a capital and a full stop are noise. A question mark stays: that one means something.",
-                             "Les deux dernières servent aux recherches et au terminal. Le point d’interrogation reste : lui veut dire quelque chose."))
-                        .font(Theme.font(11.5))
+                    Text(L.t("Kalamos sa già di essere in un terminale — è così che lì non tocca le tue parole — ma non può distinguere una riga di comando da una domanda scritta a un assistente nella stessa finestra. Per questo le ultime due restano una tua scelta invece di accendersi da sole.",
+                             "Kalamos already knows it is in a terminal — that is how it leaves your words alone there — but it cannot tell a shell command from a question typed to an assistant in the same window. That is why the last two stay your choice instead of switching themselves on.",
+                             "Kalamos sait déjà qu’il est dans un terminal, mais ne peut pas distinguer une commande d’une question posée à un assistant dans la même fenêtre."))
+                        .font(Theme.font(11))
                         .foregroundStyle(Theme.inkFaded)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    Text(L.t("Maiuscola dopo un punto, minuscola se stai finendo una frase. Dove l'app non lascia leggere quello che c'è prima del cursore — terminali, Electron — la maiuscola resta com'è.",
-                             "A capital after a full stop, lowercase when you are still finishing a sentence. Where an app will not let Kalamos read what is before the cursor — terminals, Electron — the capital is left alone.",
-                             "Majuscule après un point, minuscule si la phrase continue. Là où l’app ne laisse pas lire ce qui précède le curseur, la majuscule reste telle quelle."))
-                        .font(Theme.font(11.5))
-                        .foregroundStyle(Theme.inkFaded)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
                 }
             }
 
