@@ -249,8 +249,15 @@ struct ChipRow<Value: Hashable>: View {
 
     @ViewBuilder private var chips: some View {
         ForEach(options, id: \.value) { option in
+                // A single word floating against the left edge of a chip that is
+                // wider than it needs to be looks like a mistake; centred, the
+                // grid reads as a row of buttons. A chip with a second line is a
+                // small card instead, and two lines of different lengths only
+                // look right stacked against the same edge — so it keeps left,
+                // and gets the breathing room that made these feel cramped.
+                let card = !option.note.isEmpty
                 Button { pick(option.value) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: card ? .leading : .center, spacing: card ? 3 : 2) {
                         // The chosen chip is written in ink that is still wet.
                         // A 13%-blue wash and a border alone read as grey at a
                         // glance — seen on the first build, where the selection
@@ -271,9 +278,10 @@ struct ChipRow<Value: Hashable>: View {
                                 .foregroundStyle(Theme.inkFaded)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: card ? 30 : 0,
+                           alignment: card ? .leading : .center)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, card ? 12 : 8)
                     .background(RoundedRectangle(cornerRadius: 7)
                         .fill(isOn(option.value) ? Theme.penWash : Color.white.opacity(0.55)))
                     .overlay(RoundedRectangle(cornerRadius: 7)
