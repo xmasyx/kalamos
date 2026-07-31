@@ -229,6 +229,25 @@ struct MLXFormatter: TextFormatter {
         "pourtant", "néanmoins", "plutôt",
     ]
 
+    /// Words that say "forget what I just said". Their presence in the input is
+    /// EVIDENCE that a fragment was meant to disappear, so the deletion budget
+    /// widens when one shows up.
+    ///
+    /// Found on 2026-07-31 by writing the demonstration of this guard for
+    /// the user: "la riunione è martedì alle dieci, no aspetta, mercoledì alle
+    /// dieci e mezza" — a textbook self-correction, resolved perfectly by the
+    /// model — was being DISCARDED. The retracted fragment was four content words
+    /// and the flat budget allowed three. The guard was throwing away the app's
+    /// headline feature whenever the retraction ran longer than a couple of words.
+    ///
+    /// Not in here: "plutôt", which is a connective and must keep failing, and
+    /// "no" / "ma", which are too common in ordinary speech to mean anything.
+    private static let retractionMarkers: Set<String> = [
+        "aspetta", "anzi", "scusa", "correggo", "volevo",
+        "wait", "sorry", "mean", "rather",
+        "pardon", "excuse",
+    ]
+
     static func changedTooMuch(from input: String, to output: String,
                                strict: Bool = false) -> Bool {
         let before = contentWords(input)
@@ -259,7 +278,19 @@ struct MLXFormatter: TextFormatter {
         // Longer texts get a budget in both directions. Deleting is how a lead-in
         // clause vanishes; inventing is how a misheard word gets confidently
         // "corrected" into a different one. Neither is cleanup.
-        return lost.count > max(3, before.count / 5)
+        //
+        // The deletion budget widens when the speaker audibly retracted
+        // something: "no aspetta", "anzi", "I mean" are the speaker ASKING for a
+        // fragment to be dropped, and resolving them is the point of the model.
+        // It stays bounded — a third of the text, never more — so a wholesale
+        // rewrite still fails whatever markers it contains.
+        // The marker has to have been REMOVED to count. "Il cliente aspetta" is a
+        // customer waiting, not a retraction, and a marker that survives into the
+        // output plainly was not one — widening the budget there would loosen the
+        // guard on every sentence that happens to contain the word.
+        let retracted = lost.contains { retractionMarkers.contains($0) }
+        let deletionBudget = retracted ? max(5, before.count / 3) : max(3, before.count / 5)
+        return lost.count > deletionBudget
             || invented > max(2, before.count / 10)
     }
 }
