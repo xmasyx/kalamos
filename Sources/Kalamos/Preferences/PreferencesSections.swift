@@ -339,22 +339,20 @@ struct WordsSection: View {
     }
 }
 
-/// A list that grows with its contents, and then stops growing (ISC-112).
+/// A list that grows with its contents, then stops growing and scrolls ALONE.
 ///
-/// It used to be a bare `VStack` with no ceiling and no scroller. Past a dozen
-/// or so entries the rows ran off the bottom of the window with no way to reach
-/// them: the words were still there and still biasing the transcriber, simply
-/// unreachable from the only screen that can delete them. Nothing failed, which
-/// is why it survived — a list that is too long looks exactly like a list that
-/// ends where the window does.
+/// ISC-112 said the rows ran off the bottom of the window "with no way to reach
+/// them". That was read out of the source and never reproduced, and it was
+/// wrong: this section sits inside the Preferences page's own scroll view, so a
+/// long list was always reachable by scrolling the page. What the ceiling really
+/// buys is that the Corrections box stays on screen next to the words instead of
+/// being pushed a page and a half down by a vocabulary that keeps growing —
+/// which it now does from the menu bar, without this window ever being open.
 ///
-/// The ceiling matters more now than it did: ⌃⌥L and ⌃⌥K add entries from the
-/// menu bar without ever opening this window, so the funnel that fills the list
-/// is faster than the screen that shows it.
-///
-/// Height is measured, not counted. Rows wrap, so a row count times an assumed
-/// row height is a guess that breaks on the first correction long enough to take
-/// two lines.
+/// The ceiling brought its own bug, and the user found it in one gesture: with
+/// the pointer over the list, reaching the last row handed the wheel to the page
+/// underneath and the whole window took off. AppKit calls that scroll chaining
+/// and does it by design; `ContainedScroll` is the whole answer to it.
 private struct PrefList<Item: Hashable, Row: View>: View {
     let items: [Item]
     let empty: String
@@ -367,7 +365,7 @@ private struct PrefList<Item: Hashable, Row: View>: View {
     private let cap: CGFloat = 228
 
     var body: some View {
-        ScrollView(.vertical) {
+        ContainedScroll(cap: cap) {
             VStack(alignment: .leading, spacing: 0) {
                 if items.isEmpty {
                     Text(empty)
@@ -396,22 +394,125 @@ private struct PrefList<Item: Hashable, Row: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // Grow to fit, then stop and scroll — and NOT by measuring.
-        //
-        // The first version put a `GeometryReader` inside the scroll view and
-        // drove the frame from what it read, which means reading back a height
-        // the frame itself has already imposed. It happened to settle correctly,
-        // and that is the problem: nothing in it says it must.
-        //
-        // `fixedSize` asks the scroll view for its IDEAL height, which is its
-        // content's, and `maxHeight` then clamps it. One pass, no state, nothing
-        // to converge. The order matters: clamp first, take the ideal second.
-        // Photographed at both ends — two entries draw a two-row box, eight draw
-        // six rows and stop.
-        .frame(maxHeight: cap)
-        .fixedSize(horizontal: false, vertical: true)
         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card.opacity(0.45)))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
+    }
+}
+
+// MARK: - A scroll view that keeps the wheel to itself
+
+/// Grows with its content up to `cap`, then scrolls — and never hands the wheel
+/// to the scroll view underneath it.
+///
+/// SwiftUI has no modifier for this on macOS (there is no `overscroll-behavior`
+/// here), so the box is a real `NSScrollView` with SwiftUI hosted inside it. The
+/// height comes from `sizeThatFits`, which asks the hosted content how tall it
+/// wants to be at the offered width and clamps the answer. That is a question
+/// about the content only — nothing reads back a height this view has already
+/// imposed, so there is no loop to converge.
+private struct ContainedScroll<Content: View>: NSViewRepresentable {
+    let cap: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    /// A second copy of the content, hosted in NO window and NO hierarchy, whose
+    /// only job is to answer "how tall at this width?".
+    ///
+    /// The first attempt measured the live view: set its width constraint, force
+    /// `layoutSubtreeIfNeeded`, read the height. That is a layout pass started
+    /// from inside a layout pass, and AppKit kills the process for it — the
+    /// window never even opened. Measuring a detached copy asks the same question
+    /// with nothing running underneath it.
+    @MainActor final class Measurer {
+        let view: NSHostingView<Content>
+        init(_ content: Content) { view = NSHostingView(rootView: content) }
+
+        func height(atWidth width: CGFloat) -> CGFloat {
+            view.frame.size.width = width
+            return view.fittingSize.height
+        }
+    }
+
+    func makeCoordinator() -> Measurer { Measurer(content()) }
+
+    func makeNSView(context: Context) -> NoChainScrollView {
+        let scroll = NoChainScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        // No rubber band. Elasticity is what makes a list that is already at its
+        // end feel like it still has somewhere to go.
+        scroll.verticalScrollElasticity = .none
+        scroll.horizontalScrollElasticity = .none
+
+        let host = NSHostingView(rootView: content())
+        host.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = host
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            host.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+        ])
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NoChainScrollView, context: Context) {
+        (scroll.documentView as? NSHostingView<Content>)?.rootView = content()
+        context.coordinator.view.rootView = content()
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NoChainScrollView,
+                      context: Context) -> CGSize? {
+        let width = proposal.width ?? nsView.frame.width
+        guard width > 0 else { return nil }
+        return CGSize(width: width,
+                      height: min(context.coordinator.height(atWidth: width), cap))
+    }
+}
+
+/// The one behaviour this whole file exists to change.
+///
+/// AppKit chains by design: when a scroll view cannot move any further it hands
+/// the event up the responder chain, and the enclosing one takes over. Inside a
+/// settings page that reads as a bug — you reach the last word and the entire
+/// window takes off under your pointer.
+///
+/// So at the limit the event is EATEN rather than forwarded. Two exceptions keep
+/// it from becoming a dead zone: a list short enough to need no scrolling passes
+/// everything through, and a horizontal gesture is never ours.
+final class NoChainScrollView: NSScrollView {
+
+    override func scrollWheel(with event: NSEvent) {
+        // `documentVisibleRect` is in the flipped coordinates of the hosted
+        // SwiftUI view: y grows downward, so minY == 0 is the first row.
+        let swallow = Self.swallows(contentHeight: documentView?.bounds.height ?? 0,
+                                    visibleHeight: contentView.bounds.height,
+                                    offsetY: documentVisibleRect.minY,
+                                    deltaY: event.scrollingDeltaY,
+                                    deltaX: event.scrollingDeltaX)
+        if swallow { return }
+        super.scrollWheel(with: event)
+    }
+
+    /// Eat this wheel event, or let AppKit have it?
+    ///
+    /// Pulled out of `scrollWheel` because it is the only interesting thing in
+    /// this class and an `NSEvent` cannot be built in a test. As a pure function
+    /// of five numbers it is checkable, and `NoChainScrollTests` checks it at
+    /// every edge — including the two that would make it feel broken: a short
+    /// list must never swallow (the page would freeze under the pointer), and at
+    /// the bottom, scrolling back UP must never swallow (you could not return).
+    static func swallows(contentHeight: CGFloat, visibleHeight: CGFloat,
+                         offsetY: CGFloat, deltaY: CGFloat, deltaX: CGFloat) -> Bool {
+        // Nothing of ours to scroll → the page should still work under the
+        // pointer. Without this, hovering a two-word list would freeze the window.
+        guard contentHeight > visibleHeight + 0.5 else { return false }
+        // Sideways is not our gesture.
+        guard abs(deltaY) >= abs(deltaX) else { return false }
+
+        let atTop = offsetY <= 0.5
+        let atBottom = offsetY + visibleHeight >= contentHeight - 0.5
+        return (deltaY > 0 && atTop) || (deltaY < 0 && atBottom)
     }
 }
 
