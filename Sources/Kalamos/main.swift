@@ -118,25 +118,66 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
             guard let engine = SpeechEngine(rawValue: engineName) else {
                 print("motore sconosciuto: \(engineName)"); exit(2)
             }
-            // One decode of the audio, whichever engine is asked — a per-engine
-            // decode path would put format differences in the accuracy column.
-            let samples = try AudioConverter().resampleAudioFile(URL(fileURLWithPath: path))
+            // A file or a whole directory. A directory in ONE process is the
+            // point: Whisper pays ten to twenty seconds to load, and paying it
+            // per clip would put the load into the per-clip seconds.
+            var files: [URL] = []
+            let url = URL(fileURLWithPath: path)
+            var isDir: ObjCBool = false
+            FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+            if isDir.boolValue {
+                files = try FileManager.default
+                    .contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                    .filter { $0.pathExtension == "wav" }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            } else {
+                files = [url]
+            }
+            // ONE decode per clip, handed to whichever engine is asked. A
+            // per-engine decode path would put format differences into the
+            // accuracy column.
+            let converter = AudioConverter()
+            var samplesByClip: [(name: String, samples: [Float])] = []
+            for file in files {
+                samplesByClip.append((file.lastPathComponent,
+                                      try converter.resampleAudioFile(file)))
+            }
             let transcriber: Transcriber = engine == .whisper
                 ? WhisperKitTranscriber(modelName: await AppState.shared.whisperModel)
                 : ParakeetTranscriber()
             FileHandle.standardError.write(Data(
-                "motore: \(engine.rawValue) · \(samples.count) campioni · lingua \(forced?.rawValue ?? "auto")\n".utf8))
+                "motore: \(engine.rawValue) · \(samplesByClip.count) clip · \(repeats) passate · lingua \(forced?.rawValue ?? "auto")\n".utf8))
             try await transcriber.prepare()
             // Warm-up discarded: the first CoreML call pays lazy compilation.
-            _ = try await transcriber.transcribe(samples, allowedLanguages: [.italian, .english, .french], forced: forced)
-            for k in 1...max(1, repeats) {
-                let t0 = Date()
-                let out = try await transcriber.transcribe(
-                    samples, allowedLanguages: [.italian, .english, .french], forced: forced)
-                let seconds = Date().timeIntervalSince(t0)
-                print(String(format: "#%d  %.3fs  lang=%@  %@", k, seconds,
-                             out.detectedLanguage?.rawValue ?? "?",
-                             out.text.isEmpty ? "*** VUOTA ***" : out.text))
+            if let first = samplesByClip.first {
+                _ = try await transcriber.transcribe(
+                    first.samples, allowedLanguages: [.italian, .english, .french], forced: forced)
+            }
+            struct EngineRow: Codable {
+                let clip: String, engine: String, pass: Int
+                let text: String, seconds: Double, language: String?
+            }
+            var rows: [EngineRow] = []
+            for pass in 1...max(1, repeats) {
+                for clip in samplesByClip {
+                    let t0 = Date()
+                    let out = try await transcriber.transcribe(
+                        clip.samples, allowedLanguages: [.italian, .english, .french],
+                        forced: forced)
+                    let seconds = Date().timeIntervalSince(t0)
+                    rows.append(EngineRow(clip: clip.name, engine: engine.rawValue, pass: pass,
+                                          text: out.text, seconds: seconds,
+                                          language: out.detectedLanguage?.rawValue))
+                    print(String(format: "[p%d %@] %.3fs lang=%@ %@", pass, clip.name, seconds,
+                                 out.detectedLanguage?.rawValue ?? "?",
+                                 out.text.isEmpty ? "*** VUOTA ***" : out.text))
+                }
+            }
+            if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                try encoder.encode(rows).write(to: URL(fileURLWithPath: args[i + 1]))
+                print("scritto \(args[i + 1]) — \(rows.count) righe")
             }
         } catch {
             FileHandle.standardError.write(Data("selftest-engine: \(error)\n".utf8))
