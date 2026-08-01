@@ -220,6 +220,22 @@ final class DictationController {
                 if corrected != text { Log.write("corrections: \"\(text)\" → \"\(corrected)\"") }
                 text = corrected
 
+                // Then the vocabulary, in the same place and for the same reason.
+                //
+                // Until 2026-08-01 the word list did nothing to the text: it went
+                // into the cleanup prompt, and measured over 180 transcriptions
+                // from three engines it repaired ZERO names — "Calamos" stayed
+                // "Calamos" with "Kalamos" sitting in the prompt. A replacement
+                // rule you have to type by hand caught it; a word you named once
+                // did not. Now both are code.
+                //
+                // AFTER Corrections on purpose: a rule you wrote yourself is an
+                // instruction, and the vocabulary is a guess. The instruction goes
+                // first and the guess never gets to overrule it.
+                let repaired = VocabularyRepair.apply(to: text)
+                if repaired != text { Log.write("vocabulary: \"\(text)\" → \"\(repaired)\"") }
+                text = repaired
+
                 // 1b. Edit Mode: the dictation IS an instruction. Transform the
                 //     captured selection on-device and replace it (⌘V overwrites
                 //     the still-highlighted text). Skips the normal clean-up path.

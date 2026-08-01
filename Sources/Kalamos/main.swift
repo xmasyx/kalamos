@@ -85,6 +85,76 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
     exit(0)
 }
 
+// `Kalamos --selftest-vocab <corpus.json> [--terms a,b,c]`
+//
+// The negative pole for the vocabulary repair, and the reason it can ship. The
+// failure it has to be measured against is not the missed name — it is the
+// rescorer of 2026-07-31 that turned "nella sala grande" into "nella sala
+// Claude". So the probe runs the repair over a whole corpus of ordinary
+// dictations and PRINTS EVERY CHANGE, because a rate is not evidence: the only
+// way to know a repair is right is to read the ones it made.
+//
+// No MLX, no model: pure text, so it runs in a second.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-vocab <corpus.json> [--terms Kalamos,Claude,…]")
+        exit(2)
+    }
+    let terms: [String]
+    if let i = args.firstIndex(of: "--terms"), i + 1 < args.count {
+        terms = args[i + 1].split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+    } else {
+        terms = Vocabulary.terms
+    }
+    let minFuzzy = args.firstIndex(of: "--min-fuzzy").flatMap {
+        $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
+    } ?? VocabularyRepair.minFuzzyLength
+    struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
+    do {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let entries = try JSONDecoder().decode([Entry].self, from: data)
+        print("vocabolario (\(terms.count)): \(terms.joined(separator: ", "))")
+        print("corpus: \(entries.count) voci da \(path) · min-fuzzy=\(minFuzzy)\n")
+        var changed = 0, seen = 0
+        for entry in entries {
+            for field in [entry.raw, entry.text, entry.clean].compactMap({ $0 }) where !field.isEmpty {
+                seen += 1
+                let out = VocabularyRepair.apply(to: field, terms: terms,
+                                                 minFuzzyLength: minFuzzy)
+                guard out != field else { continue }
+                changed += 1
+                print("PRIMA: \(field)")
+                print("DOPO : \(out)\n")
+            }
+        }
+        print("— \(changed) testi cambiati su \(seen) —")
+        print("Ogni riga qui sopra va LETTA: un tasso non è una prova.")
+        // `--out` writes every text, repaired or not, so a second measurement can
+        // score the result instead of re-implementing the repair in another
+        // language and measuring that one by mistake.
+        if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
+            struct Pair: Codable { let before: String; let after: String }
+            let pairs = entries.flatMap { entry in
+                [entry.raw, entry.text, entry.clean].compactMap { $0 }.filter { !$0.isEmpty }
+                    .map { Pair(before: $0, after: VocabularyRepair.apply(
+                        to: $0, terms: terms, minFuzzyLength: minFuzzy)) }
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            try encoder.encode(pairs).write(to: URL(fileURLWithPath: args[i + 1]))
+            print("scritto \(args[i + 1]) — \(pairs.count) coppie")
+        }
+    } catch {
+        FileHandle.standardError.write(Data("selftest-vocab: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
 // `Kalamos --bench-clean <input.json> --out <results.json> [--arm-b <prompt.txt>]
 //          [--repeat N] [--terminal]`
 //
