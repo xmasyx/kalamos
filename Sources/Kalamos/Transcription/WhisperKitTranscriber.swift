@@ -179,7 +179,46 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // If the caller forced a language, that IS the source language (we told
         // Whisper to decode in it). Otherwise map the detected code/name and
         // validate to the enabled set (ISC-28).
-        let detected = forced ?? Self.mapLanguage(results.first?.language, allowed: allowedLanguages)
+        var detected = forced ?? Self.mapLanguage(results.first?.language, allowed: allowedLanguages)
+
+        // ISC-111 — when the words contradict the label, decode again in the
+        // language the words are actually in.
+        //
+        // The "Amen": at 01:21 on 2026-08-01 Whisper marked an entirely Italian
+        // sentence `lang=en`, decoded it with an English prior, and stuck a
+        // trailing-silence hallucination on the end. Six of 325 dictations were
+        // marked `lang=en`, two of them plainly Italian.
+        //
+        // Putting "amen" on the hallucination list would have hidden that one
+        // instance. A blacklist only catches what it already contains, and the
+        // next wrong-language decode invents a different word — the fault is the
+        // language decision, so this is where it is repaired.
+        //
+        // Only when we let Whisper choose (a forced language is the user's
+        // instruction, not a guess to second-guess), only when the hint is
+        // confident, and only into a language the user has enabled.
+        if forced == nil,
+           let corrected = LanguageHint.contradicts(detected, text: text),
+           allowedLanguages.contains(corrected) {
+            Log.write("language mismatch: whisper said \(detected?.rawValue ?? "?")"
+                      + " but the words look \(corrected.rawValue) — decoding again")
+            var second = options
+            second.language = corrected.rawValue
+            second.detectLanguage = false
+            let redone = try await pipe.transcribe(audioArray: samples, decodeOptions: second)
+            let redoneRaw = redone.map(\.text).joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let redoneText = Self.stripHallucinations(redoneRaw)
+            // Keep the first pass if the second one came back with nothing:
+            // a worse transcription is still better than none.
+            if !redoneText.isEmpty {
+                text = redoneText
+                detected = corrected
+                Log.write("re-decoded as \(corrected.rawValue): \"\(text)\"")
+            } else {
+                Log.write("re-decode came back empty — keeping the first pass")
+            }
+        }
         scheduleIdleUnload()
         return TranscriptionResult(text: text, detectedLanguage: detected)
     }
@@ -221,6 +260,11 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         "please subscribe", "subscribe", "bye",
         "grazie", "grazie per la visione", "grazie a tutti", "grazie per aver guardato",
         "grazie mille", "sottotitoli e revisione a cura di", "sottotitoli",
+        // "amen" earned its place the hard way (ISC-111): it is what an English
+        // prior invents on the tail of Italian speech. The real repair is the
+        // re-decode above — this is only the belt, for the times the hint is not
+        // confident enough to act.
+        "amen",
         "merci", "merci d'avoir regardé", "merci beaucoup", "abonnez-vous",
         "amara.org",
     ]

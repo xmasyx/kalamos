@@ -63,3 +63,68 @@ struct SelectedWordTests {
         #expect(AppDelegate.isWordShaped(String(repeating: "a", count: 60)))
     }
 }
+
+/// ISC-113 — undo restores the LIST, not just the row.
+///
+/// The bin next to every word deleted immediately and for ever. the user asked
+/// for ⌘Z on 2026-08-01: *"serve poter mettere appunto il torna indietro."*
+///
+/// The reason it is a snapshot and not a re-add is here: `Vocabulary.add`
+/// appends, so putting back a word deleted from the middle would return it to
+/// the bottom — the same words in a different order, which is not what was there.
+@MainActor
+struct ListUndoTests {
+    private func withCleanLists(_ body: ([String], [CorrectionRule]) -> Void) {
+        let savedTerms = Vocabulary.terms
+        let savedRules = Corrections.rules
+        defer { Vocabulary.setAll(savedTerms); Corrections.setAll(savedRules) }
+        body(savedTerms, savedRules)
+    }
+
+    @Test func undoingADeletionFromTheMiddleKeepsTheOrder() {
+        withCleanLists { _, _ in
+            Vocabulary.setAll(["alfa", "beta", "gamma"])
+            let before = Vocabulary.terms
+            Vocabulary.remove("beta")
+            #expect(Vocabulary.terms == ["alfa", "gamma"])
+
+            Vocabulary.setAll(before)
+            // Not just "beta is back" — back in the middle, where it was.
+            #expect(Vocabulary.terms == ["alfa", "beta", "gamma"])
+        }
+    }
+
+    /// Re-adding instead of restoring is the bug this guards against.
+    @Test func reAddingWouldPutTheWordInTheWrongPlace() {
+        withCleanLists { _, _ in
+            Vocabulary.setAll(["alfa", "beta", "gamma"])
+            Vocabulary.remove("beta")
+            Vocabulary.add("beta")
+            #expect(Vocabulary.terms == ["alfa", "gamma", "beta"])   // the wrong list
+        }
+    }
+
+    @Test func correctionsComeBackWholeToo() {
+        withCleanLists { _, _ in
+            Corrections.setAll([CorrectionRule(wrong: "calamos", correct: "Kalamos"),
+                                CorrectionRule(wrong: "otsium", correct: "Otium")])
+            let before = Corrections.rules
+            Corrections.remove(wrong: "calamos")
+            #expect(Corrections.rules.count == 1)
+
+            Corrections.setAll(before)
+            #expect(Corrections.rules.count == 2)
+            #expect(Corrections.rules.contains(CorrectionRule(wrong: "calamos", correct: "Kalamos")))
+        }
+    }
+
+    /// A snapshot of an empty list must empty the list, not leave it alone —
+    /// undoing the very first addition depends on it.
+    @Test func anEmptySnapshotEmptiesTheList() {
+        withCleanLists { _, _ in
+            Vocabulary.setAll(["alfa"])
+            Vocabulary.setAll([])
+            #expect(Vocabulary.terms.isEmpty)
+        }
+    }
+}

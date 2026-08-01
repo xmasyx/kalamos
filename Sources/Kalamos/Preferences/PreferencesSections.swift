@@ -258,6 +258,13 @@ struct WordsSection: View {
     @State private var newTerm = ""
     @State private var heard = ""
     @State private var written = ""
+    /// ISC-113 — ⌘Z on the two lists.
+    ///
+    /// The bin next to every word deleted immediately and for ever: one click
+    /// too many and a term you taught it months ago was gone with no appeal.
+    /// This is the window's own undo manager, so ⌘Z and the Edit menu both
+    /// reach it, and so does ⇧⌘Z to put the deletion back.
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         Group {
@@ -279,7 +286,11 @@ struct WordsSection: View {
                     list(terms, empty: L.t("Nessuna parola, per ora.", "No words yet.",
                                            "Aucun mot pour l’instant.")) { term in
                         Text(term).font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    } remove: { Vocabulary.remove($0); reload() }
+                    } remove: { term in
+                        undoably(L.t("Togli \(term)", "Remove \(term)", "Retirer \(term)")) {
+                            Vocabulary.remove(term)
+                        }
+                    }
                 }
             }
 
@@ -305,16 +316,53 @@ struct WordsSection: View {
                                            "Aucune correction.")) { rule in
                         Text("\(rule.wrong)  →  \(rule.correct)")
                             .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    } remove: { Corrections.remove(wrong: $0.wrong); reload() }
+                    } remove: { rule in
+                        undoably(L.t("Togli la correzione", "Remove correction",
+                                     "Retirer la correction")) {
+                            Corrections.remove(wrong: rule.wrong)
+                        }
+                    }
                 }
             }
         }
         .onAppear(perform: reload)
+        // An undo changes UserDefaults from outside this view, so nothing would
+        // redraw without being told.
+        .onReceive(NotificationCenter.default.publisher(for: UndoBridge.changed)) { _ in
+            reload()
+        }
     }
 
     private func reload() {
         terms = Vocabulary.terms
         rules = Corrections.rules
+    }
+
+    /// Do it, and register how to put both lists back exactly as they were.
+    ///
+    /// A SNAPSHOT of both lists, not "add the word again": `Vocabulary.add`
+    /// appends, so re-adding a word deleted from the middle would return it to
+    /// the bottom — the same words in a different order, which is not what was
+    /// there. One snapshot also covers the case of deleting from both lists.
+    ///
+    /// The undo handler registers its own inverse, which is what makes ⇧⌘Z work
+    /// and what lets you walk back through a whole run of deletions.
+    private func undoably(_ name: String, _ change: () -> Void) {
+        let beforeTerms = Vocabulary.terms
+        let beforeRules = Corrections.rules
+        change()
+        reload()
+        register(name, terms: beforeTerms, rules: beforeRules)
+    }
+
+    private func register(_ name: String, terms: [String], rules: [CorrectionRule]) {
+        guard let undoManager else { return }
+        undoManager.setActionName(name)
+        undoManager.registerUndo(withTarget: UndoBridge.shared) { _ in
+            MainActor.assumeIsolated {
+                UndoBridge.restore(terms: terms, rules: rules, with: undoManager)
+            }
+        }
     }
 
     private func field(_ placeholder: String, text: Binding<String>) -> some View {

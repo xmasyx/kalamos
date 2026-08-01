@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editHotkey: HotkeyManager?   // Edit-Mode trigger (optional feature)
     private var controller: DictationController!
     private var recentMenu: NSMenu!
+    private var languageMenu: NSMenu!
     private var hintItem: NSMenuItem!
     private var statusItem_: NSMenuItem!
     private var headerSeparator: NSMenuItem!
@@ -173,6 +174,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the main menu, and an `.accessory` app never owns the menu bar. The
         // shortcuts are real now — `HotkeyManager` catches them in the global tap —
         // and the mask makes the menu print the keys you actually press.
+        // The language of the dictation, one click away (ISC-114).
+        //
+        // It lived only in Preferences, and it is not only a convenience there:
+        // it is the practical remedy for the "Amen". Whisper marked an entirely
+        // Italian sentence `lang=en`, decoded it with an English prior and stuck
+        // a trailing-silence hallucination on the end. The app already writes the
+        // diagnosis under those chips — *choosing one is more accurate than
+        // having it guessed every sentence* — and until now applying it meant
+        // opening a window.
+        //
+        // Immediate, not a draft. Preferences batches settings behind "Apply
+        // changes" because a settings screen is where you DECIDE; the menu bar is
+        // where you DO, and a language you have to confirm twice is a language
+        // you stop switching.
+        languageMenu = NSMenu()
+        let languageItem = NSMenuItem(title: L.t("Lingua della dettatura", "Dictation Language",
+                                                 "Langue de la dictée"),
+                                      action: nil, keyEquivalent: "")
+        languageItem.submenu = languageMenu
+        menu.addItem(languageItem)
+
         let copyLast = NSMenuItem(title: L.t("Copia l'ultima trascrizione",
                                              "Copy Last Transcription",
                                              "Copier la dernière transcription"),
@@ -268,6 +290,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         headerSeparator.isHidden = !busy && !stillLearning
         rebuildRecentMenu()
+        rebuildLanguageMenu()
+    }
+
+    /// Automatic + one row per language the user has enabled, ticked on the live
+    /// choice. Rebuilt per open rather than kept in sync: Preferences can change
+    /// both values behind this menu's back, and a tick that lies is worse than no
+    /// tick at all.
+    private func rebuildLanguageMenu() {
+        languageMenu.removeAllItems()
+
+        let auto = NSMenuItem(title: L.t("Automatico", "Detect it", "Automatique"),
+                              action: #selector(pickLanguage(_:)), keyEquivalent: "")
+        auto.target = self
+        auto.representedObject = "auto"
+        auto.state = state.autoDetectLanguage ? .on : .off
+        languageMenu.addItem(auto)
+        languageMenu.addItem(.separator())
+
+        // Only the enabled ones: offering a language the transcriber is not
+        // allowed to return would be a control that does nothing.
+        for language in Language.allCases where state.enabledLanguages.contains(language) {
+            let item = NSMenuItem(title: language.displayName,
+                                  action: #selector(pickLanguage(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = language.rawValue
+            item.state = (!state.autoDetectLanguage && state.defaultLanguage == language)
+                ? .on : .off
+            languageMenu.addItem(item)
+        }
+    }
+
+    @objc private func pickLanguage(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String else { return }
+        if raw == "auto" {
+            state.autoDetectLanguage = true
+            Log.write("language: auto-detect (from the menu)")
+        } else if let language = Language(rawValue: raw) {
+            state.autoDetectLanguage = false
+            state.defaultLanguage = language
+            Log.write("language: forced to \(language.rawValue) (from the menu)")
+        }
     }
 
     private func rebuildRecentMenu() {

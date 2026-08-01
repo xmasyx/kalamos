@@ -25,6 +25,16 @@ enum Vocabulary {
         UserDefaults.standard.set(terms.filter { $0 != term }, forKey: key)
     }
 
+    /// Put the list back exactly as it was (ISC-113, undo).
+    ///
+    /// Undo restores a SNAPSHOT rather than re-adding the word, because `add`
+    /// appends: undoing a deletion from the middle would put the word back at
+    /// the bottom. Same words, different list — and an undo that does not
+    /// restore what was there is not an undo.
+    static func setAll(_ all: [String]) {
+        UserDefaults.standard.set(all, forKey: key)
+    }
+
     static func clear() { UserDefaults.standard.removeObject(forKey: key) }
 
     /// Whisper initial-prompt text that biases recognition toward these terms.

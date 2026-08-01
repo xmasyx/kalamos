@@ -45,6 +45,14 @@ enum Corrections {
         UserDefaults.standard.set(m, forKey: key)
     }
 
+    /// Put the rules back exactly as they were (ISC-113, undo). Same reasoning
+    /// as `Vocabulary.setAll` — a snapshot restores the list, not just the row.
+    static func setAll(_ rules: [CorrectionRule]) {
+        var m: [String: String] = [:]
+        for r in rules { m[r.wrong] = r.correct }
+        UserDefaults.standard.set(m, forKey: key)
+    }
+
     static func clear() { UserDefaults.standard.removeObject(forKey: key) }
 
     /// Apply every rule to `text` (whole-word, case-insensitive). Longest heard
