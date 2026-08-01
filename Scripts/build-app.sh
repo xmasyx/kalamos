@@ -82,6 +82,15 @@ rm -rf "${INSTALL_DIR}/${APP_NAME}.app"
 if cp -R "${BUNDLE_DIR}" "${INSTALL_DIR}/" 2>/dev/null; then
     echo "✓ Installed to ${INSTALL_DIR}/${APP_NAME}.app — open from Spotlight (⌘Space → \"Kalamos\")"
     LAUNCH="${INSTALL_DIR}/${APP_NAME}.app"
+    # The staging copy goes, and this is not tidiness.
+    #
+    # It stayed here for months, Spotlight indexed it, and typing "Kalamos"
+    # returned TWO results that look identical. Open both and there are two
+    # global event taps on the same key: every dictation typed twice. That reads
+    # as a broken app, not as two apps, which is why it cost an evening even to
+    # name (2026-08-01).
+    rm -rf "${BUNDLE_DIR}"
+    echo "✓ Removed the staging copy — exactly one ${APP_NAME}.app exists"
 else
     echo "⚠ Could not install to ${INSTALL_DIR}; run from ${BUNDLE_DIR}"
     LAUNCH="${BUNDLE_DIR}"

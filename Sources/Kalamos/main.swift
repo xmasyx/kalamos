@@ -412,6 +412,59 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
     app.run()
 }
 
+// One Kalamos. Never two.
+//
+// The build script assembles into `build/Kalamos.app` and then copies that into
+// `/Applications`, and for months it left the staging copy behind. Spotlight
+// indexes both, so "Kalamos" offered two results, and the user ran both without
+// knowing: two global event taps on the same key, one dictation typed TWICE.
+// Nothing about that looks like two apps — it looks like a broken app.
+//
+// The script no longer leaves the second bundle, but a copy can come back a
+// dozen ways: a stale build, a Downloads copy, a Time Machine restore. So the
+// second instance refuses to run, and says where the first one is — which is the
+// one fact that would have explained the double text immediately.
+//
+// The check runs ONLY from inside a bundle: the plain SwiftPM binary has no
+// bundle identifier, and the `--scatta` probe is meant to run alongside the live
+// app. Both paths exit above this line anyway.
+if let bundleID = Bundle.main.bundleIdentifier {
+    let mine = ProcessInfo.processInfo.processIdentifier
+    func otherInstance() -> NSRunningApplication? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .first { $0.processIdentifier != mine }
+    }
+    // Wait a moment first: `Scripts/build-app.sh` kills the old copy and opens
+    // the new one immediately, and a process that has been asked to quit is
+    // still in the list for a beat. Refusing to start there would break every
+    // rebuild.
+    var other = otherInstance()
+    var waited = 0.0
+    while other != nil, waited < 3.0 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        waited += 0.15
+        other = otherInstance()
+    }
+    if let other {
+        let where_ = other.bundleURL?.path ?? "?"
+        Log.write("second instance refused — already running from \(where_)")
+        let alert = NSAlert()
+        alert.messageText = L.t("Kalamos è già in funzione",
+                                "Kalamos is already running",
+                                "Kalamos est déjà en cours")
+        alert.informativeText = L.t(
+            "Ne sta girando una copia da:\n\(where_)\n\nDue copie insieme scrivono ogni dettatura due volte, quindi questa si chiude. Cercala nella barra dei menu.",
+            "A copy is running from:\n\(where_)\n\nTwo copies at once type every dictation twice, so this one is closing. Look for it in the menu bar.",
+            "Une copie est en cours depuis :\n\(where_)\n\nDeux copies écrivent chaque dictée deux fois ; celle-ci se ferme. Cherchez-la dans la barre des menus.")
+        alert.addButton(withTitle: "OK")
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+        other.activate()
+        exit(0)
+    }
+}
+
 // Kalamos entry point.
 // A menu-bar-only app: `.accessory` keeps it out of the Dock and app switcher.
 let app = NSApplication.shared

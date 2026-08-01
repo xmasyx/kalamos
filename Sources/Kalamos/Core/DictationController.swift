@@ -115,6 +115,26 @@ final class DictationController {
     private func endAndProcess() {
         let samples = recorder.stop()
         Log.write("endAndProcess: samples=\(samples.count)")
+
+        // ISC-109 — say it out loud instead of writing it in a log nobody reads.
+        //
+        // Both of these were knowable on 2026-08-01 and both were silent: the
+        // recording that ran forty minutes on a microphone a phone call had
+        // taken, and the three dead ones after it. A failure the app can name
+        // and does not is worse than one it cannot see.
+        if recorder.hitCeiling {
+            Log.write("recording hit the \(Int(AudioRecorder.maxSeconds))s ceiling")
+            state.status = .error(L.t("Registrazione troppo lunga, fermata",
+                                      "Recording too long — stopped",
+                                      "Enregistrement trop long, arrêté"))
+        } else if AudioRecorder.isDead(samples) {
+            Log.write("recording was digitally silent — the microphone gave nothing")
+            state.status = .error(L.t("Il microfono non ha dato niente",
+                                      "The microphone gave nothing",
+                                      "Le micro n’a rien donné"))
+            return
+        }
+
         guard !samples.isEmpty else { state.status = .idle; return }
         state.status = .transcribing
         processing = true

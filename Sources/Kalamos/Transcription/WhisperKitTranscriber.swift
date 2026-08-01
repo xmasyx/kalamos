@@ -145,13 +145,36 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // re-enable promptTokens without a live transcription test proving the
         // empty-output regression is gone.
 
-        let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
-        let raw = results.map(\.text).joined(separator: " ")
+        var results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
+        var raw = results.map(\.text).joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = Self.stripHallucinations(raw)
+        var text = Self.stripHallucinations(raw)
         // Diagnostic: distinguishes "Whisper produced nothing" from "Whisper
         // produced a phrase we stripped as a hallucination".
         if text.isEmpty { Log.write("empty result — raw before filter: \"\(raw)\"") }
+
+        // ISC-108 — ask twice before giving up.
+        //
+        // Whisper returns an EMPTY transcription on audio that plainly contains
+        // speech, and not deterministically: 3 attempts in 12 on one clip, 0 in 8
+        // on five others, 0 in 12 for two other engines given that same clip. In
+        // the real log it is 7 `empty result` in 305 dictations plus 4 with no
+        // transcription line at all — about one in thirty spoken and lost, in
+        // silence, with nothing on screen to say so.
+        //
+        // A second attempt is honest rather than hopeful because `isSilent` has
+        // already said, from the audio itself, that there was something to hear.
+        // One retry only: looping against a model that has genuinely decided
+        // there is nothing there would just hang the dictation.
+        if raw.isEmpty {
+            Log.write("empty result on non-silent audio — retrying once")
+            results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
+            raw = results.map(\.text).joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            text = Self.stripHallucinations(raw)
+            Log.write(raw.isEmpty ? "retry also empty — giving up"
+                                  : "retry recovered: \"\(text)\"")
+        }
 
         // If the caller forced a language, that IS the source language (we told
         // Whisper to decode in it). Otherwise map the detected code/name and
