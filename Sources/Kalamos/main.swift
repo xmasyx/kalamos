@@ -355,7 +355,15 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
         app.appearance = NSAppearance(named: .aqua)
     }
 
-    if CommandLine.arguments.contains("--onboarding") {
+    // `--correzione[=parola]` — the ⌃⌥K panel, with or without its prefill. Both
+    // states have to be looked at: the whole point of the prefill is what the
+    // window looks like the instant it opens.
+    if let flag = CommandLine.arguments.first(where: { $0 == "--correzione" || $0.hasPrefix("--correzione=") }) {
+        let value = flag.split(separator: "=", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
+        let halves = value.split(separator: ">", maxSplits: 1).map(String.init)
+        CorrectionWindow.shared.show(heard: halves.first ?? "",
+                                     written: halves.count > 1 ? halves[1] : "") { _, _ in }
+    } else if CommandLine.arguments.contains("--onboarding") {
         // The one screen that has no second chance: whoever installs the app sees it
         // once. Its actions are all no-ops here — nothing asks for a permission, so
         // the probe cannot pop a system prompt at somebody's desk.

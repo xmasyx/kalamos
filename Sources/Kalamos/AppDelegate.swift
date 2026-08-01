@@ -375,26 +375,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     ///     "changeCount moved: false"). The user copies the word (⌘C) first; we
     ///     just read the clipboard. Gesture in those apps: select → ⌘C → ⌃⌥L.
     @objc private func learnSelectedWord() {
-        // Strategy 1: read the selection straight from the focused UI element.
-        if let s = Self.selectedTextViaAX()?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !s.isEmpty {
-            commitLearnedWord(s, source: "AX")
-            return
-        }
-
-        // Strategy 2: whatever the user last copied (non-destructive read).
-        if let s = NSPasteboard.general.string(forType: .string)?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
-            commitLearnedWord(s, source: "clipboard")
-        } else {
+        guard let picked = Self.selectedWord() else {
             Log.write("learn ⌃⌥L: nothing to learn (AX empty, clipboard empty)")
             NSSound(named: "Funk")?.play()
+            return
         }
+        commitLearnedWord(picked.text, source: picked.source)
+    }
+
+    /// The word the user means, read the same way for ⌃⌥L and ⌃⌥K.
+    ///
+    /// One reader for both, because they drifted the first time they were
+    /// written apart — see `pick(ax:clipboard:)` for what the drift cost.
+    static func selectedWord() -> (text: String, source: String)? {
+        pick(ax: selectedTextViaAX(), clipboard: NSPasteboard.general.string(forType: .string))
+    }
+
+    /// Which of the two reads to use — the whole decision, as a pure function.
+    ///
+    /// **An empty selection is a string, not a nil.** A focused text field that
+    /// supports `kAXSelectedText` and has nothing selected answers with `""`.
+    /// `ax ?? clipboard` therefore takes the empty answer and never asks the
+    /// clipboard at all — which is precisely why ⌃⌥K shipped with no prefill on
+    /// 2026-08-01 while ⌃⌥L, which happened to test for emptiness, worked. The
+    /// two paths look identical when you read them; only one of them is right.
+    static func pick(ax: String?, clipboard: String?) -> (text: String, source: String)? {
+        if let s = ax?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            return (s, "AX")
+        }
+        if let s = clipboard?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            return (s, "clipboard")
+        }
+        return nil
+    }
+
+    /// Word-shaped enough to be a vocabulary entry or the left half of a rule.
+    /// A paragraph on the clipboard is not a misheard word.
+    static func isWordShaped(_ s: String) -> Bool {
+        !s.isEmpty && s.count <= 60 && !s.contains("\n")
     }
 
     /// Validate + store a learned word, with a confirmation sound.
     private func commitLearnedWord(_ s: String, source: String) {
-        guard !s.isEmpty, s.count <= 60, !s.contains("\n") else {
+        guard Self.isWordShaped(s) else {
             Log.write("learn ⌃⌥L: ignored via \(source) (\"\(s)\" — empty/too long/multiline)")
             NSSound(named: "Funk")?.play()
             return
@@ -413,65 +436,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// the AX selection, then the clipboard. So the gesture is: select the wrong
     /// word Kalamos just wrote, press ⌃⌥K, type the right one, Enter.
     @objc private func addCorrection() {
-        let selected = (Self.selectedTextViaAX()
-                        ?? NSPasteboard.general.string(forType: .string)
-                        ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        // Same shape check as a learned word: a paragraph on the clipboard is
-        // not a misheard word, and prefilling it would only be in the way.
-        let usable = !selected.isEmpty && selected.count <= 60 && !selected.contains("\n")
-        showCorrectionPanel(heard: usable ? selected : "")
-    }
-
-    /// The panel behind ⌃⌥K and its menu item.
-    ///
-    /// `NSAlert` rather than a window of our own: it is modal, it centres itself
-    /// over whatever you were working in, Enter is already the Add button and
-    /// Escape is already Cancel. A correction takes four seconds to write and
-    /// should not cost a window that has to be closed.
-    private func showCorrectionPanel(heard prefill: String) {
-        let width: CGFloat = 296, height: CGFloat = 25, gap: CGFloat = 8
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height * 2 + gap))
-
-        let heardField = NSTextField(frame: NSRect(x: 0, y: height + gap, width: width, height: height))
-        heardField.placeholderString = L.t("quello che sente", "what it hears", "ce qu’il entend")
-        heardField.stringValue = prefill
-        let writtenField = NSTextField(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        writtenField.placeholderString = L.t("quello che deve scrivere", "what it should write",
-                                             "ce qu’il doit écrire")
-        // Tab moves between the two, and wraps. Without this the ring escapes
-        // into the alert's buttons on the first Tab.
-        heardField.nextKeyView = writtenField
-        writtenField.nextKeyView = heardField
-        container.addSubview(heardField)
-        container.addSubview(writtenField)
-
-        let alert = NSAlert()
-        alert.messageText = L.t("Aggiungi una correzione", "Add a correction", "Ajouter une correction")
-        alert.informativeText = L.t(
-            "Vale dalla prossima dettatura: il testo già scritto non cambia.",
-            "Applies from the next dictation on — text already written does not change.",
-            "S’applique dès la prochaine dictée : le texte déjà écrit ne change pas.")
-        alert.accessoryView = container
-        alert.addButton(withTitle: L.t("Aggiungi", "Add", "Ajouter"))
-        alert.addButton(withTitle: L.t("Annulla", "Cancel", "Annuler"))
-        NSApp.activate(ignoringOtherApps: true)
-        // The cursor starts on the half we do NOT know. With a word selected
-        // that is the right-hand field, and the whole thing is one keystroke,
-        // the word, Enter.
-        alert.window.initialFirstResponder = prefill.isEmpty ? heardField : writtenField
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let wrong = heardField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let correct = writtenField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !wrong.isEmpty, !correct.isEmpty else {
-            Log.write("correction ⌃⌥K: ignored (\"\(wrong)\" → \"\(correct)\" — one side empty)")
-            NSSound(named: "Funk")?.play()
-            return
+        let picked = Self.selectedWord()
+        let heard = picked.map { Self.isWordShaped($0.text) ? $0.text : "" } ?? ""
+        Log.write("correction ⌃⌥K: prefill \"\(heard)\" via \(picked?.source ?? "nothing")")
+        CorrectionWindow.shared.show(heard: heard) { [weak self] wrong, correct in
+            Corrections.add(wrong: wrong, correct: correct)
+            Log.write("correction ⌃⌥K: added \"\(wrong)\" → \"\(correct)\"")
+            NSSound(named: "Glass")?.play()
+            _ = self
         }
-        Corrections.add(wrong: wrong, correct: correct)
-        Log.write("correction ⌃⌥K: added \"\(wrong)\" → \"\(correct)\"")
-        NSSound(named: "Glass")?.play()
     }
 
     /// Selected text of the system-wide focused UI element, via Accessibility.
