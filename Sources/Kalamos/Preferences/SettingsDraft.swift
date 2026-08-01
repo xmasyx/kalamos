@@ -30,6 +30,7 @@ struct SettingsDraft: Equatable {
     var defaultLanguage: Language
     var translationEnabled: Bool
     var translationTarget: Language
+    var speechEngine: SpeechEngine
     var whisperModel: String
     var formatterMode: FormatterMode
     var cleanupModelID: String
@@ -56,6 +57,7 @@ struct SettingsDraft: Equatable {
         defaultLanguage = state.defaultLanguage
         translationEnabled = state.translationEnabled
         translationTarget = state.translationTarget
+        speechEngine = state.speechEngine
         whisperModel = state.whisperModel
         formatterMode = state.formatterMode
         cleanupModelID = state.cleanupModelID
@@ -81,6 +83,7 @@ struct SettingsDraft: Equatable {
         if triggerMode != other.triggerMode { n += 1 }
         if autoDetectLanguage != other.autoDetectLanguage || defaultLanguage != other.defaultLanguage { n += 1 }
         if translationEnabled != other.translationEnabled || translationTarget != other.translationTarget { n += 1 }
+        if speechEngine != other.speechEngine { n += 1 }
         if whisperModel != other.whisperModel { n += 1 }
         if formatterMode != other.formatterMode { n += 1 }
         if cleanupModelID != other.cleanupModelID { n += 1 }

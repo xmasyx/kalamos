@@ -1,4 +1,7 @@
 import AppKit
+#if canImport(FluidAudio)
+import FluidAudio
+#endif
 
 /// Wait for a headless command WITHOUT parking the main thread.
 ///
@@ -78,6 +81,70 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
         print(out)
         #else
         print("ERROR: MLX not compiled in — rebuild with ./Scripts/build-app.sh")
+        #endif
+        sem.signal()
+    }
+    waitServicingMainActor(sem)
+    exit(0)
+}
+
+// `Kalamos --selftest-engine <file.wav> [--engine whisper|parakeet] [--lang it]`
+//
+// Runs a real audio file through the REAL transcriber, the one a dictation uses,
+// and prints what came back with the seconds it took. It exists because every
+// other check on a speech engine in this project has been a bench living outside
+// the app: this is the only way to see that the engine wired INTO Kalamos says
+// what the bench said it would.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-engine <file.wav> [--engine whisper|parakeet] [--lang it|en|fr] [--ripeti N]")
+        exit(2)
+    }
+    let engineName = args.firstIndex(of: "--engine").flatMap {
+        $0 + 1 < args.count ? args[$0 + 1] : nil
+    } ?? "parakeet"
+    let forced = args.firstIndex(of: "--lang").flatMap {
+        $0 + 1 < args.count ? Language(rawValue: args[$0 + 1].lowercased()) : nil
+    }
+    let repeats = args.firstIndex(of: "--ripeti").flatMap {
+        $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
+    } ?? 1
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        #if canImport(FluidAudio) && canImport(WhisperKit)
+        do {
+            guard let engine = SpeechEngine(rawValue: engineName) else {
+                print("motore sconosciuto: \(engineName)"); exit(2)
+            }
+            // One decode of the audio, whichever engine is asked — a per-engine
+            // decode path would put format differences in the accuracy column.
+            let samples = try AudioConverter().resampleAudioFile(URL(fileURLWithPath: path))
+            let transcriber: Transcriber = engine == .whisper
+                ? WhisperKitTranscriber(modelName: await AppState.shared.whisperModel)
+                : ParakeetTranscriber()
+            FileHandle.standardError.write(Data(
+                "motore: \(engine.rawValue) · \(samples.count) campioni · lingua \(forced?.rawValue ?? "auto")\n".utf8))
+            try await transcriber.prepare()
+            // Warm-up discarded: the first CoreML call pays lazy compilation.
+            _ = try await transcriber.transcribe(samples, allowedLanguages: [.italian, .english, .french], forced: forced)
+            for k in 1...max(1, repeats) {
+                let t0 = Date()
+                let out = try await transcriber.transcribe(
+                    samples, allowedLanguages: [.italian, .english, .french], forced: forced)
+                let seconds = Date().timeIntervalSince(t0)
+                print(String(format: "#%d  %.3fs  lang=%@  %@", k, seconds,
+                             out.detectedLanguage?.rawValue ?? "?",
+                             out.text.isEmpty ? "*** VUOTA ***" : out.text))
+            }
+        } catch {
+            FileHandle.standardError.write(Data("selftest-engine: \(error)\n".utf8))
+            exit(1)
+        }
+        #else
+        print("ERROR: engines not compiled in — rebuild with ./Scripts/build-app.sh")
+        exit(1)
         #endif
         sem.signal()
     }

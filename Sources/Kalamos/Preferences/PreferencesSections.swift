@@ -128,6 +128,16 @@ struct DictationSection: View {
                 }
             }
 
+            PrefRow(title: L.t("Motore che ti ascolta", "The engine that hears you",
+                               "Le moteur qui vous écoute"),
+                    note: L.t("Whisper tiene i tuoi nomi, Parakeet è dieci volte più rapido e più preciso sull'italiano di tutti i giorni. Misurato, non a occhio.",
+                              "Whisper keeps your names, Parakeet is ten times faster and better on everyday speech. Measured, not guessed.",
+                              "Whisper garde vos noms, Parakeet est dix fois plus rapide et meilleur sur la langue courante. Mesuré.")) {
+                ChipRow(options: SpeechEngine.allCases.map { ($0.rawValue, $0.title, $0.note) },
+                        isOn: { draft.speechEngine.rawValue == $0 },
+                        pick: { draft.speechEngine = SpeechEngine(rawValue: $0) ?? .whisper })
+            }
+
             PrefRow(title: L.t("Modello che ti ascolta", "The model that hears you",
                                "Le modèle qui vous écoute"),
                     note: L.t("Turbo è il compromesso giusto quasi sempre.",
@@ -136,6 +146,12 @@ struct DictationSection: View {
                 ChipRow(options: ModelCatalog.speech.map { ($0.id, $0.title, $0.note) },
                         isOn: { draft.whisperModel == $0 },
                         pick: { draft.whisperModel = $0 })
+                    // Parakeet ships as a single model, so the variants below
+                    // belong to Whisper. Dimmed rather than hidden: a row that
+                    // disappears reads as a bug, a row that greys out reads as
+                    // "not for this choice".
+                    .opacity(draft.speechEngine == .whisper ? 1 : 0.4)
+                    .disabled(draft.speechEngine != .whisper)
             }
         }
     }

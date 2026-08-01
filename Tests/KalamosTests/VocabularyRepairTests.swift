@@ -34,12 +34,28 @@ import Testing
         // so the comparison drops them: Cohere hears "Claude Desktop" as one word,
         // and a two-word term must still be found in it.
         #expect(repair("ho aperto claudedesktop ieri") == "ho aperto Claude Desktop ieri")
-        // And "l'iFOS" → "lifeOS" is exactly the repair the swept threshold gives
-        // up: "lifeOS" is six characters, so it is case-normalised and never
-        // guessed. Stated as a test so the trade-off is visible rather than
-        // discovered later.
-        #expect(repair("nella cartella l'iFOS") == "nella cartella l'iFOS")
+        // Parakeet's two real mis-splits on his own recordings, 10 passes out of
+        // 10 each: the article swallows the head of the foreign word.
+        #expect(repair("nella cartella l'iFOS") == "nella cartella lifeOS")
         #expect(repair("nella cartella lifeos") == "nella cartella lifeOS")
+    }
+
+    /// The direction rule, which is what let the floor drop below seven.
+    ///
+    /// A window wider than the term is a bet that the engine split one word in
+    /// two, and that bet is only right leftwards: "iTerm" arrives as "ai term",
+    /// never as "iTe rm". Symmetric widening is what turned "di cloud e per me"
+    /// into "di Claude per me" — the conjunction after the word was eaten.
+    @Test func aWindowOnlyWidensBackwards() {
+        let terms = Self.terms + ["iTerm", "endomidollare"]
+        let r = { VocabularyRepair.apply(to: $0, terms: terms) }
+        // Leftward: the extra word precedes the core. Repaired.
+        #expect(r("ho aperto Calamos dentro ai term") == "ho aperto Kalamos dentro iTerm")
+        #expect(r("controllare il chiodo e indomidollare") == "controllare il chiodo endomidollare")
+        // Rightward: the core is first and the extra follows. Refused — this is
+        // the sentence of his the corpus caught.
+        let cloud = "una cartella temporanea di cloud e per me non è facile"
+        #expect(r(cloud) == cloud)
     }
 
     @Test func casingAloneIsRepairedWithoutAnyDistance() {
@@ -80,6 +96,9 @@ import Testing
     @Test func aSixLetterTermDoesNotEatARealWord() {
         let sentence = "una cartella temporanea di cloud e per me non è facile"
         #expect(repair(sentence) == sentence)
+        // "cloud" on its own is TWO edits from "claude", so the single-word path
+        // never had a problem — it was only ever reachable by widening rightward.
+        #expect(VocabularyRepair.distance("cloud", "claude", cap: 9) == 2)
         // And the same word spelled right is still normalised, at zero distance.
         #expect(repair("ho chiesto a CLAUDE") == "ho chiesto a Claude")
     }
@@ -87,7 +106,7 @@ import Testing
     @Test func aFourLetterTermNeverGuesses() {
         // "repo" is in his list and is four characters. Every four-letter Italian
         // word is one edit from another one, so fuzzy matching is switched off
-        // below seven characters — otherwise "reso", "rete", "remo" all become
+        // below five characters — otherwise "reso", "rete", "remo" all become
         // "repo" and the app starts rewriting ordinary sentences.
         for word in ["reso", "rete", "remo", "reti", "rene"] {
             #expect(repair("ho \(word) il file") == "ho \(word) il file")
@@ -144,5 +163,58 @@ import Testing
         #expect(VocabularyRepair.fold("l'iFOS") == "lifos")
         #expect(VocabularyRepair.fold("ai Term") == "aiterm")
         #expect(VocabularyRepair.fold("perché") == "perche")
+    }
+}
+
+/// The engine switch: which of the two is actually asked to listen.
+///
+/// Worth a test because the failure is silent in both directions — an app that
+/// keeps using the old engine after you changed the setting looks exactly like an
+/// app that changed it, until you notice the speed.
+@Suite struct SpeechEngineSwitchTests {
+
+    /// A transcriber that only says who it is.
+    private final class Named: Transcriber, @unchecked Sendable {
+        let name: String
+        init(_ name: String) { self.name = name }
+        func prepare() async throws {}
+        func transcribe(_ samples: [Float], allowedLanguages: Set<Language>,
+                        forced: Language?) async throws -> TranscriptionResult {
+            TranscriptionResult(text: name, detectedLanguage: nil)
+        }
+    }
+
+    private func make(_ engine: SpeechEngine) -> SpeechEngineSwitch {
+        SpeechEngineSwitch(engine: engine, whisper: Named("whisper"), parakeet: Named("parakeet"))
+    }
+
+    @Test func itAsksTheEngineYouChose() async throws {
+        let s = make(.whisper)
+        var out = try await s.transcribe([], allowedLanguages: [.italian], forced: nil)
+        #expect(out.text == "whisper")
+
+        s.use(.parakeet)
+        out = try await s.transcribe([], allowedLanguages: [.italian], forced: nil)
+        #expect(out.text == "parakeet")
+        #expect(s.engine == .parakeet)
+
+        s.use(.whisper)
+        out = try await s.transcribe([], allowedLanguages: [.italian], forced: nil)
+        #expect(out.text == "whisper")
+    }
+
+    @Test func aStartOnParakeetStartsOnParakeet() async throws {
+        let out = try await make(.parakeet)
+            .transcribe([], allowedLanguages: [.italian], forced: nil)
+        #expect(out.text == "parakeet")
+    }
+
+    @Test func theSettingSurvivesARoundTripThroughItsRawValue() {
+        // It is persisted as a string, so a typo in either direction would leave
+        // the app silently back on the default.
+        for engine in SpeechEngine.allCases {
+            #expect(SpeechEngine(rawValue: engine.rawValue) == engine)
+        }
+        #expect(SpeechEngine(rawValue: "qualcosa-che-non-esiste") == nil)
     }
 }

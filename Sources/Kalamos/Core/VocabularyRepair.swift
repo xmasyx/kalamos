@@ -23,10 +23,10 @@ import Foundation
 ///
 ///   1. **Exact-but-miscased is free** and always safe: "rossi" → "Rossi".
 ///      No distance, no threshold, no judgement.
-///   2. **Fuzzy repair needs a term of 7+ characters**, swept over his corpus
+///   2. **Fuzzy repair needs a term of 5+ characters**, swept over his corpus
 ///      rather than picked. Below that a term is one edit from ordinary words:
-///      "repo" from "reso"/"rete"/"remo", and "Claude" from "cloud". Short terms
-///      get case normalisation and nothing else.
+///      "repo" is four characters and one edit from "reso", "rete", "remo".
+///      Short terms get case normalisation and nothing else.
 ///   3. **The edit budget is absolute, not a ratio**: `max(1, length/5)`. A ratio
 ///      alone lets a long term swallow a long unrelated word — "controllare" is
 ///      54% similar to "endomidollare", and that substitution actually happened.
@@ -41,24 +41,31 @@ enum VocabularyRepair {
 
     /// Below this a term is only case-normalised, never fuzzy-matched.
     ///
-    /// **Swept, not chosen.** `--selftest-vocab` over his 240 real dictations
-    /// (480 texts), his own ten-term list:
+    /// **Swept, not chosen**, twice — and the first sweep was measuring the wrong
+    /// thing. `--selftest-vocab` over his 240 real dictations (480 texts):
     ///
-    ///     min-fuzzy   cambi   di cui Calamos→Kalamos
-    ///        4         25            13
-    ///        5         17            13
-    ///        6         17            13
-    ///        7         15            13     ← ogni riparazione, nessun danno
-    ///        8          2             0     ← "Kalamos" è di 7 caratteri
+    ///     min-fuzzy   cambi   riparazioni giuste   danni
+    ///        4         23            23              0   ← ma vedi sotto
+    ///        5         15            15              0
+    ///        6         15            15              0
+    ///        7         15            15              0
     ///
-    /// Five let a six-letter term match a real word: "una cartella temporanea di
-    /// **cloud e** per me" came back as "di **Claude** per me" — one edit from
-    /// "Claude", and the "e" eaten with it. Eight throws away every repair,
-    /// because the name being repaired is itself seven characters. Seven keeps
-    /// all thirteen and costs nothing, and the two changes it still makes are the
-    /// list being obeyed literally (his entry reads "lifeOS", so "LifeOS" becomes
-    /// "lifeOS" — a typo in the list, not a bug here).
-    static let minFuzzyLength = 7
+    /// The first sweep put the floor at seven, because at five the corpus threw
+    /// up a real casualty: "una cartella temporanea di **cloud e** per me"
+    /// came back as "di **Claude** per me". That was never about the threshold —
+    /// it was the window widening in BOTH directions. Widening now only leftward
+    /// (see the core-at-the-end rule below), the casualty is gone and five is
+    /// free. Which matters, because "iTerm" is five characters and "lifeOS" six:
+    /// at seven, the two terms Parakeet gets wrong most were unreachable.
+    ///
+    /// **Four is where it stops, and not because the corpus complained** — at
+    /// four it made eight MORE correct repairs and zero wrong ones, all of them
+    /// "QEN"/"Quen"/"Gwen" → "QWEN". It stops there because "repo" is four
+    /// characters and one edit from "reso", "rete", "remo", "reti", "rene". The
+    /// corpus happens not to contain them; the language does. A floor set by what
+    /// a sample did not happen to say is not a floor.
+    /// For a four-letter term, the right tool is a `Corrections` rule.
+    static let minFuzzyLength = 5
 
     /// Apply the vocabulary to a raw transcription.
     static func apply(to text: String, terms: [String] = Vocabulary.terms,
@@ -133,6 +140,28 @@ enum VocabularyRepair {
                     fold(tokens[words[$0]].text) == target
                 }
                 guard !alreadyExact else { continue }
+
+                // A window wider than the term is a bet that the engine split one
+                // word in two, and that bet is only ever right in ONE direction:
+                // the head of a foreign word leaks into the word BEFORE it —
+                // "iTerm" arrives as "ai term", "LifeOS" as "l'iFOS",
+                // "endomidollare" as "e indomidollare". The tail does not leak
+                // into the word after.
+                //
+                // Without this the widening is symmetric, and symmetric is what
+                // ate a real sentence of his: "una cartella temporanea di cloud e
+                // per me" came back as "di Claude per me", because "cloud e"
+                // folds to one edit from "claude". So the core must sit at the END
+                // of the window — the last words closer to the term than the first.
+                // This is what lets the threshold go below seven at all.
+                if width > termWords {
+                    let core = fold(((wordSlot + width - termWords)..<(wordSlot + width))
+                        .map { tokens[words[$0]].text }.joined())
+                    let head = fold((wordSlot..<(wordSlot + termWords))
+                        .map { tokens[words[$0]].text }.joined())
+                    guard distance(core, target, cap: target.count) <
+                            distance(head, target, cap: target.count) else { continue }
+                }
                 if distance(candidate, target, cap: budget) <= budget {
                     tokens.replaceSubrange(from...to, with: [.word(term)])
                     advanced = true

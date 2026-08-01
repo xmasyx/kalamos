@@ -23,6 +23,11 @@ let package = Package(
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", "0.14.0" ..< "0.15.0"),
         // ── Phase 2: on-device LLM (needs full Xcode for Metal) ───────────────
         .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.25.4"),
+        // Parakeet TDT 0.6B v3 — the second speech engine (2026-08-01). Safe to
+        // add next to the pair above precisely because FluidAudio declares
+        // `dependencies: []`: it cannot pull swift-transformers into the
+        // resolution and cannot disturb the 0.1.x line WhisperKit and MLX share.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
     ],
     targets: [
         .executableTarget(
@@ -32,6 +37,7 @@ let package = Package(
                 // ── Phase 2 ──
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Kalamos",
             resources: [.process("Resources")]

@@ -168,6 +168,10 @@ final class AppState: ObservableObject {
     @Published var translationEnabled: Bool { didSet { persist("translationEnabled", translationEnabled) } }
     @Published var translationTarget: Language { didSet { persist("translationTarget", translationTarget.rawValue) } }
 
+    // Which model does the listening (2026-08-01). Default stays Whisper, so an
+    // existing install is never moved to another engine by an update.
+    @Published var speechEngine: SpeechEngine { didSet { persist("speechEngine", speechEngine.rawValue) } }
+
     // Whisper model id (downloaded on first use by WhisperKit)
     @Published var whisperModel: String { didSet { persist("whisperModel", whisperModel) } }
 
@@ -220,6 +224,8 @@ final class AppState: ObservableObject {
         defaultLanguage = Language(rawValue: defaults.string(forKey: "defaultLanguage") ?? "") ?? .english
         translationEnabled = (defaults.object(forKey: "translationEnabled") as? Bool) ?? false
         translationTarget = Language(rawValue: defaults.string(forKey: "translationTarget") ?? "") ?? .english
+        speechEngine = SpeechEngine(rawValue: defaults.string(forKey: "speechEngine") ?? "")
+            ?? .whisper
         whisperModel = defaults.string(forKey: "whisperModel") ?? "openai_whisper-large-v3-v20240930_turbo"
         cleanupPromptOverride = defaults.string(forKey: "cleanupPromptOverride")
 

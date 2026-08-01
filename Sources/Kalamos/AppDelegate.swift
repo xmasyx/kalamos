@@ -25,8 +25,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observeStatus()
         observeLanguage()
 
+        // Both engines from launch, neither loaded until used, and one switch
+        // between them. `speechSwitch` is kept so Preferences can change the
+        // choice without rebuilding the controller.
         let transcriber: Transcriber
-        #if canImport(WhisperKit)
+        #if canImport(WhisperKit) && canImport(FluidAudio)
+        let bothEngines = SpeechEngineSwitch(
+            engine: state.speechEngine,
+            whisper: WhisperKitTranscriber(modelName: state.whisperModel),
+            parakeet: ParakeetTranscriber())
+        speechSwitch = bothEngines
+        transcriber = bothEngines
+        #elseif canImport(WhisperKit)
         transcriber = WhisperKitTranscriber(modelName: state.whisperModel)
         #else
         transcriber = MockTranscriber()
@@ -147,6 +157,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// hover-open animations, and the deeper a setting sat the less it existed.
     /// All of it moved to Preferences on 2026-07-31; what stays here is the
     /// handful of things you reach for while working.
+    /// Live handle on the engine choice. Nil only in a build without one of the
+    /// two engines compiled in, which is the mock path.
+    private var speechSwitch: AnyObject?
+
     private func setupMenuBar() {
         if statusItem == nil {
             statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -396,6 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state.insertionMode = draft.insertionMode
         state.notifyCleanupRejected = draft.notifyCleanupRejected
 
+        applySpeechEngine(draft.speechEngine)
         applySpeechModel(draft.whisperModel)
         applyCleanupModel(draft.cleanupModelID)
 
@@ -544,6 +559,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Writing the id down and telling the engine are one operation, done in one
     /// place. Split between a view and a delegate they can disagree, and the
     /// setting then shows a model the engine is not running.
+    /// Same shape as `applySpeechModel`: writing the choice down and telling the
+    /// engine are one operation in one place, so the setting cannot show an
+    /// engine that is not the one listening.
+    func applySpeechEngine(_ engine: SpeechEngine) {
+        guard engine != state.speechEngine else { return }
+        state.speechEngine = engine
+        #if canImport(WhisperKit) && canImport(FluidAudio)
+        (speechSwitch as? SpeechEngineSwitch)?.use(engine)
+        #endif
+    }
+
     func applySpeechModel(_ id: String) {
         guard id != state.whisperModel else { return }
         state.whisperModel = id

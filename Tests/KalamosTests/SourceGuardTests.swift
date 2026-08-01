@@ -44,7 +44,14 @@ import Testing
     /// download arrow for all three. The split is only worth anything if nothing
     /// new quietly rejoins them.
     @Test func onlyRealDownloadsReportDownloading() throws {
-        let allowed: Set<String> = ["MLXEngine.swift", "WhisperKitTranscriber.swift"]
+        // Three files move bytes now: the cleanup model, and one per speech
+        // engine. Parakeet earned its place here by fetching 461 MB on first
+        // use — the guard fired the moment the file was added, which is what it
+        // is for. Anything else that joins this list has to justify itself the
+        // same way.
+        let allowed: Set<String> = [
+            "MLXEngine.swift", "WhisperKitTranscriber.swift", "ParakeetTranscriber.swift",
+        ]
         var producers: Set<String> = []
         for file in try Self.swiftFiles() where file.text.contains("report(.downloading") {
             producers.insert(file.name)
