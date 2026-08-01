@@ -2,6 +2,12 @@ import Foundation
 
 #if canImport(MLXLLM)
 
+extension String {
+    /// nil for an empty string, so "unset" and "set to nothing" stop being two
+    /// spellings of one state at the call site.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 /// AI cleanup via the on-device LLM. Fixes punctuation, capitalization, removes
 /// filler and false starts while preserving meaning and language. Falls back to
 /// the rule-based formatter for code contexts or if the model errors — so output
@@ -20,35 +26,8 @@ struct MLXFormatter: TextFormatter {
         if context.isCodeEditor { return await fallback.format(raw, context: context) }
 
         let lang = context.language.displayName
-        let toneLine: String
-        switch context.tone {
-        case .casual: toneLine = "Tone: casual and friendly (this is a chat/message)."
-        case .email:  toneLine = "Tone: warm, polite, lightly enthusiastic (this is an email)."
-        case .formal: toneLine = "Tone: clear and professional (this is a document)."
-        case .neutral: toneLine = "Tone: keep the speaker's natural tone."
-        }
-        let vocabLine = Vocabulary.list.map {
-            "\n- Preserve the EXACT spelling of these terms when they occur: \($0)."
-        } ?? ""
-
-        // User-edited prompt (menu → Cleanup ▸ Edit Prompt…) fully replaces the
-        // built-in one. Vocabulary spellings are still appended so custom terms
-        // keep working regardless of what the user wrote.
-        if let override = context.promptOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            do {
-                let out = try await engine.generate(
-                    system: override + vocabLine, user: trimmed, purpose: .cleaning,
-                    maxTokens: max(160, trimmed.count + 80), temperature: 0)
-                let cleaned = out.trimmingCharacters(in: .whitespacesAndNewlines)
-                if cleaned.isEmpty || cleaned.count > trimmed.count * 3 + 80 {
-                    return await fallback.format(raw, context: context)
-                }
-                return cleaned
-            } catch {
-                return await fallback.format(raw, context: context)
-            }
-        }
+        let toneLine = Self.toneLine(for: context.tone)
+        let vocabLine = Self.vocabularyLine
 
         // In a terminal the text is an instruction, so the model is given a much
         // shorter licence: punctuation, capitals, filler. No self-corrections
@@ -104,43 +83,26 @@ struct MLXFormatter: TextFormatter {
             }
         }
 
-        // Short on purpose. This prompt used to run ~1100 tokens, re-read from
-        // scratch on every single dictation, and most of it was spent asking the
-        // model not to drop or invent words — which DID NOT WORK (it deleted a
-        // leading "però" four times in one afternoon). That job now belongs to
-        // `changedTooMuch`, which is code and cannot be talked out of it, so the
-        // prompt keeps only what the guard cannot do: the judgement calls.
-        let system = """
-        You are a dictation cleanup engine, not an assistant. Input is dictated \
-        \(lang), all lowercase. Return the same words in written form.
-
-        Do: punctuation and capitals; delete filler (um, ehm, cioè); obey spoken \
-        commands; resolve self-corrections.
-
-        Spoken punctuation is an instruction, not words: "new paragraph", \
-        "comma", "question mark", and brackets — "tra parentesi un milione" → \
-        "(un milione)", "aperta parentesi … chiusa parentesi" → "( … )", \
-        "tra virgolette X" → "«X»". The command words themselves never appear \
-        in the output.
-
-        Never: answer, comment, translate, rephrase, summarise, or add anything. \
-        A question stays a question.
-
-        Capitals from meaning: "invia il messaggio a costa" → Costa (a name), \
-        "quanto costa il biglietto" → costa (a verb). Decide per sentence.
-
-        Self-corrections: on "actually / no wait / anzi / no aspetta / plutôt", \
-        drop ONLY the retracted words and keep the rest, lead-in included — \
-        "ho letto il testo e questa è la risposta anzi questo è l'output" → \
-        "Ho letto il testo e questo è l'output." When the marker reinforces \
-        instead — "non è male, anzi è ottimo" — keep both halves.
-
-        Numbered list only when one is dictated ("one… two… three…") or asked \
-        for. "I invited Marco, Lucia and Tom" stays a sentence.
-
-        \(toneLine) Register only.\(vocabLine)
-        Output only the cleaned text.
-        """
+        // The user-edited prompt (menu → Cleanup ▸ Edit Prompt…) fully replaces the
+        // built-in one — but it replaces the TEXT only, and goes on through the
+        // same guards below. It used to have a code path of its own that checked
+        // for an empty answer and for ballooning and nothing else, which quietly
+        // switched off `changedTooMuch` for anyone who edited a word of the
+        // prompt: the app's most important behaviour, disabled by a preference
+        // nobody would connect to it. Vocabulary spellings are appended either
+        // way so custom terms keep working whatever the user wrote.
+        //
+        // Where they go: at the end, unless the prompt says otherwise with a
+        // `{{VOCAB}}` marker. The built-in prompt carries the line two lines from
+        // its end, so appending is the one thing an edited prompt could not
+        // reproduce — and a bench comparing a candidate prompt against the
+        // built-in would then be comparing where a line sits as well as what the
+        // prompt says.
+        let override = context.promptOverride?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let system = override.map { Self.compose(override: $0, vocabLine: vocabLine) }
+            ?? Self.builtInPrompt(language: lang, toneLine: toneLine, vocabLine: vocabLine)
         do {
             let out = try await engine.generate(
                 system: system, user: trimmed, purpose: .cleaning,
@@ -168,6 +130,105 @@ struct MLXFormatter: TextFormatter {
             await report(.failed)
             return await fallback.format(raw, context: context)
         }
+    }
+
+    /// The shipped cleanup prompt, as one value instead of a string buried in a
+    /// branch — so a bench can put a candidate next to it and run both through
+    /// the identical code path. A prompt compared by running a *different* path
+    /// measures the path, not the prompt.
+    ///
+    /// Short on purpose. This used to run ~1100 tokens, re-read from scratch on
+    /// every single dictation, and most of it was spent asking the model not to
+    /// drop or invent words — which DID NOT WORK (it deleted a leading "però"
+    /// four times in one afternoon). That job now belongs to `changedTooMuch`,
+    /// which is code and cannot be talked out of it, so the prompt keeps only
+    /// what the guard cannot do: the judgement calls.
+    ///
+    /// The first two lines are what ISC-110 changed, and they were measured, not
+    /// reasoned about. The old first line said the input was "all lowercase",
+    /// which is false for 57% of his real dictations — Whisper punctuates when he
+    /// pauses. The cost of the lie was not a worse cleanup on punctuated input,
+    /// which is where it was expected: it was that on BARE input the model
+    /// returned the text **completely untouched, 23% of the time** — no capital,
+    /// no full stop, nothing. 80 real dictations, both prompts through this exact
+    /// path, generator proved deterministic (160/160 identical repeats), blind
+    /// pairwise judge on Gemini with an A/A gate that returned 61/61 ties:
+    ///   · echo on bare input   23% → 0%
+    ///   · marks per 100 words  9.0 → 13.1 · sentence ends 5.2 → 7.1
+    ///   · walls of text        16/34 → 10/34
+    ///   · words lost/invented  120/52 → 114/40 (it is not paying for it in words)
+    ///   · judge                50 wins, 10 losses
+    /// Cost: +50 prompt tokens (442 → 492) and +0.12 s ± 0.08 end to end. The 50
+    /// tokens themselves measure as free (prefill −0.015 s ± 0.029 — the layers
+    /// law again: reading is cheap, writing is not).
+    /// A variant that ALSO forbade repairing his grammar in so many words was
+    /// measured and REJECTED: +103 tokens, and it lost more of his words than it
+    /// saved (66 vs 57). Same lesson as the ~1100-token version.
+    /// Bench: `03-Plans/kalamos-isc110/`, reproducible with `--bench-clean`.
+    static func builtInPrompt(language: String, toneLine: String, vocabLine: String) -> String {
+        """
+        You are a dictation cleanup engine, not an assistant. Input is dictated \
+        \(language). It arrives EITHER already punctuated and capitalised, OR as a \
+        bare lowercase run of words — both happen, and you must handle the one in \
+        front of you. Return the same words in written form.
+
+        Do: keep the punctuation that is already right, fix the punctuation that \
+        is wrong, add the punctuation that is missing; capitals; delete filler \
+        (um, ehm, cioè); obey spoken commands; resolve self-corrections.
+
+        Spoken punctuation is an instruction, not words: "new paragraph", \
+        "comma", "question mark", and brackets — "tra parentesi un milione" → \
+        "(un milione)", "aperta parentesi … chiusa parentesi" → "( … )", \
+        "tra virgolette X" → "«X»". The command words themselves never appear \
+        in the output.
+
+        Never: answer, comment, translate, rephrase, summarise, or add anything. \
+        A question stays a question.
+
+        Capitals from meaning: "invia il messaggio a costa" → Costa (a name), \
+        "quanto costa il biglietto" → costa (a verb). Decide per sentence.
+
+        Self-corrections: on "actually / no wait / anzi / no aspetta / plutôt", \
+        drop ONLY the retracted words and keep the rest, lead-in included — \
+        "ho letto il testo e questa è la risposta anzi questo è l'output" → \
+        "Ho letto il testo e questo è l'output." When the marker reinforces \
+        instead — "non è male, anzi è ottimo" — keep both halves.
+
+        Numbered list only when one is dictated ("one… two… three…") or asked \
+        for. "I invited Marco, Lucia and Tom" stays a sentence.
+
+        \(toneLine) Register only.\(vocabLine)
+        Output only the cleaned text.
+        """
+    }
+
+    /// The two lines the built-in prompt takes from context, exposed so a bench
+    /// can rebuild the exact system string a real dictation would have seen.
+    static func toneLine(for tone: FormattingContext.Tone) -> String {
+        switch tone {
+        case .casual: return "Tone: casual and friendly (this is a chat/message)."
+        case .email:  return "Tone: warm, polite, lightly enthusiastic (this is an email)."
+        case .formal: return "Tone: clear and professional (this is a document)."
+        case .neutral: return "Tone: keep the speaker's natural tone."
+        }
+    }
+
+    /// Where an edited prompt wants its vocabulary line, if it cares.
+    static let vocabularyMarker = "{{VOCAB}}"
+
+    /// The system string an edited prompt actually produces. One function, so a
+    /// bench that records "what this arm saw" cannot record something the
+    /// formatter never sent — which it did, on the first run.
+    static func compose(override: String, vocabLine: String) -> String {
+        override.contains(vocabularyMarker)
+            ? override.replacingOccurrences(of: vocabularyMarker, with: vocabLine)
+            : override + vocabLine
+    }
+
+    static var vocabularyLine: String {
+        Vocabulary.list.map {
+            "\n- Preserve the EXACT spelling of these terms when they occur: \($0)."
+        } ?? ""
     }
 
     /// Why the model's answer was refused. Written where the language is known.

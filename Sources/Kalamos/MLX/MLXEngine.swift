@@ -65,6 +65,22 @@ actor MLXEngine {
     var isLoaded: Bool { container != nil }
     var currentModelID: String { modelID }
 
+    /// What the last generation cost, split the way the model splits it.
+    ///
+    /// The same numbers already go to the log (`mlx: prompt N tok…`); this makes
+    /// them readable by code, which is what a bench needs to answer "how many
+    /// tokens does this prompt cost" without parsing a log line. One slot, read
+    /// by whoever ran the generation immediately afterwards — with two callers in
+    /// flight the second would overwrite the first, so nothing but a sequential
+    /// bench should trust it.
+    struct GenStats: Sendable {
+        let promptTokens: Int
+        let promptSeconds: Double
+        let generatedTokens: Int
+        let generateSeconds: Double
+    }
+    private(set) var lastStats: GenStats?
+
     /// Switch the cleanup/translation model. Frees the current one from RAM;
     /// the new model loads lazily on the next `generate`. No-op if unchanged.
     func setModel(_ newID: String) {
@@ -166,13 +182,14 @@ actor MLXEngine {
         Self.report(.working(purpose))
         let parameters = GenerateParameters(maxTokens: maxTokens, temperature: temperature)
 
-        let result = try await container.perform { (context: ModelContext) in
+        let result = try await container.perform { (context: ModelContext) -> (String, GenStats?) in
             // Build messages inside the @Sendable closure — [Chat.Message] is not Sendable.
             let messages: [Chat.Message] = [.system(system), .user(user)]
             let input = try await context.processor.prepare(input: UserInput(chat: messages))
             let stream: AsyncStream<Generation> = try MLXLMCommon.generate(
                 input: input, parameters: parameters, context: context)
             var output = ""
+            var stats: GenStats?
             for await item in stream {
                 switch item {
                 case .chunk(let text): output += text
@@ -185,12 +202,16 @@ actor MLXEngine {
                         format: "mlx: prompt %d tok in %.2fs (%.0f t/s) · gen %d tok in %.2fs (%.0f t/s)",
                         info.promptTokenCount, info.promptTime, info.promptTokensPerSecond,
                         info.generationTokenCount, info.generateTime, info.tokensPerSecond))
+                    stats = GenStats(
+                        promptTokens: info.promptTokenCount, promptSeconds: info.promptTime,
+                        generatedTokens: info.generationTokenCount, generateSeconds: info.generateTime)
                 @unknown default: break
                 }
             }
-            return output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (output.trimmingCharacters(in: .whitespacesAndNewlines), stats)
         }
-        return result
+        lastStats = result.1
+        return result.0
     }
 }
 #endif

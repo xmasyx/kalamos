@@ -85,6 +85,149 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--clean") {
     exit(0)
 }
 
+// `Kalamos --bench-clean <input.json> --out <results.json> [--arm-b <prompt.txt>]
+//          [--repeat N] [--terminal]`
+//
+// The measuring instrument for the cleanup prompt. One process, model loaded
+// once, so a 200-dictation corpus is minutes instead of the ~20 s model load ×
+// 200 that a loop over `--clean` would pay.
+//
+// Two design rules, both inherited from the engine bench that got them wrong
+// first (03-Plans/kalamos-motori):
+//   · ARMS ALTERNATE per item, never in blocks. A block design once reported
+//     "+15% slower" that was thermal drift dumped entirely on the second arm.
+//   · The warm-up result is DISCARDED, so lazy compilation is not charged to
+//     whichever arm happened to go first.
+//
+// Both arms go through `MLXFormatter.format`, i.e. the real path with the real
+// guards, and the only difference between them is the system string. The exact
+// string each arm used is written into the results so the numbers can be
+// reproduced without this binary.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--bench-clean") {
+    let args = CommandLine.arguments
+    let inputPath = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !inputPath.isEmpty, !inputPath.hasPrefix("--") else {
+        print("usage: Kalamos --bench-clean <input.json> --out <results.json> [--arm-b <prompt.txt>] [--repeat N] [--terminal]")
+        exit(2)
+    }
+    func value(_ flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    guard let outPath = value("--out") else {
+        print("--out <results.json> is required")
+        exit(2)
+    }
+    let repeats = Int(value("--repeat") ?? "1") ?? 1
+    let armBPath = value("--arm-b")
+
+    struct BenchItem: Codable { let id: String; let lang: String; let raw: String }
+    struct BenchRow: Codable {
+        let id: String, arm: String, rep: Int, raw: String, out: String
+        let seconds: Double, fellBack: Bool, rejection: String?
+        let promptTokens: Int?, promptSeconds: Double?
+        let generatedTokens: Int?, generateSeconds: Double?
+    }
+
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        #if canImport(MLXLLM)
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: inputPath))
+            let items = try JSONDecoder().decode([BenchItem].self, from: data)
+            // Arm B is a whole system prompt read from disk; arm A is whatever
+            // the app ships today. Nothing else differs.
+            let armB = armBPath.flatMap {
+                try? String(contentsOf: URL(fileURLWithPath: $0), encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let arms: [(name: String, prompt: String?)] =
+                armB == nil ? [("current", nil)] : [("current", nil), ("candidate", armB)]
+
+            let bundle = args.contains("--terminal") ? "com.googlecode.iterm2" : nil
+            let formatter = MLXFormatter(engine: .shared)
+            func context(_ lang: String, _ prompt: String?) -> FormattingContext {
+                FormattingContext(language: Language(rawValue: lang) ?? .italian,
+                                  frontmostBundleID: bundle, promptOverride: prompt)
+            }
+
+            // What every arm saw, verbatim, for the record. The vocabulary is
+            // read from THIS process's defaults domain, which is not the app's —
+            // so it is written down rather than assumed.
+            let vocab = MLXFormatter.vocabularyLine
+            // No frontmost app in a headless run, so the tone is the neutral one
+            // — the same line a dictation into an app with no tone rule gets.
+            let neutralTone = MLXFormatter.toneLine(for: .neutral)
+            var systemStrings: [String: String] = [
+                "current": MLXFormatter.builtInPrompt(
+                    language: Language.italian.displayName, toneLine: neutralTone, vocabLine: vocab)
+            ]
+            if let armB {
+                systemStrings["candidate"] = MLXFormatter.compose(override: armB, vocabLine: vocab)
+            }
+
+            FileHandle.standardError.write(Data(
+                "bench: \(items.count) items × \(arms.count) arms × \(repeats) rep — vocabulary: \(Vocabulary.terms.count) terms\n".utf8))
+
+            // Warm-up, discarded.
+            if let first = items.first {
+                _ = await formatter.format(first.raw, context: context(first.lang, nil))
+                _ = await MainActor.run { CleanupReport.shared.take() }
+                FileHandle.standardError.write(Data("warm-up done\n".utf8))
+            }
+
+            var rows: [BenchRow] = []
+            for rep in 1...max(1, repeats) {
+                for (i, item) in items.enumerated() {
+                    // Rotate the running order per item so no arm sits in the
+                    // same thermal slot twice.
+                    let shift = (i + rep) % arms.count
+                    for arm in Array(arms[shift...] + arms[..<shift]) {
+                        let t0 = Date()
+                        let out = await formatter.format(
+                            item.raw, context: context(item.lang, arm.prompt))
+                        let seconds = Date().timeIntervalSince(t0)
+                        let rejection = await MainActor.run { CleanupReport.shared.take() }
+                        let stats = await MLXEngine.shared.lastStats
+                        rows.append(BenchRow(
+                            id: item.id, arm: arm.name, rep: rep, raw: item.raw, out: out,
+                            seconds: seconds, fellBack: rejection != nil, rejection: rejection,
+                            promptTokens: stats?.promptTokens, promptSeconds: stats?.promptSeconds,
+                            generatedTokens: stats?.generatedTokens,
+                            generateSeconds: stats?.generateSeconds))
+                    }
+                    if (i + 1) % 10 == 0 {
+                        FileHandle.standardError.write(Data("  \(i + 1)/\(items.count) (rep \(rep))\n".utf8))
+                    }
+                }
+            }
+
+            struct BenchFile: Codable {
+                let systemPrompts: [String: String]
+                let vocabularyTerms: [String]
+                let rows: [BenchRow]
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(BenchFile(systemPrompts: systemStrings,
+                                         vocabularyTerms: Vocabulary.terms,
+                                         rows: rows))
+                .write(to: URL(fileURLWithPath: outPath))
+            print("wrote \(outPath) — \(rows.count) rows")
+        } catch {
+            FileHandle.standardError.write(Data("bench failed: \(error)\n".utf8))
+            exit(1)
+        }
+        #else
+        print("ERROR: MLX not compiled in — rebuild with ./Scripts/build-app.sh")
+        exit(1)
+        #endif
+        sem.signal()
+    }
+    waitServicingMainActor(sem)
+    exit(0)
+}
+
 // `Kalamos --edit "instruction" --on "text" [--lang it|en|fr]` runs Edit Mode on
 // one piece of text. Same reasoning as --clean, plus one more: Edit Mode normally
 // needs Accessibility to read your selection, so this is the only way to judge it
