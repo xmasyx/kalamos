@@ -64,9 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller.setCleanupModel(state.cleanupModelID)
         hotkey.setMode(state.triggerMode)
 
-        // ISC-107 measures itself now. See `Footprint` for why a reading anybody
-        // has to remember to take is a reading that never gets taken.
-        Footprint.startLogging()
+        // ISC-107 is closed; this is the guard that keeps it closed. Silent
+        // unless the footprint climbs back over the ceiling.
+        Footprint.startWatching()
 
         // A fresh install goes through setup instead of the silent permission
         // prompts: the flow asks for the same two permissions, but with the reason

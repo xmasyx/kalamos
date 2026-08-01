@@ -3,19 +3,18 @@ import Foundation
 
 /// What the kernel counts against this process, measured from inside it.
 ///
-/// ISC-107 has been open since the buffer-cache ceiling went in, and it has
-/// stayed open for a reason that has nothing to do with the code: the claim is
-/// "under 7 GB after a day of real use", and the only way to check it was to
-/// remember to run `/usr/bin/footprint -p $(pgrep -x Kalamos)` the following day,
-/// on a process nobody had restarted in the meantime. Every rebuild resets the
-/// clock. In practice the reading was never taken.
+/// ISC-107 stayed open for a reason that had nothing to do with the code: the
+/// claim was "under 7 GB after a day of real use", and checking it meant
+/// remembering to run `/usr/bin/footprint -p $(pgrep -x Kalamos)` the next day,
+/// on a process nobody had restarted in the meantime. Every rebuild reset the
+/// clock, and the reading was never taken. It closed in the end from the field —
+/// the user ran a full day at 4 GB with the memory set to never free.
 ///
-/// A number the app writes down every half hour needs nobody to remember
-/// anything. Tomorrow the answer is in the log, with the process age beside it,
-/// and if a rebuild reset the clock the log says that too.
+/// What stays is the guard, not the diary. See `startWatching`.
 ///
 /// `phys_footprint` from `task_vm_info` is the same quantity `/usr/bin/footprint`
-/// prints under that name — checked against it rather than assumed.
+/// prints under that name — checked against it rather than assumed: 4233 MB from
+/// here against 4236 MB from the tool, same process, seconds apart.
 enum Footprint {
 
     /// Bytes, or nil if the kernel refuses to say.
@@ -54,21 +53,53 @@ enum Footprint {
         return (Date().timeIntervalSince1970 - start) / 3600
     }
 
-    /// One line every half hour — the first one AFTER the models are up.
+    /// The number ISC-107 was about: 13 GB before the buffer-cache ceiling, and
+    /// the claim was "under 7 after a day". the user ran a full day at 4 GB
+    /// with the memory set to never free, which is what closed it.
+    static let ceilingMB = 7 * 1024
+
+    /// Watch, do not narrate.
     ///
-    /// Sampling at launch measures an app that has loaded nothing: the first
-    /// line of the first run said 11 MB while the system tool said 4247 MB for
-    /// the same app moments later, which looks like a broken measurement and is
-    /// really just a measurement taken too early. Waiting one interval before
-    /// the first sample makes every line in the log comparable to every other.
+    /// This began as a line every half hour, which is a diary — and the user's
+    /// objection was the right one: *"non credo sia qualcosa che debba rimanere
+    /// lì sempre."* A diary in a shipping app is noise nobody reads and one more
+    /// thing to explain to whoever clones the repo.
+    ///
+    /// So it keeps the sampling, which costs one `task_info` every half hour and
+    /// nothing else, and writes only when the number crosses the ceiling the
+    /// claim named. Same cost, silent forever, and it still catches the one
+    /// thing worth catching: the ceiling disappearing in a refactor months from
+    /// now. `SourceGuardTests` already guards the SOURCE of that cap — this
+    /// guards the behaviour, which is the half a source check cannot see.
+    ///
+    /// It reports again only after another gigabyte, so a bad day writes a short
+    /// series and not a thousand identical lines.
+    ///
+    /// The decision is pulled out because it is a branch that, if all goes well,
+    /// NEVER runs — and a branch that never runs is indistinguishable from a
+    /// branch that cannot run. `FootprintWatchTests` makes it run.
+
+    /// Worth writing a line about?
+    static func shouldReport(mb: Int, lastReported: Int) -> Bool {
+        mb >= ceilingMB && mb >= lastReported + 1024
+    }
+
     @discardableResult
-    static func startLogging(every seconds: TimeInterval = 1_800,
-                             firstAfter warmup: TimeInterval = 60) -> Task<Void, Never> {
+    static func startWatching(every seconds: TimeInterval = 1_800,
+                              firstAfter warmup: TimeInterval = 60) -> Task<Void, Never> {
         Task {
+            // Sampling at launch would measure an app that has loaded nothing:
+            // the first run reported 11 MB while the system tool said 4247 MB
+            // for the same app moments later. Not a broken measurement — one
+            // taken before the models were up.
             try? await Task.sleep(nanoseconds: UInt64(warmup * 1_000_000_000))
+            var reportedAt = 0
             while !Task.isCancelled {
-                if let mb = megabytes {
-                    Log.write(String(format: "footprint: %d MB after %.1f h of uptime", mb, ageHours))
+                if let mb = megabytes, shouldReport(mb: mb, lastReported: reportedAt) {
+                    Log.write(String(format:
+                        "footprint %d MB after %.1f h — above the %d MB ceiling ISC-107 set",
+                        mb, ageHours, ceilingMB))
+                    reportedAt = mb
                 }
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             }

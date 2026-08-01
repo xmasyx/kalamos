@@ -126,3 +126,39 @@ struct MicStartupProbeTests {
         #expect(w.needsRebuild)
     }
 }
+
+/// ISC-107 — the guard that keeps a closed claim closed.
+///
+/// The footprint watch writes nothing while things are well, which is the point
+/// and also the danger: a branch that never runs looks exactly like a branch
+/// that cannot run. the user ran a full day at 4 GB with the memory set to
+/// never free, and that is what closed the claim; this is what would notice if
+/// the buffer-cache ceiling ever vanished in a refactor.
+struct FootprintWatchTests {
+
+    /// The ordinary day. Four gigabytes is what he measured, and it must be
+    /// silent.
+    @Test func aNormalFootprintSaysNothing() {
+        #expect(!Footprint.shouldReport(mb: 4_236, lastReported: 0))
+        #expect(!Footprint.shouldReport(mb: 6_000, lastReported: 0))
+    }
+
+    /// And the regression the ceiling exists to prevent — 13 GB was the number
+    /// before it — must not be silent.
+    @Test func crossingTheCeilingIsReported() {
+        #expect(Footprint.shouldReport(mb: 7_200, lastReported: 0))
+        #expect(Footprint.shouldReport(mb: 13_000, lastReported: 0))
+    }
+
+    /// Exactly at the ceiling counts as over it.
+    @Test func theCeilingItselfIsOverTheCeiling() {
+        #expect(Footprint.shouldReport(mb: Footprint.ceilingMB, lastReported: 0))
+    }
+
+    /// Once said, it stays quiet until another gigabyte — a bad day writes a
+    /// short series, not a thousand identical lines.
+    @Test func itDoesNotRepeatItself() {
+        #expect(!Footprint.shouldReport(mb: 7_300, lastReported: 7_200))
+        #expect(Footprint.shouldReport(mb: 8_300, lastReported: 7_200))
+    }
+}
