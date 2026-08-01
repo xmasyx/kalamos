@@ -104,10 +104,14 @@ final class DictationController {
     }
 
     private func beginRecording() {
+        // Asked BEFORE the device is opened, or the answer is about us. It never
+        // stops a dictation — a shared microphone works fine — it only decides
+        // which sentence the user reads if this one turns out dead.
+        let busyElsewhere = AudioRecorder.inputDeviceBusyElsewhere()
         do {
             try recorder.start()
             state.status = .listening
-            checkMicrophoneCameUp()
+            checkMicrophoneCameUp(wasBusyElsewhere: busyElsewhere)
         } catch {
             state.status = .error("Mic unavailable: \(error.localizedDescription)")
         }
@@ -127,21 +131,27 @@ final class DictationController {
     /// device might be shared, might be a virtual one, might be a permission
     /// revoked mid-session. Whether audio ARRIVES is the question we actually
     /// care about, and it has one answer for all of those.
-    private func checkMicrophoneCameUp() {
+    private func checkMicrophoneCameUp(wasBusyElsewhere: Bool) {
         let probe = AudioRecorder.startupProbeSeconds
         DispatchQueue.main.asyncAfter(deadline: .now() + probe) { [weak self] in
             guard let self, self.recorder.isRecording else { return }
             let health = self.recorder.healthSoFar()
             guard health != .alive else { return }
 
-            Log.write("mic did not come up (\(health)) — abandoning this dictation")
+            Log.write("mic did not come up (\(health), busy elsewhere: \(wasBusyElsewhere))"
+                      + " — abandoning this dictation")
             self.recorder.cancel()
             // One dead start is proof enough: the next press gets a new graph.
             self.recorder.markForRebuild()
-            self.state.status = .error(L.t(
-                "Il microfono non è disponibile — riprova",
-                "The microphone is not available — try again",
-                "Le micro n’est pas disponible — réessayez"))
+            // Name the cause when we can. "Not available" tells nobody what to
+            // do; "another app has it" tells you to hang up.
+            self.state.status = .error(wasBusyElsewhere
+                ? L.t("Il microfono lo sta usando un'altra app",
+                      "Another app is using the microphone",
+                      "Une autre app utilise le micro")
+                : L.t("Il microfono non è disponibile — riprova",
+                      "The microphone is not available — try again",
+                      "Le micro n’est pas disponible — réessayez"))
         }
     }
 

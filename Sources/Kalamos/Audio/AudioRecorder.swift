@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 
 /// Captures microphone audio with AVAudioEngine and resamples it to the
 /// 16 kHz mono Float32 format WhisperKit expects. Accumulates samples for
@@ -117,6 +118,51 @@ final class AudioRecorder {
 
     /// Health since `start()`, for the probe the controller schedules.
     func healthSoFar() -> MicHealth { Self.health(of: currentSamples()) }
+
+    /// Was somebody else already holding the input device when we pressed the key?
+    ///
+    /// **This does not gate anything, and must not.** A list of call apps was the
+    /// obvious idea and is the wrong one twice over: a Google Meet call inside a
+    /// browser tab has no identity of its own to match, so the list is born
+    /// incomplete; and a microphone on macOS is often SHARED, so "Zoom is in a
+    /// call" does not mean this dictation would have failed. Blocking on it would
+    /// cost real dictations to prevent an imagined failure.
+    ///
+    /// What it is good for is the sentence the user reads. "The microphone is not
+    /// available" does not tell anybody to hang up; "another app is using it"
+    /// does. So this runs BEFORE we open the device — afterwards the device is
+    /// running because of US and the answer means nothing — and it is consulted
+    /// only once the arrival probe has already decided the dictation is dead.
+    ///
+    /// `kAudioDevicePropertyDeviceIsRunningSomewhere` asks CoreAudio, not a list
+    /// of vendors, so nothing here rots when a new calling app appears.
+    static func inputDeviceBusyElsewhere() -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        // A query that fails returns the same `false` as "nobody has it", so the
+        // failure has to say so out loud — otherwise a broken check is
+        // indistinguishable from a working one that found nothing.
+        let deviceStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device)
+        guard deviceStatus == noErr, device != kAudioObjectUnknown else {
+            Log.write("mic: cannot read the default input device (status \(deviceStatus))")
+            return false
+        }
+
+        address.mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere
+        var running: UInt32 = 0
+        size = UInt32(MemoryLayout<UInt32>.size)
+        let runningStatus = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &running)
+        guard runningStatus == noErr else {
+            Log.write("mic: cannot read whether the input device is in use (status \(runningStatus))")
+            return false
+        }
+        return running != 0
+    }
 
     /// Throw the graph away before the next `start()`.
     ///
