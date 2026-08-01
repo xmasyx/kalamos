@@ -382,13 +382,7 @@ struct WordsSection: View {
     }
 
     private func field(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(Theme.font(12.5))
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
-            .frame(maxWidth: 190)
+        PrefField(placeholder: placeholder, text: text)
     }
 
     /// One list shape for both, with the delete button on the row itself — the
@@ -634,13 +628,52 @@ struct AdvancedSection: View {
                 // under the click that selected it. This way the geometry never
                 // moves AND every option gets explained, not just the last one.
                 VStack(alignment: .leading, spacing: 8) {
+                    // Four, on one line, and one of them is a field.
+                    //
+                    // It was five — 1, 5, 15, 30, Mai — which wrapped and left
+                    // "Mai" alone on a second row looking like an afterthought.
+                    // His two doubts about which to drop were both right and
+                    // pulled opposite ways: one minute is aggressive enough to
+                    // make you pay a reload for stepping away to read something,
+                    // and thirty is so close to never that it barely earns a
+                    // slot. So both go, and neither is lost: whatever number you
+                    // want, you type it. A preset is a shortcut, not a menu of
+                    // the only allowed answers. (2026-08-01.)
                     ChipRow(options: [
-                        (60, L.t("1 min", "1 min", "1 min"), ""),
                         (300, L.t("5 min", "5 min", "5 min"), ""),
                         (900, L.t("15 min", "15 min", "15 min"), ""),
-                        (1800, L.t("30 min", "30 min", "30 min"), ""),
                         (0, L.t("Mai", "Never", "Jamais"), ""),
-                    ], isOn: { draft.idleSeconds == $0 }, pick: { draft.idleSeconds = $0 })
+                        (Self.customIdle, L.t("Scegli tu", "Your own", "Au choix"), ""),
+                    ], isOn: { value in
+                        value == Self.customIdle
+                            ? !Self.idlePresets.contains(draft.idleSeconds)
+                            : draft.idleSeconds == value
+                    }, pick: { value in
+                        // Landing on the field must not change the setting under
+                        // the click: an install that already reads 30 min keeps
+                        // 30 min, and the field opens showing it.
+                        guard value == Self.customIdle else { draft.idleSeconds = value; return }
+                        if Self.idlePresets.contains(draft.idleSeconds) { draft.idleSeconds = 1800 }
+                    })
+                    if !Self.idlePresets.contains(draft.idleSeconds) {
+                        HStack(spacing: 8) {
+                            PrefField(placeholder: "30", text: Binding(
+                                get: { String(max(1, draft.idleSeconds / 60)) },
+                                set: { typed in
+                                    // Digits only, and never zero: zero is "Mai",
+                                    // which is a chip. A field that can silently
+                                    // become another chip's value is a field that
+                                    // lies about what is selected.
+                                    let digits = typed.filter(\.isNumber).prefix(4)
+                                    let minutes = max(1, min(1440, Int(digits) ?? 1))
+                                    draft.idleSeconds = minutes * 60
+                                }))
+                            .frame(maxWidth: 90)
+                            Text(L.t("minuti", "minutes", "minutes"))
+                                .font(Theme.font(12.5))
+                                .foregroundStyle(Theme.inkFaded)
+                        }
+                    }
                     Text(idleExplanation)
                         .font(Theme.font(11.5))
                         .foregroundStyle(Theme.pen)
@@ -694,6 +727,14 @@ struct AdvancedSection: View {
             }
         }
     }
+
+    /// The values that have a chip of their own. Anything else is "Scegli tu",
+    /// and the two tests — which chip is lit, whether the field shows — both
+    /// read this one list, so they cannot disagree about what a preset is.
+    static let idlePresets = [300, 900, 0]
+    /// Not a duration: the sentinel the fourth chip carries. Negative so it can
+    /// never collide with a real number of seconds.
+    static let customIdle = -1
 
     /// One line, same height whatever is chosen, describing the current choice.
     private var idleExplanation: String {

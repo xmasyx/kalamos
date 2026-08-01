@@ -166,7 +166,11 @@ struct PreferencesView: View {
             .opacity(pending > 0 ? 1 : 0.45)
         }
         .padding(.horizontal, 26)
-        .padding(.vertical, 14)
+        // Nine, not fourteen. The bar carries one short line and two buttons and
+        // was taking the height of a section — it is a footer, and a footer that
+        // competes with the content for vertical space is stealing it from the
+        // pane that has something to say. (2026-08-01.)
+        .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
         .background(Theme.paperEdge)
         .overlay(Divider(), alignment: .top)
@@ -286,8 +290,14 @@ struct ChipRow<Value: Hashable>: View {
         // unrelated things rather than as a choice between comparable ones.
         // (Reported with a screenshot, 2026-08-01.) Half the pane is wide enough
         // for "~4,3 GB · default", which a quarter was not.
+        // Four columns was a ceiling, not a quota, and read as one: three
+        // languages sat in three quarters of the pane with a hole where the
+        // fourth would have been, which looks abandoned rather than aligned
+        // (reported with a screenshot, 2026-08-01). A row narrower than the
+        // ceiling now fills the width it has; rows of four still agree with
+        // each other, which is what the ceiling was for.
         let plainWords = options.allSatisfy { $0.note.isEmpty }
-        let columns = plainWords ? 4 : 2
+        let columns = plainWords ? min(options.count, 4) : 2
         return LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
             alignment: .leading, spacing: 8
@@ -400,12 +410,33 @@ struct PrefButton: View {
                 .font(Theme.font(12.5, .medium))
                 .foregroundStyle(filled ? Theme.paper : Theme.pen)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.vertical, 5.5)
                 .background(RoundedRectangle(cornerRadius: 7)
                     .fill(filled ? Theme.pen : Theme.penWash))
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// The one text-field shape in the window.
+///
+/// It was a private helper on the vocabulary section, which was fine until a
+/// second place needed a field. Two copies of a control drift — a corner radius
+/// here, a border weight there — and the drift is invisible until the two are on
+/// screen at the same time.
+struct PrefField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(Theme.font(12.5))
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
+            .frame(maxWidth: 190)
     }
 }
 
