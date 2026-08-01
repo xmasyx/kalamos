@@ -8,7 +8,7 @@ import Foundation
 /// remembering to run `/usr/bin/footprint -p $(pgrep -x Kalamos)` the next day,
 /// on a process nobody had restarted in the meantime. Every rebuild reset the
 /// clock, and the reading was never taken. It closed in the end from the field —
-/// the user ran a full day at 4 GB with the memory set to never free.
+/// A full day of real use ran at 4 GB with the memory set to never free.
 ///
 /// What stays is the guard, not the diary. See `startWatching`.
 ///
@@ -54,7 +54,7 @@ enum Footprint {
     }
 
     /// The number ISC-107 was about: 13 GB before the buffer-cache ceiling, and
-    /// the claim was "under 7 after a day". the user ran a full day at 4 GB
+    /// the claim was "under 7 after a day". A full day of real use ran at 4 GB
     /// with the memory set to never free, which is what closed it.
     static let ceilingMB = 7 * 1024
 

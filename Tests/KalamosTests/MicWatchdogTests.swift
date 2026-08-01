@@ -83,7 +83,7 @@ struct MicWatchdogTests {
 
 /// ISC-109b — the microphone is asked half a second after the key, not at the end.
 ///
-/// the user's design, and the better one: `engine.start()` succeeding does not
+/// The user's own design, and the better one: `engine.start()` succeeding does not
 /// mean the input device is ours. The first fix noticed a dead microphone when
 /// the recording ENDED, which still meant listening to nothing for as long as the
 /// gesture lasted — forty minutes, the day it happened.
@@ -131,7 +131,7 @@ struct MicStartupProbeTests {
 ///
 /// The footprint watch writes nothing while things are well, which is the point
 /// and also the danger: a branch that never runs looks exactly like a branch
-/// that cannot run. the user ran a full day at 4 GB with the memory set to
+/// that cannot run. A full day of real use ran at 4 GB with the memory set to
 /// never free, and that is what closed the claim; this is what would notice if
 /// the buffer-cache ceiling ever vanished in a refactor.
 struct FootprintWatchTests {

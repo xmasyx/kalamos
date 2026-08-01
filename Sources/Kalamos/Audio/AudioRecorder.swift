@@ -87,7 +87,7 @@ final class AudioRecorder {
 
     /// Did the microphone actually turn up when the key was pressed?
     ///
-    /// the user's design, and it is better than the one it replaces. The first
+    /// The user's own design, and better than the one it replaces. The first
     /// version waited for the END of a recording to notice the microphone was
     /// dead — which still meant recording nothing, for as long as the gesture
     /// lasted. Asking half a second in costs nothing and answers the question

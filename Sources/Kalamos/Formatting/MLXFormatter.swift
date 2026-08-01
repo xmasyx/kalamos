@@ -324,7 +324,7 @@ struct MLXFormatter: TextFormatter {
     /// widens when one shows up.
     ///
     /// Found on 2026-07-31 by writing the demonstration of this guard for
-    /// the user: "la riunione è martedì alle dieci, no aspetta, mercoledì alle
+    /// from real use: "la riunione è martedì alle dieci, no aspetta, mercoledì alle
     /// dieci e mezza" — a textbook self-correction, resolved perfectly by the
     /// model — was being DISCARDED. The retracted fragment was four content words
     /// and the flat budget allowed three. The guard was throwing away the app's

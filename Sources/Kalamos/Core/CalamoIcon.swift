@@ -2,7 +2,7 @@ import AppKit
 
 /// The reed pen in the menu bar, drawn rather than shipped.
 ///
-/// Chosen by the user on 2026-07-31 out of three proposals judged at their real
+/// Chosen on 2026-07-31 out of three proposals judged at their real
 /// size: a nib seen straight on, a bare cut reed, and this one — the reed with
 /// the stroke it has just left. The stroke is what makes it about *dictation*
 /// rather than about a pen.

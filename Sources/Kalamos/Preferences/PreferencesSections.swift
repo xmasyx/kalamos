@@ -407,7 +407,7 @@ struct WordsSection: View {
 /// being pushed a page and a half down by a vocabulary that keeps growing —
 /// which it now does from the menu bar, without this window ever being open.
 ///
-/// The ceiling brought its own bug, and the user found it in one gesture: with
+/// The ceiling brought its own bug, and one gesture in real use found it: with
 /// the pointer over the list, reaching the last row handed the wheel to the page
 /// underneath and the whole window took off. AppKit calls that scroll chaining
 /// and does it by design; `ContainedScroll` is the whole answer to it.

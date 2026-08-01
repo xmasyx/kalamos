@@ -115,7 +115,7 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // (`guard start < end else { return s }`), so the one case that
         // guarantees an invention was the one case with no defence. Deciding
         // this from the AUDIO instead of from the words is the only structural
-        // answer. Reported by the user on 2026-07-31, watching a competitor do
+        // answer. Reported on 2026-07-31, watching a competitor do
         // exactly this.
         if Self.isSilent(samples) {
             Log.write("recording was silent — not transcribed")
@@ -156,7 +156,7 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // ISC-108 — an empty result is a stuck pipeline, so replace the pipeline.
         //
         // The first version of this asked the SAME loaded model a second time.
-        // the user's log of 2026-08-01 shows why that is useless: at 15:55:46
+        // The log of 2026-08-01 shows why that is useless: at 15:55:46
         // the empty result, the retry, and its failure are all stamped the same
         // second — a real decode takes about a second, so the second attempt
         // never decoded anything. It answered instantly and emptily, twice. Then

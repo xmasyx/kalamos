@@ -4,7 +4,7 @@ import CoreGraphics
 
 /// ISC-119 — the word list keeps the wheel to itself.
 ///
-/// the user found this in one gesture: with the pointer over the list, reaching
+/// One gesture in real use found this: with the pointer over the list, reaching
 /// the last row handed the wheel to the Preferences page underneath and the whole
 /// window took off. AppKit calls that scroll chaining and does it by design.
 ///

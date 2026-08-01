@@ -67,7 +67,7 @@ import Testing
     }
 
     @Test func casingAloneIsRepairedWithoutAnyDistance() {
-        // Parakeet writes "rossi" lowercase and "claude" lowercase. Nothing
+        // An engine can write "rossi" and "claude" lowercase. Nothing
         // is being guessed here, so no threshold is involved.
         #expect(repair("ho chiesto a claude") == "ho chiesto a Claude")
         #expect(repair("scarica qwen adesso") == "scarica QWEN adesso")

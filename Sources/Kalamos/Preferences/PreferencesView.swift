@@ -101,7 +101,7 @@ struct PreferencesView: View {
                     // only the draft, so when `uiLanguage` changes nothing about
                     // their inputs changed and SwiftUI correctly declines to
                     // rebuild them: the page keeps the old language until you
-                    // leave it and come back. the user hit exactly that on
+                    // leave it and come back. Real use hit exactly that on
                     // Advanced, which is where the language control lives.
                     //
                     // Keying the section on the language rebuilds it. The cost is
@@ -223,7 +223,7 @@ struct PrefRow<Content: View>: View {
     /// Edit Mode used to carry a separate line reading "On" with its own switch
     /// underneath its own explanation — a label that says nothing next to a
     /// paragraph that already said it. When the row itself is the thing being
-    /// switched, the switch belongs on the row (the user, 2026-08-01).
+    /// switched, the switch belongs on the row (reported 2026-08-01).
     var toggle: Binding<Bool>? = nil
     @ViewBuilder let content: () -> Content
 

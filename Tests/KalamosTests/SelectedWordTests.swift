@@ -66,7 +66,7 @@ struct SelectedWordTests {
 
 /// ISC-113 — undo restores the LIST, not just the row.
 ///
-/// The bin next to every word deleted immediately and for ever. the user asked
+/// The bin next to every word deleted immediately and for ever. The user asked
 /// for ⌘Z on 2026-08-01: *"serve poter mettere appunto il torna indietro."*
 ///
 /// The reason it is a snapshot and not a re-add is here: `Vocabulary.add`

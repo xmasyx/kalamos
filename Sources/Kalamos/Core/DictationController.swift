@@ -119,7 +119,7 @@ final class DictationController {
 
     /// Half a second after the key, ask whether the microphone actually turned up.
     ///
-    /// ISC-109, the user's design. `engine.start()` succeeding does NOT mean the
+    /// ISC-109, the user's own design. `engine.start()` succeeding does NOT mean the
     /// input device is ours: when a phone call takes it, the graph starts, the
     /// tap installs, and every sample is zero. The old fix noticed at the END of
     /// the recording, which still meant listening to nothing for as long as the

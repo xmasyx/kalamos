@@ -649,7 +649,7 @@ if CommandLine.arguments.contains("--selftest-corrections") {
     let cases: [(String, String)] = [
         ("ho visto rosi oggi", "ho visto Rossi oggi"),  // whole word + casing
         ("ROSI corre veloce", "Rossi corre veloce"),    // case-insensitive match
-        ("la rosiggine", "la rosiggine"),               // word boundary: no partial hit
+        ("la rosicchiata", "la rosicchiata"),           // word boundary: no partial hit
     ]
     var fails = 0
     for (input, expected) in cases {
@@ -751,7 +751,7 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
 //
 // The build script assembles into `build/Kalamos.app` and then copies that into
 // `/Applications`, and for months it left the staging copy behind. Spotlight
-// indexes both, so "Kalamos" offered two results, and the user ran both without
+// indexes both, so "Kalamos" offered two results, and both got run without
 // knowing: two global event taps on the same key, one dictation typed TWICE.
 // Nothing about that looks like two apps — it looks like a broken app.
 //
