@@ -263,6 +263,43 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
     exit(0)
 }
 
+// `Kalamos --selftest-combo <corpus.json>` — the negative pole for KeyCombos.
+//
+// Same shape as --selftest-vocab and for the same reason: the failure that costs
+// something is not the missed shortcut, it is the ordinary sentence that gets a
+// plus it never asked for. So the rule runs over a whole corpus of real
+// dictations and prints EVERY change, to be read one by one.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-combo") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-combo <corpus.json>")
+        exit(2)
+    }
+    struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
+    do {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let entries = try JSONDecoder().decode([Entry].self, from: data)
+        var changed = 0, seen = 0
+        for entry in entries {
+            for field in [entry.raw, entry.text, entry.clean].compactMap({ $0 }) where !field.isEmpty {
+                seen += 1
+                let out = KeyCombos.apply(to: field)
+                guard out != field else { continue }
+                changed += 1
+                print("PRIMA: \(field)")
+                print("DOPO : \(out)\n")
+            }
+        }
+        print("— \(changed) testi cambiati su \(seen) —")
+        print("Ogni riga qui sopra va LETTA: un tasso non è una prova.")
+    } catch {
+        FileHandle.standardError.write(Data("selftest-combo: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
 // `Kalamos --bench-clean <input.json> --out <results.json> [--arm-b <prompt.txt>]
 //          [--repeat N] [--terminal]`
 //

@@ -33,6 +33,13 @@ enum TextShaping {
         var out = text
         guard !out.isEmpty else { return out }
 
+        // A dictated shortcut gets its plus back. Here, at the very end, and not
+        // in the cleanup prompt: the model would be free to undo it, and this is
+        // a rule that can be written as a rule. Measured over 240 real
+        // dictations, it fires twice and both are shortcuts ("fare command c per
+        // copiare"); it touches nothing else.
+        out = KeyCombos.apply(to: out)
+
         // A full stop at the end of a search query or a shell command is noise
         // the cleanup added, not something you said. Only the period: a question
         // mark or an exclamation carries meaning and stays.
