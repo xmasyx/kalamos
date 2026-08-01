@@ -335,32 +335,81 @@ struct WordsSection: View {
         @ViewBuilder row: @escaping (Item) -> Row,
         remove: @escaping (Item) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if items.isEmpty {
-                Text(empty)
-                    .font(Theme.font(11.5))
-                    .foregroundStyle(Theme.inkFaded)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(Array(items.enumerated()), id: \.element) { index, item in
-                    HStack {
-                        row(item)
-                        Spacer(minLength: 8)
-                        Button { remove(item) } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.inkFaded)
-                                .padding(6)
-                                .contentShape(Rectangle())
+        PrefList(items: items, empty: empty, row: row, remove: remove)
+    }
+}
+
+/// A list that grows with its contents, and then stops growing (ISC-112).
+///
+/// It used to be a bare `VStack` with no ceiling and no scroller. Past a dozen
+/// or so entries the rows ran off the bottom of the window with no way to reach
+/// them: the words were still there and still biasing the transcriber, simply
+/// unreachable from the only screen that can delete them. Nothing failed, which
+/// is why it survived — a list that is too long looks exactly like a list that
+/// ends where the window does.
+///
+/// The ceiling matters more now than it did: ⌃⌥L and ⌃⌥K add entries from the
+/// menu bar without ever opening this window, so the funnel that fills the list
+/// is faster than the screen that shows it.
+///
+/// Height is measured, not counted. Rows wrap, so a row count times an assumed
+/// row height is a guess that breaks on the first correction long enough to take
+/// two lines.
+private struct PrefList<Item: Hashable, Row: View>: View {
+    let items: [Item]
+    let empty: String
+    @ViewBuilder let row: (Item) -> Row
+    let remove: (Item) -> Void
+
+    /// Six rows. A row measures 38 points (photographed, not assumed), so this
+    /// is high enough that an ordinary list never scrolls and low enough that a
+    /// long one cannot push what sits below it out of the window.
+    private let cap: CGFloat = 228
+
+    var body: some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
+                if items.isEmpty {
+                    Text(empty)
+                        .font(Theme.font(11.5))
+                        .foregroundStyle(Theme.inkFaded)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(Array(items.enumerated()), id: \.element) { index, item in
+                        HStack {
+                            row(item)
+                            Spacer(minLength: 8)
+                            Button { remove(item) } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.inkFaded)
+                                    .padding(6)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(L.t("Togli", "Remove", "Retirer"))
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L.t("Togli", "Remove", "Retirer"))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(index.isMultiple(of: 2) ? Theme.card.opacity(0.75) : .clear)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(index.isMultiple(of: 2) ? Theme.card.opacity(0.75) : .clear)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Grow to fit, then stop and scroll — and NOT by measuring.
+        //
+        // The first version put a `GeometryReader` inside the scroll view and
+        // drove the frame from what it read, which means reading back a height
+        // the frame itself has already imposed. It happened to settle correctly,
+        // and that is the problem: nothing in it says it must.
+        //
+        // `fixedSize` asks the scroll view for its IDEAL height, which is its
+        // content's, and `maxHeight` then clamps it. One pass, no state, nothing
+        // to converge. The order matters: clamp first, take the ideal second.
+        // Photographed at both ends — two entries draw a two-row box, eight draw
+        // six rows and stop.
+        .frame(maxHeight: cap)
+        .fixedSize(horizontal: false, vertical: true)
         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card.opacity(0.45)))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
     }

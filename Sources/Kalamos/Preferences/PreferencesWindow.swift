@@ -18,7 +18,8 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
     static let shared = PreferencesWindow()
     private var window: NSWindow?
 
-    func show(state: AppState, actions: PreferencesActions) {
+    func show(state: AppState, actions: PreferencesActions,
+              openAt: PreferencesView.Section = .dictation) {
         if let window {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
@@ -27,7 +28,7 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         }
 
         let hosting = NSHostingController(
-            rootView: PreferencesView(state: state, actions: actions))
+            rootView: PreferencesView(state: state, actions: actions, openAt: openAt))
         let wanted = hosting.view.fittingSize
         let limit = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size
             ?? NSSize(width: 1200, height: 800)

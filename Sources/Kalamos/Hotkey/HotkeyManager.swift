@@ -23,6 +23,9 @@ final class HotkeyManager {
     /// Fired on the global "learn selected word" shortcut (⌃⌥L).
     var onLearn: (() -> Void)?
 
+    /// Fired on ⌃⌥K — add a replacement rule for the selected word.
+    var onAddCorrection: (() -> Void)?
+
     /// Fired on ⌃⌥C — put the last transcription back on the clipboard.
     var onCopyLast: (() -> Void)?
 
@@ -73,6 +76,7 @@ final class HotkeyManager {
     /// that swallowed it would break copying everywhere on the Mac.
     static let controlOptionShortcuts: [UInt16: String] = [
         0x25: "l",   // kVK_ANSI_L — learn the selected word
+        0x28: "k",   // kVK_ANSI_K — add a correction for the selected word
         0x08: "c",   // kVK_ANSI_C — copy the last transcription
         0x01: "s",   // kVK_ANSI_S — summarize the last dictation
     ]
@@ -164,6 +168,7 @@ final class HotkeyManager {
            let shortcut = Self.controlOptionShortcuts[code] {
             switch shortcut {
             case "l": onLearn?()
+            case "k": onAddCorrection?()
             case "c": onCopyLast?()
             case "s": onSummarize?()
             default: return Unmanaged.passUnretained(event)

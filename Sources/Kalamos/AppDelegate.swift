@@ -48,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onLearn = { [weak self] in
             Task { @MainActor in self?.learnSelectedWord() }
         }
+        hotkey.onAddCorrection = { [weak self] in
+            Task { @MainActor in self?.addCorrection() }
+        }
         hotkey.onCopyLast = { [weak self] in
             Task { @MainActor in self?.copyLast() }
         }
@@ -188,6 +191,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     action: nil, keyEquivalent: "")
         recentItem.submenu = recentMenu
         menu.addItem(recentItem)
+
+        // Teaching Kalamos, the two of them together.
+        //
+        // ⌃⌥L has worked since the day it was written and NOTHING said so: the
+        // only place it appeared was a note under a text field in Preferences,
+        // which you read once. A shortcut nobody can discover is a shortcut only
+        // its author has. Its sibling ⌃⌥K arrives with a menu item from the
+        // start, and the two sit next to each other because they are the same
+        // move — teaching it a word it gets wrong.
+        menu.addItem(.separator())
+        let learn = NSMenuItem(title: L.t("Impara la parola selezionata",
+                                          "Learn Selected Word",
+                                          "Apprendre le mot sélectionné"),
+                               action: #selector(learnSelectedWord), keyEquivalent: "l")
+        learn.keyEquivalentModifierMask = [.control, .option]
+        menu.addItem(learn)
+        let correction = NSMenuItem(title: L.t("Aggiungi una correzione…",
+                                               "Add a Correction…",
+                                               "Ajouter une correction…"),
+                                    action: #selector(addCorrection), keyEquivalent: "k")
+        correction.keyEquivalentModifierMask = [.control, .option]
+        menu.addItem(correction)
 
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: L.t("Preferenze…", "Preferences…", "Préférences…"),
@@ -349,7 +374,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     ///     keys and macOS Secure Input blocks them outright (verified:
     ///     "changeCount moved: false"). The user copies the word (⌘C) first; we
     ///     just read the clipboard. Gesture in those apps: select → ⌘C → ⌃⌥L.
-    private func learnSelectedWord() {
+    @objc private func learnSelectedWord() {
         // Strategy 1: read the selection straight from the focused UI element.
         if let s = Self.selectedTextViaAX()?.trimmingCharacters(in: .whitespacesAndNewlines),
            !s.isEmpty {
@@ -376,6 +401,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         Vocabulary.add(s)
         Log.write("learn ⌃⌥L: added \"\(s)\" via \(source)")
+        NSSound(named: "Glass")?.play()
+    }
+
+    /// Add a replacement rule (⌃⌥K) — the two-valued sibling of ⌃⌥L.
+    ///
+    /// A vocabulary word is ONE value, so ⌃⌥L can finish in silence. A
+    /// correction is two, what it hears and what it should write, and the second
+    /// half only exists in your head: this one has to ask. What it can do is
+    /// arrive with the first half already filled, using the same read as ⌃⌥L —
+    /// the AX selection, then the clipboard. So the gesture is: select the wrong
+    /// word Kalamos just wrote, press ⌃⌥K, type the right one, Enter.
+    @objc private func addCorrection() {
+        let selected = (Self.selectedTextViaAX()
+                        ?? NSPasteboard.general.string(forType: .string)
+                        ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Same shape check as a learned word: a paragraph on the clipboard is
+        // not a misheard word, and prefilling it would only be in the way.
+        let usable = !selected.isEmpty && selected.count <= 60 && !selected.contains("\n")
+        showCorrectionPanel(heard: usable ? selected : "")
+    }
+
+    /// The panel behind ⌃⌥K and its menu item.
+    ///
+    /// `NSAlert` rather than a window of our own: it is modal, it centres itself
+    /// over whatever you were working in, Enter is already the Add button and
+    /// Escape is already Cancel. A correction takes four seconds to write and
+    /// should not cost a window that has to be closed.
+    private func showCorrectionPanel(heard prefill: String) {
+        let width: CGFloat = 296, height: CGFloat = 25, gap: CGFloat = 8
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height * 2 + gap))
+
+        let heardField = NSTextField(frame: NSRect(x: 0, y: height + gap, width: width, height: height))
+        heardField.placeholderString = L.t("quello che sente", "what it hears", "ce qu’il entend")
+        heardField.stringValue = prefill
+        let writtenField = NSTextField(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        writtenField.placeholderString = L.t("quello che deve scrivere", "what it should write",
+                                             "ce qu’il doit écrire")
+        // Tab moves between the two, and wraps. Without this the ring escapes
+        // into the alert's buttons on the first Tab.
+        heardField.nextKeyView = writtenField
+        writtenField.nextKeyView = heardField
+        container.addSubview(heardField)
+        container.addSubview(writtenField)
+
+        let alert = NSAlert()
+        alert.messageText = L.t("Aggiungi una correzione", "Add a correction", "Ajouter une correction")
+        alert.informativeText = L.t(
+            "Vale dalla prossima dettatura: il testo già scritto non cambia.",
+            "Applies from the next dictation on — text already written does not change.",
+            "S’applique dès la prochaine dictée : le texte déjà écrit ne change pas.")
+        alert.accessoryView = container
+        alert.addButton(withTitle: L.t("Aggiungi", "Add", "Ajouter"))
+        alert.addButton(withTitle: L.t("Annulla", "Cancel", "Annuler"))
+        NSApp.activate(ignoringOtherApps: true)
+        // The cursor starts on the half we do NOT know. With a word selected
+        // that is the right-hand field, and the whole thing is one keystroke,
+        // the word, Enter.
+        alert.window.initialFirstResponder = prefill.isEmpty ? heardField : writtenField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let wrong = heardField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let correct = writtenField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wrong.isEmpty, !correct.isEmpty else {
+            Log.write("correction ⌃⌥K: ignored (\"\(wrong)\" → \"\(correct)\" — one side empty)")
+            NSSound(named: "Funk")?.play()
+            return
+        }
+        Corrections.add(wrong: wrong, correct: correct)
+        Log.write("correction ⌃⌥K: added \"\(wrong)\" → \"\(correct)\"")
         NSSound(named: "Glass")?.play()
     }
 

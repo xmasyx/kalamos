@@ -364,12 +364,29 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
             requestMicrophone: { _ in }, requestAccessibility: {},
             openMicrophoneSettings: {}, finish: {}))
     } else {
+        // `--sezione=words` (dictation | cleanup | words | advanced). Without it
+        // the probe could only ever photograph the FIRST screen, which is why
+        // ISC-112 — a list running off the bottom of the third one — stayed a
+        // diagnosis read out of the source instead of something anybody saw.
+        let sezione = CommandLine.arguments
+            .first { $0.hasPrefix("--sezione=") }
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }
+            .flatMap(PreferencesView.Section.init(rawValue:)) ?? .dictation
         PreferencesWindow.shared.show(state: AppState.shared, actions: PreferencesActions(
             apply: { _ in }, isLaunchAtLogin: { false },
-            showDiagnostics: {}, rerunOnboarding: {}))
+            showDiagnostics: {}, rerunOnboarding: {}), openAt: sezione)
     }
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+    // `--attesa=<secondi>` holds the window open before the shutter. Two seconds
+    // is enough to photograph a screen that just sits there, and not enough to
+    // photograph one you have to OPERATE first — a list only proves it scrolls
+    // once somebody has scrolled it.
+    let attesa = CommandLine.arguments
+        .first { $0.hasPrefix("--attesa=") }
+        .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }
+        .flatMap(Double.init) ?? 2.0
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + attesa) {
         guard let window = NSApp.windows.first(where: {
             $0.isVisible && $0.styleMask.contains(.titled)
         }) else {

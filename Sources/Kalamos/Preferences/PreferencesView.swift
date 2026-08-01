@@ -34,9 +34,14 @@ struct PreferencesView: View {
     @State private var applied: SettingsDraft
     @State private var justApplied = false
 
-    init(state: AppState, actions: PreferencesActions) {
+    /// `openAt` exists for the `--scatta` probe: the picture has to be OF the
+    /// screen in question, and every section but the first was unphotographable
+    /// while the starting one was hardcoded. It is not reachable from the UI —
+    /// opening Preferences by hand still lands on Dictation.
+    init(state: AppState, actions: PreferencesActions, openAt: Section = .dictation) {
         self.state = state
         self.actions = actions
+        _section = State(initialValue: openAt)
         let start = SettingsDraft(state: state, launchAtLogin: actions.isLaunchAtLogin())
         _draft = State(initialValue: start)
         _applied = State(initialValue: start)
