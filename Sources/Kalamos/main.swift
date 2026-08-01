@@ -32,6 +32,16 @@ if CommandLine.arguments.contains("--doctor") {
 
 // `Kalamos --version` — so the installer and bug reports can state which build is
 // on disk without opening the bundle.
+// `Kalamos --footprint` prints the same number `/usr/bin/footprint` calls
+// phys_footprint, read from inside the process. Exists so the two can be
+// compared: a self-measurement nobody has checked against the system tool is an
+// assertion, not a measurement.
+if CommandLine.arguments.contains("--footprint") {
+    if let mb = Footprint.megabytes { print("phys_footprint: \(mb) MB") ; exit(0) }
+    FileHandle.standardError.write(Data("footprint unavailable\n".utf8))
+    exit(2)
+}
+
 if CommandLine.arguments.contains("--version") {
     let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     print("Kalamos \(v)")
@@ -376,6 +386,10 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
         // the probe could only ever photograph the FIRST screen, which is why
         // ISC-112 — a list running off the bottom of the third one — stayed a
         // diagnosis read out of the source instead of something anybody saw.
+        if let h = CommandLine.arguments.first(where: { $0.hasPrefix("--altezza=") })?
+            .split(separator: "=", maxSplits: 1).last.flatMap({ Double($0) }) {
+            PreferencesView.probeHeight = CGFloat(h)
+        }
         let sezione = CommandLine.arguments
             .first { $0.hasPrefix("--sezione=") }
             .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }

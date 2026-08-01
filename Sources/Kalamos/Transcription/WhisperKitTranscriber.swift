@@ -153,27 +153,35 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // produced a phrase we stripped as a hallucination".
         if text.isEmpty { Log.write("empty result — raw before filter: \"\(raw)\"") }
 
-        // ISC-108 — ask twice before giving up.
+        // ISC-108 — an empty result is a stuck pipeline, so replace the pipeline.
         //
-        // Whisper returns an EMPTY transcription on audio that plainly contains
-        // speech, and not deterministically: 3 attempts in 12 on one clip, 0 in 8
-        // on five others, 0 in 12 for two other engines given that same clip. In
-        // the real log it is 7 `empty result` in 305 dictations plus 4 with no
-        // transcription line at all — about one in thirty spoken and lost, in
-        // silence, with nothing on screen to say so.
+        // The first version of this asked the SAME loaded model a second time.
+        // the user's log of 2026-08-01 shows why that is useless: at 15:55:46
+        // the empty result, the retry, and its failure are all stamped the same
+        // second — a real decode takes about a second, so the second attempt
+        // never decoded anything. It answered instantly and emptily, twice. Then
+        // he quit and reopened the app at 15:56:17 and dictation worked again.
+        // The same shape appears at 19:19:29 → restart three seconds later.
         //
-        // A second attempt is honest rather than hopeful because `isSilent` has
-        // already said, from the audio itself, that there was something to hear.
-        // One retry only: looping against a model that has genuinely decided
-        // there is nothing there would just hang the dictation.
+        // So it is not a coin flip that can be re-tossed: once the pipeline goes
+        // bad it stays bad for the life of the process, and the only thing that
+        // has ever cleared it is loading the model again. This does by itself
+        // what he was doing by hand. About one dictation in thirty was lost this
+        // way, in silence, with nothing on screen to say so.
+        //
+        // Reloading costs a few seconds. Losing what you just said costs more.
         if raw.isEmpty {
-            Log.write("empty result on non-silent audio — retrying once")
-            results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
-            raw = results.map(\.text).joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            text = Self.stripHallucinations(raw)
-            Log.write(raw.isEmpty ? "retry also empty — giving up"
-                                  : "retry recovered: \"\(text)\"")
+            Log.write("empty result on non-silent audio — reloading the speech model")
+            unload()
+            try await prepare()
+            if let fresh = pipeBox.withLock({ $0 }) {
+                results = try await fresh.transcribe(audioArray: samples, decodeOptions: options)
+                raw = results.map(\.text).joined(separator: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                text = Self.stripHallucinations(raw)
+                Log.write(raw.isEmpty ? "still empty after reloading — giving up"
+                                      : "recovered after reloading: \"\(text)\"")
+            }
         }
 
         // If the caller forced a language, that IS the source language (we told
@@ -260,11 +268,6 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         "please subscribe", "subscribe", "bye",
         "grazie", "grazie per la visione", "grazie a tutti", "grazie per aver guardato",
         "grazie mille", "sottotitoli e revisione a cura di", "sottotitoli",
-        // "amen" earned its place the hard way (ISC-111): it is what an English
-        // prior invents on the tail of Italian speech. The real repair is the
-        // re-decode above — this is only the belt, for the times the hint is not
-        // confident enough to act.
-        "amen",
         "merci", "merci d'avoir regardé", "merci beaucoup", "abonnez-vous",
         "amara.org",
     ]

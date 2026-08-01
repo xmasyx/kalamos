@@ -64,6 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller.setCleanupModel(state.cleanupModelID)
         hotkey.setMode(state.triggerMode)
 
+        // ISC-107 measures itself now. See `Footprint` for why a reading anybody
+        // has to remember to take is a reading that never gets taken.
+        Footprint.startLogging()
+
         // A fresh install goes through setup instead of the silent permission
         // prompts: the flow asks for the same two permissions, but with the reason
         // next to each, and it ends knowing which key to hold. An existing install

@@ -34,6 +34,14 @@ struct PreferencesView: View {
     @State private var applied: SettingsDraft
     @State private var justApplied = false
 
+    /// Only ever set by `--scatta --altezza=<punti>`.
+    ///
+    /// The window is 560 points tall and several sections are longer than that,
+    /// so the probe could photograph their first screen and nothing else — which
+    /// is how the Edit Mode row went unseen while being redesigned. A taller
+    /// window puts the whole section in one picture.
+    nonisolated(unsafe) static var probeHeight: CGFloat?
+
     /// `openAt` exists for the `--scatta` probe: the picture has to be OF the
     /// screen in question, and every section but the first was unphotographable
     /// while the starting one was hardcoded. It is not reachable from the UI —
@@ -85,6 +93,21 @@ struct PreferencesView: View {
                         case .advanced:  AdvancedSection(draft: $draft, actions: actions)
                         }
                     }
+                    // Applying a new interface language has to change the words
+                    // on THIS page, not only on the next one you open.
+                    //
+                    // Every string here comes from `L.t(…)`, read once while a
+                    // section's body is built. Three of the four sections take
+                    // only the draft, so when `uiLanguage` changes nothing about
+                    // their inputs changed and SwiftUI correctly declines to
+                    // rebuild them: the page keeps the old language until you
+                    // leave it and come back. the user hit exactly that on
+                    // Advanced, which is where the language control lives.
+                    //
+                    // Keying the section on the language rebuilds it. The cost is
+                    // that a half-typed word in the vocabulary field is lost when
+                    // you switch language, which happens roughly never.
+                    .id(state.uiLanguage)
                     .padding(26)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -92,7 +115,7 @@ struct PreferencesView: View {
             }
             .background(Theme.paper)
         }
-        .frame(width: 780, height: 560)
+        .frame(width: 780, height: Self.probeHeight ?? 560)
         .background(Theme.paper)
     }
 
@@ -191,18 +214,36 @@ struct PreferencesView: View {
 struct PrefRow<Content: View>: View {
     let title: String
     var note: String = ""
+    /// A switch that turns the WHOLE row on, sitting beside the description.
+    ///
+    /// Edit Mode used to carry a separate line reading "On" with its own switch
+    /// underneath its own explanation — a label that says nothing next to a
+    /// paragraph that already said it. When the row itself is the thing being
+    /// switched, the switch belongs on the row (the user, 2026-08-01).
+    var toggle: Binding<Bool>? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(Theme.font(13.5, .semibold))
-                .foregroundStyle(Theme.ink)
-            if !note.isEmpty {
-                Text(note)
-                    .font(Theme.font(11.5))
-                    .foregroundStyle(Theme.inkFaded)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(title)
+                        .font(Theme.font(13.5, .semibold))
+                        .foregroundStyle(Theme.ink)
+                    if !note.isEmpty {
+                        Text(note)
+                            .font(Theme.font(11.5))
+                            .foregroundStyle(Theme.inkFaded)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let toggle {
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: toggle)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(Theme.pen)
+                }
             }
             content()
         }

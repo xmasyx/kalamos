@@ -635,10 +635,9 @@ struct AdvancedSection: View {
             PrefRow(title: L.t("Edit Mode", "Edit Mode", "Edit Mode"),
                     note: L.t("Tieni premuto il tasto qui sotto e detta un'istruzione: Kalamos trasforma il testo che hai selezionato invece di scriverne di nuovo.",
                               "Hold the key below and speak an instruction: Kalamos transforms the text you selected instead of writing new text.",
-                              "Maintenez la touche ci-dessous et dictez une instruction : Kalamos transforme le texte sélectionné.")) {
+                              "Maintenez la touche ci-dessous et dictez une instruction : Kalamos transforme le texte sélectionné."),
+                    toggle: $draft.editModeEnabled) {
                 VStack(alignment: .leading, spacing: 9) {
-                    PrefToggle(title: L.t("Attivo", "On", "Actif"),
-                               isOn: $draft.editModeEnabled)
                     if draft.editModeEnabled {
                         ChipRow(options: [
                             (UInt16(0x3F), "Fn / Globe", ""),
