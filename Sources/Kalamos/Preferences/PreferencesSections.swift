@@ -130,9 +130,9 @@ struct DictationSection: View {
 
             PrefRow(title: L.t("Motore che ti ascolta", "The engine that hears you",
                                "Le moteur qui vous écoute"),
-                    note: L.t("Whisper tiene i tuoi nomi, Parakeet è dieci volte più rapido e più preciso sull'italiano di tutti i giorni. Misurato, non a occhio.",
-                              "Whisper keeps your names, Parakeet is ten times faster and better on everyday speech. Measured, not guessed.",
-                              "Whisper garde vos noms, Parakeet est dix fois plus rapide et meilleur sur la langue courante. Mesuré.")) {
+                    note: L.t("Sulla precisione non si distinguono. Whisper indovina meglio i nomi che non gli hai insegnato.",
+                              "Indistinguishable on accuracy. Whisper guesses better at names you have not taught it.",
+                              "Indiscernables en précision. Whisper devine mieux les noms que vous ne lui avez pas appris.")) {
                 ChipRow(options: SpeechEngine.allCases.map { ($0.rawValue, $0.title, $0.note) },
                         isOn: { draft.speechEngine.rawValue == $0 },
                         pick: { draft.speechEngine = SpeechEngine(rawValue: $0) ?? .whisper })

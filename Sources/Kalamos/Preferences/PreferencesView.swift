@@ -277,19 +277,22 @@ struct ChipRow<Value: Hashable>: View {
         // agree across rows, a row of three simply leaves the fourth cell empty,
         // and a row of five wraps onto the same column it started from.
         //
-        // Rows whose chips carry a second line — the model pickers — keep the
-        // flowing layout: those are cards, not words, and squeezing them into a
-        // quarter of the pane wraps "~4.3 GB · default" onto three lines.
+        // Rows whose chips carry a second line get TWO columns, not a flow.
+        //
+        // Flowing, each card takes the width of its own text: two engines with
+        // notes of different lengths came out at two different sizes and on two
+        // different lines, which is what the row is least able to afford —
+        // a picker whose options are not the same shape reads as a list of
+        // unrelated things rather than as a choice between comparable ones.
+        // (Reported with a screenshot, 2026-08-01.) Half the pane is wide enough
+        // for "~4,3 GB · default", which a quarter was not.
         let plainWords = options.allSatisfy { $0.note.isEmpty }
-        return Group {
-            if plainWords {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
-                          alignment: .leading, spacing: 8) {
-                    chips
-                }
-            } else {
-                FlowLayout(spacing: 8) { chips }
-            }
+        let columns = plainWords ? 4 : 2
+        return LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
+            alignment: .leading, spacing: 8
+        ) {
+            chips
         }
     }
 

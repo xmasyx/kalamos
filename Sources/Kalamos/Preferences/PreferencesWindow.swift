@@ -37,6 +37,21 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
 
         let w = NSWindow(contentViewController: hosting)
         w.title = L.t("Preferenze di Kalamos", "Kalamos Preferences", "Préférences de Kalamos")
+        // Goes away when Kalamos is not the app you are using.
+        //
+        // Reported 2026-08-01: open Preferences while a terminal is full-screen,
+        // click back on the terminal, and the window is still there — sitting on
+        // top of a full-screen app that is supposed to own the whole screen.
+        // Nothing is floating: the window is level 0 with no collection
+        // behaviour set, measured. That is just what macOS does — a window shown
+        // while another app is full-screen is placed INTO that space, and once
+        // there it stays above its host until the space changes.
+        //
+        // For an app with a Dock icon that would be wrong; for a menu-bar app it
+        // is the ordinary answer, and the one the platform gives us. Coming back
+        // is the menu-bar item, or the Dock icon that exists while the window is
+        // open (the policy is `.regular` for exactly that stretch).
+        w.hidesOnDeactivate = true
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.titlebarAppearsTransparent = true
         w.backgroundColor = Theme.paperNS
@@ -49,6 +64,11 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
+        // One line per opening, and it is the evidence for the line above: if a
+        // refactor ever un-sets `hidesOnDeactivate`, the window quietly goes back
+        // to sitting on top of full-screen apps and nothing else would say so.
+        Log.write("preferences window: level=\(w.level.rawValue)"
+                  + " hidesOnDeactivate=\(w.hidesOnDeactivate)")
     }
 
     func windowWillClose(_ notification: Notification) {

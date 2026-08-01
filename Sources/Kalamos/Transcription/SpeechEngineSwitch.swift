@@ -17,19 +17,18 @@ enum SpeechEngine: String, CaseIterable, Sendable {
         }
     }
 
-    /// One line, in his language, saying what the trade actually is. Written from
-    /// the bench numbers rather than from adjectives: an engine picker whose
-    /// options read "balanced" and "fast" tells you nothing you can decide with.
+    /// The two numbers that differ, and nothing else.
+    ///
+    /// It used to read "più preciso sui tuoi nomi" against "10× più veloce,
+    /// meglio sull'italiano comune", and by the evening of 2026-08-01 the first
+    /// half was no longer true: with the vocabulary repair both engines land on
+    /// 150/150 of his terms. A chip that claims an advantage the measurement has
+    /// since erased is worse than a chip that says nothing. Seconds are the
+    /// in-app figures with the language forced, which is his configuration.
     @MainActor var note: String {
         switch self {
-        case .whisper:
-            return L.t("più preciso sui tuoi nomi · 1,5 GB · ~0,8 s",
-                       "better on your names · 1.5 GB · ~0.8 s",
-                       "meilleur sur vos noms · 1,5 Go · ~0,8 s")
-        case .parakeet:
-            return L.t("10× più veloce, meglio sull'italiano comune · 461 MB · ~0,08 s",
-                       "10× faster, better on ordinary speech · 461 MB · ~0.08 s",
-                       "10× plus rapide, meilleur sur la langue courante · 461 Mo · ~0,08 s")
+        case .whisper: return "1,5 GB · 0,66 s"
+        case .parakeet: return "461 MB · 0,10 s"
         }
     }
 }
