@@ -107,8 +107,41 @@ final class DictationController {
         do {
             try recorder.start()
             state.status = .listening
+            checkMicrophoneCameUp()
         } catch {
             state.status = .error("Mic unavailable: \(error.localizedDescription)")
+        }
+    }
+
+    /// Half a second after the key, ask whether the microphone actually turned up.
+    ///
+    /// ISC-109, the user's design. `engine.start()` succeeding does NOT mean the
+    /// input device is ours: when a phone call takes it, the graph starts, the
+    /// tap installs, and every sample is zero. The old fix noticed at the END of
+    /// the recording, which still meant listening to nothing for as long as the
+    /// gesture lasted — forty minutes, the day it happened. Asking now costs
+    /// nothing and gives the honest answer: this dictation is not going to work,
+    /// so stop pretending to listen and go back to idle.
+    ///
+    /// Waiting instead of asking CoreAudio who owns the device is deliberate: the
+    /// device might be shared, might be a virtual one, might be a permission
+    /// revoked mid-session. Whether audio ARRIVES is the question we actually
+    /// care about, and it has one answer for all of those.
+    private func checkMicrophoneCameUp() {
+        let probe = AudioRecorder.startupProbeSeconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + probe) { [weak self] in
+            guard let self, self.recorder.isRecording else { return }
+            let health = self.recorder.healthSoFar()
+            guard health != .alive else { return }
+
+            Log.write("mic did not come up (\(health)) — abandoning this dictation")
+            self.recorder.cancel()
+            // One dead start is proof enough: the next press gets a new graph.
+            self.recorder.markForRebuild()
+            self.state.status = .error(L.t(
+                "Il microfono non è disponibile — riprova",
+                "The microphone is not available — try again",
+                "Le micro n’est pas disponible — réessayez"))
         }
     }
 

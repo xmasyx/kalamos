@@ -84,6 +84,48 @@ final class AudioRecorder {
         return out
     }
 
+    /// Did the microphone actually turn up when the key was pressed?
+    ///
+    /// the user's design, and it is better than the one it replaces. The first
+    /// version waited for the END of a recording to notice the microphone was
+    /// dead — which still meant recording nothing, for as long as the gesture
+    /// lasted. Asking half a second in costs nothing and answers the question
+    /// that matters: *is this dictation going to work at all?* If not, the app
+    /// says so and goes back to idle rather than pretending to listen.
+    ///
+    /// It also does not need to know anything about phone calls. Whatever took
+    /// the microphone — a call, another app, a permission revoked mid-session —
+    /// looks the same from here.
+    static let startupProbeSeconds: Double = 0.6
+
+    enum MicHealth {
+        case alive
+        /// Buffers arriving, every sample exactly zero: the tap is attached to
+        /// a device that is giving nothing.
+        case silentTap
+        /// No buffers at all. A working graph delivers one every ~64 ms, so
+        /// after the probe window this means the tap never started.
+        case noBuffers
+    }
+
+    /// The decision, as a function of what arrived. Pure, so it can be tested —
+    /// an `AVAudioEngine` cannot be made to lose its input on demand.
+    static func health(of samples: [Float]) -> MicHealth {
+        if samples.isEmpty { return .noBuffers }
+        return isDead(samples) ? .silentTap : .alive
+    }
+
+    /// Health since `start()`, for the probe the controller schedules.
+    func healthSoFar() -> MicHealth { Self.health(of: currentSamples()) }
+
+    /// Throw the graph away before the next `start()`.
+    ///
+    /// One dead start is enough to ask for this — unlike the two-in-a-row rule
+    /// below, which judges a whole recording and so has to be more careful. Here
+    /// we have just watched the tap deliver literal zeros, half a second after
+    /// being told to listen.
+    func markForRebuild() { watchdog.demandRebuild() }
+
     /// Digital silence — not "quiet", zero.
     ///
     /// The distinction is the whole point. `isSilent` in the transcriber asks
@@ -156,4 +198,11 @@ struct MicWatchdog {
 
     /// Called once the graph has actually been replaced.
     mutating func rebuilt() { consecutiveDead = 0 }
+
+    /// Ask for a rebuild outright, without waiting for the count.
+    ///
+    /// Used by the start-up probe: a tap that delivers zeros half a second after
+    /// being told to listen has already proved the point that two whole dead
+    /// recordings would prove more slowly.
+    mutating func demandRebuild() { consecutiveDead = Self.deadLimit }
 }

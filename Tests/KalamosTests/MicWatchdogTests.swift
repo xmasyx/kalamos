@@ -80,3 +80,49 @@ struct MicWatchdogTests {
         #expect(w.needsRebuild)
     }
 }
+
+/// ISC-109b — the microphone is asked half a second after the key, not at the end.
+///
+/// the user's design, and the better one: `engine.start()` succeeding does not
+/// mean the input device is ours. The first fix noticed a dead microphone when
+/// the recording ENDED, which still meant listening to nothing for as long as the
+/// gesture lasted — forty minutes, the day it happened.
+///
+/// The window is 0.6 s, and that number is why one of these cases matters more
+/// than it looks: somebody who presses the key and starts speaking a second later
+/// must NOT be cut off. What is in the buffer at that moment is room tone, and
+/// room tone is not zero.
+struct MicStartupProbeTests {
+
+    @Test func roomToneMeansTheMicrophoneCameUp() {
+        let tone = (0..<9_600).map { _ in Float.random(in: -0.0009...0.0009) }
+        #expect(AudioRecorder.health(of: tone) == .alive)
+    }
+
+    /// The case the probe exists for: buffers arriving, every sample zero.
+    @Test func zeroSamplesMeanTheTapIsAttachedToNothing() {
+        #expect(AudioRecorder.health(of: [Float](repeating: 0, count: 9_600)) == .silentTap)
+    }
+
+    /// A working graph delivers a buffer every ~64 ms, so nothing at all after
+    /// 600 ms means the tap never started.
+    @Test func noBuffersAtAllIsItsOwnDiagnosis() {
+        #expect(AudioRecorder.health(of: []) == .noBuffers)
+    }
+
+    /// Someone who has not started speaking yet is still alive: a single audible
+    /// sample anywhere in the window is enough.
+    @Test func aSilentSpeakerIsNotADeadMicrophone() {
+        var s = [Float](repeating: 0, count: 9_600)
+        s[42] = 0.002
+        #expect(AudioRecorder.health(of: s) == .alive)
+    }
+
+    /// And one dead start asks for a new graph outright, without waiting for a
+    /// second one — we have already watched the tap deliver zeros.
+    @Test func oneDeadStartIsEnoughToDemandARebuild() {
+        var w = MicWatchdog()
+        w.demandRebuild()
+        #expect(w.needsRebuild)
+    }
+}
