@@ -11,10 +11,18 @@ import Testing
 /// you can see, a vandalised sentence you cannot.
 @Suite struct VocabularyRepairTests {
 
-    /// His real list, as of 2026-08-01 (`defaults read com.kalamos.app vocabulary`).
+    /// A vocabulary with the shapes that matter, not a real user's list.
+    ///
+    /// Every entry is here for a property the tests exercise: a four-letter term
+    /// that must never be guessed at ("repo"), a six-letter one that collides
+    /// with an ordinary word ("Claude" against "cloud"), a two-word one that a
+    /// single-word term could swallow ("Claude Desktop"), and one whose casing
+    /// is its whole point ("lifeOS"). Public product names only — the list a
+    /// person actually dictates with says what they work on, and a test fixture
+    /// is a poor place to publish that.
     static let terms = [
-        "Claude", "ChatGPT", "limb-lengthening", "zaya", "QWEN",
-        "Claude Desktop", "repo", "Kalamos", "lifeOS", "Parakeet",
+        "Claude", "ChatGPT", "QWEN", "Claude Desktop",
+        "repo", "Kalamos", "lifeOS", "Parakeet",
     ]
 
     private func repair(_ s: String) -> String {

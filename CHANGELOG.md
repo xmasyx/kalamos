@@ -1,0 +1,118 @@
+# Changelog
+
+Every entry says what changed and, where it matters, what was measured to decide
+it. Numbers here come from benchmarks in the repo or from real use, never from
+an estimate.
+
+## Unreleased
+
+### A second speech engine, off by default
+
+- **Parakeet TDT 0.6B v3 is selectable** next to Whisper (Preferences ▸ Dictation
+  ▸ *The engine that hears you*). It is 461 MB against 1.5 GB and transcribes a
+  clip in 0.10 s against 0.66 s, measured in-app over ten passes on six
+  recordings.
+- **It ships switched off, and that is a field result, not a preference.** A
+  bench on six *scripted* clips could not tell the two engines apart on the
+  delivered text (paired difference +0.9 ± 4.5 points, 150/150 domain terms
+  each). An hour of *spontaneous* dictation said otherwise: Parakeet garbles
+  ordinary Italian words, and its errors are unstable — one evening produced six
+  different spellings of the same proper noun. Correction rules match exact
+  strings, so they cannot chase an error that changes shape. Six short, well
+  articulated clips do not represent long spontaneous speech; the interval said
+  so and the field proved it.
+- `--selftest-engine <file-or-dir> [--engine whisper|parakeet] [--ripeti N]`
+  runs real audio through the real transcriber and writes JSON, so an engine
+  claim can be reproduced from outside the app.
+
+### The vocabulary now repairs the text
+
+Until now the word list fed two things and neither changed what you read: the
+Whisper prompt-token path (disabled — it returns empty transcriptions
+deterministically) and a line in the cleanup prompt. Measured over 180
+transcriptions from three engines with the term sitting in the prompt: **zero
+names repaired**. On one engine the model made it worse, inventing a word that
+does not exist.
+
+- **`VocabularyRepair`** puts your words back into the raw transcription, after
+  your own correction rules and before cleanup — your rule is an instruction,
+  the vocabulary is a guess, and the instruction goes first.
+- Three brakes, because the failure to avoid is not the missed name but the
+  vandalised sentence (an acoustic rescorer once rewrote "nella sala grande" into
+  "nella sala Claude"):
+  1. exact-but-miscased is repaired at zero distance;
+  2. fuzzy matching needs a term of **5+ characters** — swept over 240 real
+     dictations, not chosen: four-letter terms sit one edit from ordinary words;
+  3. the edit budget is **absolute**, `max(1, length/5)`, never a ratio — a ratio
+     lets a long term swallow a long unrelated word.
+- Word boundaries are dropped in the comparison, because where an engine puts a
+  space is not information about what it heard. That is what puts "ai term" one
+  edit from "iTerm".
+- A window wider than the term only widens **leftward**: the head of a foreign
+  word leaks into the word before it, never the tail into the word after.
+  Symmetric widening turned "di cloud e per me" into "di Claude per me" on a real
+  dictation; that one rule is what let the floor drop below seven characters.
+- `--selftest-vocab <corpus.json> [--terms …] [--min-fuzzy N] [--out …]` runs the
+  repair over a whole corpus and **prints every change**, because a rate is not
+  evidence.
+
+### The cleanup prompt no longer assumes bare input
+
+The prompt said the input was "all lowercase". On 240 real dictations it arrives
+already punctuated **57%** of the time — it depends on where the speaker pauses,
+not on length.
+
+- The cost of the false premise was not on punctuated input, where it was
+  expected: on **bare** input the model returned the text completely untouched
+  **23%** of the time — no capital, no full stop, nothing. That is now **0%**.
+- Punctuation marks per 100 words 9.0 → 13.1, sentence ends 5.2 → 7.1, walls of
+  text 16/34 → 10/34, words lost 120 → 114, words invented 52 → 40. A blind
+  pairwise judge on another vendor preferred the new prompt **50 to 10**, with an
+  A/A control that returned 201/201 ties.
+- Cost: +50 prompt tokens and +0.12 s ± 0.08 end to end. The tokens themselves
+  measure free.
+- A variant that additionally forbade repairing the speaker's grammar in so many
+  words was measured and **rejected**: it cost twice as much and lost *more* of
+  the speaker's words than the prompt it replaced.
+
+### Fixed
+
+- **An edited cleanup prompt no longer skips the fidelity guard.** It had a code
+  path of its own that checked for an empty answer and for ballooning and nothing
+  else, so anyone who changed a word of the prompt silently switched off
+  `changedTooMuch` — the most important thing the app does, disabled by a
+  preference nobody would connect to it. `{{VOCAB}}` marks where the vocabulary
+  line goes in a hand-written prompt.
+- **Preferences no longer sits on top of a full-screen app.** Nothing was
+  floating (level 0, no collection behaviour): macOS places a window shown while
+  another app is full-screen *into* that space, and there it stays. It now hides
+  when Kalamos is not the app you are using, which is the ordinary answer for a
+  menu-bar app.
+- **Chip rows fill the width they have.** Four columns was a ceiling and read as
+  a quota — three options sat in three quarters of the pane with a hole where the
+  fourth would have been.
+- **Option cards with a second line are laid out in two equal columns** instead
+  of flowing, so a picker's options are the same shape rather than each taking
+  the width of its own text.
+- **The memory-timeout row is four choices on one line**, and the fourth opens a
+  field: 5 min, 15 min, Never, or a number you type. One minute and thirty
+  minutes lost their slots and neither is lost — a preset is a shortcut, not the
+  list of allowed answers.
+- **The apply bar is a footer again**, not a section.
+- `Tuning` reads its stored value whether it arrives as a number or as a string.
+  A value passed on the command line lands in the argument domain as a String, so
+  an injected setting was silently ignored and probes measured the default while
+  reporting the injection.
+
+### Internals
+
+- `MLXEngine` exposes the token counts of the last generation, so a bench can
+  cost a prompt without parsing a log line.
+- `--bench-clean` runs a whole corpus through the real cleanup path with the
+  model loaded once, alternating arms per item, and records the exact system
+  string each arm saw.
+- The single text-field shape lives in one place instead of two.
+
+## v1.0.1
+
+Before this changelog existed. See the commit history.
