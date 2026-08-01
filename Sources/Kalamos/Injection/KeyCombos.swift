@@ -86,6 +86,22 @@ enum KeyCombos {
         return c.isUppercase
     }
 
+    /// Spaces, and at most one thing that is trying to be a plus.
+    ///
+    /// Deliberately at most ONE: "cmd - - s" is not a shortcut anybody dictated,
+    /// and a rule that swallows any run of punctuation starts joining across
+    /// things it should not.
+    private static func isJoiner(_ gap: String) -> Bool {
+        var seen = 0
+        for c in gap {
+            if c == " " { continue }
+            guard "+-–—‑".contains(c) else { return false }
+            seen += 1
+            if seen > 1 { return false }
+        }
+        return true
+    }
+
     /// Join dictated shortcuts with a plus, leaving everything else alone.
     static func apply(to text: String) -> String {
         guard !text.isEmpty else { return text }
@@ -115,15 +131,23 @@ enum KeyCombos {
             guard j < words.count, isTarget(tokens[words[j]].text) else { i = j + 1; continue }
             run.append(j)
 
-            // Every gap between consecutive words of the run must be plain
-            // space. A comma or a full stop between them means the sentence
-            // moved on, whatever the words say.
+            // What may sit between two words of the run, and what may not.
+            //
+            // The first version accepted a plain space and nothing else, which
+            // missed the two forms Whisper actually produces. From his log:
+            //   "Per salvare fai Command + S."   ← a plus, with spaces around it
+            //   "per salvare F-Cmd-S"            ← hyphens
+            // The engine decides how to spell a shortcut and it does not decide
+            // the same way twice, so the separator carries no information — only
+            // the words on either side do. Space, plus, hyphen or dash, alone or
+            // padded, all become one plus. A comma or a full stop still ends the
+            // run: those mean the sentence moved on, whatever the words say.
             var ok = true
             var gaps: [Int] = []
             for k in 0..<(run.count - 1) {
                 let from = words[run[k]], to = words[run[k + 1]]
                 guard to == from + 2, case .gap(let g) = tokens[from + 1],
-                      g.allSatisfy({ $0 == " " }) else { ok = false; break }
+                      isJoiner(g) else { ok = false; break }
                 gaps.append(from + 1)
             }
             if ok { joins.append(contentsOf: gaps) }

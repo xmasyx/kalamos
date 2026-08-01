@@ -95,6 +95,27 @@ import Testing
         #expect(shape("A") == "A")
     }
 
+    /// The separator is the engine's choice, and it does not choose twice the
+    /// same way. Both of these are real raw transcriptions from his log, minutes
+    /// apart, of the same spoken sentence.
+    @Test func whateverTheEnginePutBetweenThem() {
+        #expect(shape("Per salvare fai Command + S.") == "Per salvare fai Command+S.")
+        #expect(shape("premi CTRL-ALT-CANC") == "premi CTRL+ALT+CANC")
+        #expect(shape("usa cmd+shift+p") == "usa cmd+shift+p")   // already right, left alone
+        // "fai" came back as "F-" — a mishearing, not a separator. The rule
+        // starts at the first real modifier and leaves the rest as spoken.
+        #expect(shape("per salvare F-Cmd-S") == "per salvare F-Cmd+S")
+    }
+
+    @Test func aHyphenIsNotAlwaysAJoiner() {
+        // Ordinary hyphenated words survive: neither half is a modifier.
+        for sentence in ["il mio indirizzo e-mail non funziona",
+                         "un intervento di limb-lengthening",
+                         "cmd - - s non è una scorciatoia"] {
+            #expect(shape(sentence) == sentence, "ha toccato «\(sentence)»")
+        }
+    }
+
     // MARK: The whole point, in one sentence of his
 
     @Test func aRealInstructionSurvivesIntact() {
