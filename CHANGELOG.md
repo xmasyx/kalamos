@@ -6,6 +6,26 @@ an estimate.
 
 ## Unreleased
 
+### A hands-free dictation closes its own microphone
+
+- **Ten seconds of silence and the microphone closes by itself**, in one-tap and
+  double-tap alike. In one-tap every short press of the trigger starts listening
+  and only another press stops it, so a key brushed by accident left the
+  microphone open indefinitely — seven recordings nobody asked for in
+  twenty-six seconds, one of them sixteen seconds long, three transcribed as the
+  classic silence hallucination.
+- **Two outcomes, and the difference is what makes it safe.** If you had spoken,
+  the dictation finishes normally and your text is delivered — throwing away real
+  speech would be the worse failure. If nothing was ever said, the recording is
+  discarded without being transcribed: no text, no model run, no invented
+  sentence out of ten seconds of room tone.
+- Both conditions are required: the window must have elapsed AND the last ten
+  seconds be silent. Time alone would cut off a pause mid-dictation.
+- The guard judges silence with the transcriber's own threshold rather than a
+  second one of its own, so the two cannot disagree about the same audio.
+- `defaults write com.kalamos.app handsFreeSilenceSeconds -int 0` turns it off,
+  or sets another number.
+
 ### Setup offers everything the app does
 
 - **The trigger's fourth mode reached setup.** One-tap was added to the app on
@@ -15,6 +35,10 @@ an estimate.
   drawable — and Continue let them walk past it. Setup now builds that page and
   the cleanup page from the same enums, and a test fails if a case exists in the
   app and is missing from setup.
+- **Right Shift joins the trigger keys**, so the page is four in a 2×2 like the
+  one after it — and setup and Preferences now read ONE list. They had a copy
+  each, and Right Shift was in Preferences only: the same drift that had just
+  lost the fourth trigger mode, found in the same hour.
 - **Cleanup can be turned off from setup too** ("Nothing", the raw words you
   said). Preferences had it; setup did not.
 - **Continue is greyed and inert until the page has an answer.** Two pages offer

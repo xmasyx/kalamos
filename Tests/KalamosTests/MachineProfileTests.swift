@@ -263,3 +263,27 @@ import Testing
         }
     }
 }
+
+/// Setup and Preferences offer the SAME trigger keys.
+///
+/// They had a copy each until 2026-08-02, and Right Shift lived in one of them
+/// only — the same drift that had just lost the fourth trigger mode, found in
+/// the same hour. There is one list now; this is what keeps it one.
+@Suite @MainActor struct TriggerKeyListTests {
+    @Test func everyOfferedKeyHasAName() {
+        for code in OnboardingChoices.triggerKeys {
+            let name = HotkeyManager.displayName(for: code)
+            #expect(!name.isEmpty)
+            #expect(name != "\(code)", "key \(code) falls back to its raw number")
+        }
+    }
+
+    /// The keys have to be ones the tap can actually watch: `HotkeyManager` maps
+    /// each to a modifier mask, and one that is missing would be offered in the
+    /// interface and never fire.
+    @Test func everyOfferedKeyIsAKeyTheTapWatches() {
+        for code in OnboardingChoices.triggerKeys {
+            #expect(HotkeyManager.isSupportedTriggerKey(code), "key \(code) is not watchable")
+        }
+    }
+}

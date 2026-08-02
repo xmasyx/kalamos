@@ -74,7 +74,16 @@ final class DictationController {
         #endif
     }
 
-    func handle(_ action: DictationAction, editMode: Bool = false) {
+    /// Called when the silence guard closed the microphone on its own, so the
+    /// gesture recogniser can settle: it still believes it is listening, and the
+    /// next tap would otherwise be spent stopping a recording that already ended.
+    var onSilenceStop: (() -> Void)?
+
+    /// Ticks while a hands-free dictation is open. Nil at every other moment.
+    private var silenceGuard: Timer?
+    private var handsFreeStartedAt: TimeInterval?
+
+    func handle(_ action: DictationAction, editMode: Bool = false, handsFree: Bool = false) {
         switch action {
         case .beginRecording:
             // Capture the selection NOW, while it's still highlighted and the
@@ -83,6 +92,7 @@ final class DictationController {
             editModeActive = editMode
             capturedSelection = editMode ? TextInjector.selectedText() : nil
             beginRecording()
+            if handsFree { armSilenceGuard() }
         case .cancelRecording:
             recorder.cancel(); if !processing { state.status = .idle }
         case .endRecordingAndProcess:
@@ -101,6 +111,58 @@ final class DictationController {
         #if canImport(MLXLLM)
         Task.detached { await MLXEngine.shared.setModel(id) }
         #endif
+    }
+
+    /// Watch a hands-free dictation for a stretch of silence, once a second.
+    ///
+    /// Polling rather than reacting to the audio callback on purpose: the
+    /// callback runs on the audio thread, and the last thing that thread should
+    /// be doing is deciding policy and touching the UI.
+    private func armSilenceGuard() {
+        let window = Tuning.handsFreeSilenceSeconds
+        guard window > 0 else { return }
+        disarmSilenceGuard()
+        handsFreeStartedAt = Date.timeIntervalSinceReferenceDate
+        silenceGuard = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkForSilence(window: window) }
+        }
+    }
+
+    private func disarmSilenceGuard() {
+        silenceGuard?.invalidate()
+        silenceGuard = nil
+        handsFreeStartedAt = nil
+    }
+
+    private func checkForSilence(window: Double) {
+        guard recorder.isRecording, let startedAt = handsFreeStartedAt else {
+            disarmSilenceGuard()
+            return
+        }
+        let elapsed = Date.timeIntervalSinceReferenceDate - startedAt
+        let tail = recorder.tail(seconds: window)
+        // Judged with the transcriber's own definition of silence, not a second
+        // one: two definitions of silence in one app end up disagreeing about the
+        // same audio.
+        let tailIsSilent = WhisperKitTranscriber.isSilent(tail)
+
+        switch HandsFreeSilence.decide(elapsed: elapsed, tailIsSilent: tailIsSilent,
+                                       heardSpeech: recorder.heardSpeech, window: window) {
+        case .keepListening:
+            return
+        case .finish:
+            Log.write("hands-free: \(Int(window))s of silence after speech — finishing")
+            disarmSilenceGuard()
+            onSilenceStop?()
+            endAndProcess()
+        case .discard:
+            Log.write("hands-free: \(Int(window))s and nothing was ever said"
+                      + " — microphone closed, nothing transcribed")
+            disarmSilenceGuard()
+            onSilenceStop?()
+            recorder.cancel()
+            state.status = .idle
+        }
     }
 
     private func beginRecording() {
@@ -156,6 +218,7 @@ final class DictationController {
     }
 
     private func endAndProcess() {
+        disarmSilenceGuard()
         let samples = recorder.stop()
         Log.write("endAndProcess: samples=\(samples.count)")
 

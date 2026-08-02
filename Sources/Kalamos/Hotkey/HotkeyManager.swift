@@ -63,6 +63,12 @@ final class HotkeyManager {
 
     private var modifierMask: CGEventFlags? { Self.modifierMasks[keyCode] }
 
+    /// Whether the event tap knows how to watch this key. A key offered in the
+    /// interface without an entry above would be selectable and never fire.
+    static func isSupportedTriggerKey(_ code: UInt16) -> Bool {
+        modifierMasks[code] != nil
+    }
+
     /// The global Control+Option shortcuts: key code → the letter the menu prints.
     ///
     /// The menu is where these are discovered, and a menu that prints a shortcut
@@ -130,6 +136,14 @@ final class HotkeyManager {
     }
 
     func updateKeyCode(_ newCode: UInt16) { keyCode = newCode }
+
+    /// True while a recording is open with nobody holding the key — the state the
+    /// silence guard is for.
+    var isHandsFree: Bool { recognizer.isHandsFree }
+
+    /// The recording ended somewhere else (the silence guard). Settle without
+    /// emitting, or the next tap is spent stopping something already stopped.
+    func settleToIdle() { recognizer.settleToIdle() }
 
     /// Forward the trigger mode to the recognizer (menu, setup, launch).
     func setMode(_ mode: TriggerMode) { recognizer.setMode(mode) }

@@ -61,10 +61,17 @@ enum OnboardingFlow {
 enum OnboardingChoices {
     static let triggerModes: [TriggerMode] = [.hold, .singleTap, .doubleTap, .both]
     static let formatterModes: [FormatterMode] = [.localLLM, .ruleBased, .off]
-    /// The keys setup offers. Deliberately NOT every key on the keyboard: these
-    /// three are the ones free on an Apple keyboard. An open set, so this page can
-    /// legitimately show nothing selected — which is why Continue is gated.
-    static let triggerKeys: [UInt16] = [0x36, 0x3D, 0x3F]
+    /// The keys offered for the trigger — **by setup AND by Preferences**, which
+    /// each had their own copy until 2026-08-02. Right Shift was in one and not
+    /// the other: the same drift that lost the fourth trigger mode, found the
+    /// same day, in the same hour.
+    ///
+    /// Deliberately not every key on the keyboard: these four are the ones free
+    /// on an Apple keyboard (Right Control is absent because Apple keyboards have
+    /// one Control key, on the left). An open set even so — `hotKeyCode` accepts
+    /// any code — which is why the page gates Continue instead of assuming an
+    /// answer is always lit.
+    static let triggerKeys: [UInt16] = [0x36, 0x3D, 0x3C, 0x3F]
     /// Presets, not the whole range — `idleUnloadSeconds` accepts any number.
     static let idleSeconds: [Int] = [300, 900, 0]
 }
@@ -841,6 +848,8 @@ struct OnboardingView: View {
                               "libre sur presque tous les Mac")
         case 0x3D: return L.t("se non lo usi per gli accenti", "if you do not type accents with it",
                               "si vous ne tapez pas d’accents avec")
+        case 0x3C: return L.t("se scrivi le maiuscole con l’altro", "if you shift with the other one",
+                              "si vous utilisez l’autre pour les majuscules")
         case 0x3F: return L.t("se non l’hai rimappato", "unless you remapped it",
                               "sauf si vous l’avez remappée")
         default:   return ""

@@ -54,8 +54,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         hotkey = HotkeyManager(keyCode: state.hotKeyCode)
         hotkey.onAction = { [weak self] action in
-            Task { @MainActor in self?.controller.handle(action) }
+            // `isHandsFree` is read at emit time, when the recogniser has already
+            // moved into its listening state — that is what tells the controller
+            // this recording has no finger holding it open.
+            let handsFree = self?.hotkey.isHandsFree ?? false
+            Task { @MainActor in self?.controller.handle(action, handsFree: handsFree) }
         }
+        controller.onSilenceStop = { [weak self] in self?.hotkey.settleToIdle() }
         hotkey.onLearn = { [weak self] in
             Task { @MainActor in self?.learnSelectedWord() }
         }

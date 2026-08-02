@@ -14,6 +14,13 @@ final class AudioRecorder {
     private var watchdog = MicWatchdog()
     /// Set when the last recording ran into the ceiling instead of ending.
     private(set) var hitCeiling = false
+    /// Whether anything above the speech floor has arrived since `start()`.
+    ///
+    /// Kept as a running flag rather than measured at the end, because the
+    /// hands-free silence guard has to answer "was anything ever said?" WITHOUT
+    /// scanning ten minutes of audio once a second.
+    private var _heardSpeech = false
+    var heardSpeech: Bool { lock.lock(); defer { lock.unlock() }; return _heardSpeech }
 
     /// WhisperKit input format.
     static let targetSampleRate: Double = 16_000
@@ -35,6 +42,7 @@ final class AudioRecorder {
         guard !isRecording else { return }
         lock.lock(); samples.removeAll(keepingCapacity: true); lock.unlock()
         hitCeiling = false
+        lock.lock(); _heardSpeech = false; lock.unlock()
 
         // A graph that has had its input stolen never re-attaches on its own: it
         // keeps running and keeps delivering zeros, which is indistinguishable
@@ -98,6 +106,12 @@ final class AudioRecorder {
     /// the microphone — a call, another app, a permission revoked mid-session —
     /// looks the same from here.
     static let startupProbeSeconds: Double = 0.6
+
+    /// The loudness at which a buffer counts as somebody speaking. Deliberately
+    /// the SAME number the transcriber uses to decide a recording was silent —
+    /// two definitions of silence in one app is how the guard and the transcriber
+    /// end up disagreeing about the same audio.
+    static let speechFloor: Float = 0.004
 
     enum MicHealth {
         case alive
@@ -199,6 +213,17 @@ final class AudioRecorder {
         return out
     }
 
+    /// The last `seconds` of audio, and nothing else.
+    ///
+    /// `currentSamples()` copies the entire recording, which at ten minutes is
+    /// 9.6 million floats — fine once at the end, ruinous once a second.
+    func tail(seconds: Double) -> [Float] {
+        let wanted = Int(seconds * Self.targetSampleRate)
+        lock.lock(); defer { lock.unlock() }
+        guard samples.count > wanted else { return samples }
+        return Array(samples[(samples.count - wanted)...])
+    }
+
     private func append(_ buffer: AVAudioPCMBuffer, using conv: AVAudioConverter, target: AVAudioFormat) {
         let ratio = target.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1)
@@ -214,7 +239,13 @@ final class AudioRecorder {
         }
         guard error == nil, let ch = out.floatChannelData else { return }
         let frames = Int(out.frameLength)
+        // One pass over the buffer that just arrived (~1024 frames), never over
+        // what has accumulated.
+        var sum: Float = 0
+        for i in 0..<frames { let v = ch[0][i]; sum += v * v }
+        let rms = frames > 0 ? (sum / Float(frames)).squareRoot() : 0
         lock.lock()
+        if rms >= Self.speechFloor { _heardSpeech = true }
         let ceiling = Int(Self.maxSeconds * Self.targetSampleRate)
         if samples.count < ceiling {
             samples.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: frames))

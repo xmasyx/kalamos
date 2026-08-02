@@ -11,14 +11,11 @@ struct DictationSection: View {
                     note: L.t("Scegline uno che non usi già per altro.",
                               "Pick one you do not already use for something else.",
                               "Choisissez-en une que vous n’utilisez pas déjà.")) {
-                // Right Control is absent on purpose: Apple keyboards have one
-                // Control key, on the left.
-                ChipRow(options: [
-                    (UInt16(0x36), "Right Command", ""),
-                    (UInt16(0x3D), "Right Option", ""),
-                    (UInt16(0x3C), "Right Shift", ""),
-                    (UInt16(0x3F), "Fn / Globe", ""),
-                ], isOn: { draft.hotKeyCode == $0 }, pick: { draft.hotKeyCode = $0 })
+                // One list, shared with setup. Two copies is what let Right Shift
+                // exist here and not there.
+                ChipRow(options: OnboardingChoices.triggerKeys.map {
+                    ($0, HotkeyManager.displayName(for: $0), "")
+                }, isOn: { draft.hotKeyCode == $0 }, pick: { draft.hotKeyCode = $0 })
             }
 
             PrefRow(title: L.t("Come si attiva", "How it starts", "Comment ça démarre"),

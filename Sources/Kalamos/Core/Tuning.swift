@@ -29,6 +29,17 @@ enum Tuning {
         return nil
     }
 
+    /// Seconds of silence after which a HANDS-FREE dictation closes the
+    /// microphone by itself. 0 disables the guard entirely — for someone who
+    /// would rather hold the key open indefinitely.
+    /// `defaults write com.kalamos.app handsFreeSilenceSeconds -int <secs|0=off>`
+    static var handsFreeSilenceSeconds: Double {
+        let v = UserDefaults.standard.object(forKey: "handsFreeSilenceSeconds")
+        if let n = v as? Int { return Double(n) }
+        if let s = v as? String, let n = Double(s) { return n }
+        return HandsFreeSilence.defaultSeconds
+    }
+
     static func setIdleUnload(_ seconds: Int) {
         UserDefaults.standard.set(seconds, forKey: "idleUnloadSeconds")
     }

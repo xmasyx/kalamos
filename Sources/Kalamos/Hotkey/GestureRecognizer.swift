@@ -87,6 +87,20 @@ final class GestureRecognizer {
         state = .idle
     }
 
+    /// True while listening with no finger on the key.
+    var isHandsFree: Bool {
+        if case .toggleListening = state { return true }
+        return false
+    }
+
+    /// Settle to idle without emitting anything.
+    ///
+    /// For the one case where the recording ended somewhere other than here: the
+    /// hands-free silence guard closed the microphone. Without this the machine
+    /// still believes it is listening, and the user's next tap is spent stopping
+    /// a recording that stopped by itself a minute ago.
+    func settleToIdle() { state = .idle }
+
     /// Feed a key-DOWN event. `now` is a monotonic timestamp (seconds).
     func keyDown(at now: TimeInterval) {
         switch state {
