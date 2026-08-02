@@ -582,6 +582,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller.setCleanupModel(id)
     }
 
+    /// What setup proposes for this Mac, put into effect.
+    ///
+    /// It goes through the same three `apply…` calls the Preferences window uses,
+    /// rather than assigning the fields: those are where the live engine is told,
+    /// and a setting written down without telling it only takes effect at the next
+    /// launch — which looks exactly like a control that does nothing.
+    ///
+    /// The cleanup model id is written even when the proposal is punctuation-only,
+    /// so turning the model on later lands on the right one for the machine.
+    func applyRecommendation(_ proposal: Recommendation) {
+        applySpeechEngine(proposal.engine)
+        applyCleanupModel(proposal.cleanupModelID)
+        state.formatterMode = proposal.formatterMode
+        Tuning.setIdleUnload(proposal.idleUnloadSeconds)
+    }
+
     /// The live recogniser has to be told, or the setting only takes effect on the
     /// next launch. Shared with setup, same reason as the trigger key.
     func applyTriggerMode(_ mode: TriggerMode) {
@@ -631,6 +647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         OnboardingWindow.shared.show(state: state, actions: OnboardingActions(
             applyTriggerKey: { [weak self] in self?.applyTriggerKey($0) },
             applyTriggerMode: { [weak self] in self?.applyTriggerMode($0) },
+            applyRecommendation: { [weak self] in self?.applyRecommendation($0) },
             // These two must ASK, not merely report. Setup previously showed a row
             // per permission with a link to System Settings and never triggered the
             // system prompt at all — so you could walk to the end of the flow, be

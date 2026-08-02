@@ -733,10 +733,20 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
                                      written: halves.count > 1 ? halves[1] : "") { _, _ in }
     } else if CommandLine.arguments.contains("--onboarding") {
         // The one screen that has no second chance: whoever installs the app sees it
-        // once. Its actions are all no-ops here — nothing asks for a permission, so
-        // the probe cannot pop a system prompt at somebody's desk.
+        // once. Its actions are all no-ops here — nothing asks for a permission and
+        // nothing is written down, so the probe can neither pop a system prompt at
+        // somebody's desk nor move the settings of the Kalamos they are using.
+        //
+        // `--passo=<n>` opens it at a given page. Without it the probe could only
+        // ever photograph the first one, which is how a page ends up checked by
+        // reading its source instead of by looking at it.
+        if let n = CommandLine.arguments.first(where: { $0.hasPrefix("--passo=") })?
+            .split(separator: "=", maxSplits: 1).last.flatMap({ Int($0) }) {
+            OnboardingView.probeStep = n
+        }
         OnboardingWindow.shared.show(state: AppState.shared, actions: OnboardingActions(
             applyTriggerKey: { _ in }, applyTriggerMode: { _ in },
+            applyRecommendation: { _ in },
             requestMicrophone: { _ in }, requestAccessibility: {},
             openMicrophoneSettings: {}, finish: {}))
     } else {

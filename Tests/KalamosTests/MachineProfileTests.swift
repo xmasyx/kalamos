@@ -1,0 +1,203 @@
+import Testing
+@testable import Kalamos
+
+/// The machine decides, so every threshold is tested from BOTH sides with an
+/// invented machine. The real `ProcessInfo` would only ever exercise the side
+/// this particular Mac happens to be on — which is the whole reason
+/// `MachineProfile` is a plain struct rather than a bag of computed properties.
+@Suite struct RecommendationTests {
+    private static let gb: UInt64 = 1024 * 1024 * 1024
+
+    /// A machine with room for anything, so a test about memory is not quietly a
+    /// test about the disk.
+    private static func mac(ram: UInt64, disk: UInt64 = 500 * gb,
+                            chip: String = "Apple M4 Max") -> MachineProfile {
+        MachineProfile(chipName: chip, memoryBytes: ram, freeDiskBytes: disk,
+                       performanceCores: 10, efficiencyCores: 4)
+    }
+
+    // MARK: Memory
+
+    @Test func eightGigabytesGetsTheSmallEngineAndNoModel() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 8 * Self.gb))
+        #expect(r.engine == .parakeet)
+        #expect(r.formatterMode == .ruleBased)
+        #expect(r.constraint == .verySmallMemory)
+        #expect(r.idleUnloadSeconds == 300)
+    }
+
+    /// The boundary is where an off-by-one lives: one byte over 8 GB is already a
+    /// machine that can run the cleanup model.
+    @Test func justOverEightIsAlreadyEnoughForTheModel() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 8 * Self.gb + 1))
+        #expect(r.engine == .whisper)
+        #expect(r.formatterMode == .localLLM)
+        #expect(r.cleanupModelID == ModelCatalog.smallCleanupID)
+        #expect(r.constraint == .tightMemory)
+    }
+
+    @Test func sixteenGetsTheBigModelAndTheLongerTimeout() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 16 * Self.gb))
+        #expect(r.cleanupModelID == ModelCatalog.previousDefaultCleanupID)
+        #expect(r.idleUnloadSeconds == 900)
+        #expect(r.constraint == .none)
+    }
+
+    @Test func justUnderSixteenIsStillTheSmallModel() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 16 * Self.gb - 1))
+        #expect(r.cleanupModelID == ModelCatalog.smallCleanupID)
+        #expect(r.idleUnloadSeconds == 300)
+    }
+
+    /// The page setup used to print — "32 GB and up: always ready" — is now the
+    /// rule the app applies itself.
+    @Test func thirtyTwoKeepsTheModelsInMemory() {
+        #expect(Recommendation.recommended(for: Self.mac(ram: 32 * Self.gb)).idleUnloadSeconds == 0)
+        #expect(Recommendation.recommended(for: Self.mac(ram: 32 * Self.gb - 1)).idleUnloadSeconds == 900)
+    }
+
+    /// His own machine, which is the one configuration anybody has actually used.
+    @Test func hisMacGetsWhatHeIsRunning() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 36 * Self.gb))
+        #expect(r.engine == .whisper)
+        #expect(r.cleanupModelID == ModelCatalog.previousDefaultCleanupID)
+        #expect(r.formatterMode == .localLLM)
+        #expect(r.idleUnloadSeconds == 0)
+    }
+
+    // MARK: Disk
+
+    /// Plenty of memory is not permission to download onto a full disk.
+    @Test func aFullDiskDropsTheCleanupModel() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 64 * Self.gb, disk: 4 * Self.gb))
+        #expect(r.formatterMode == .ruleBased)
+        #expect(r.constraint == .tightDisk)
+        #expect(r.engine == .whisper)      // 1.5 GB + headroom still fits in 4 GB
+    }
+
+    @Test func aVeryFullDiskAlsoDropsTheEngine() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 64 * Self.gb, disk: 2 * Self.gb))
+        #expect(r.engine == .parakeet)
+        #expect(r.formatterMode == .ruleBased)
+        #expect(r.constraint == .tightDisk)
+    }
+
+    /// A disk we could not read comes back as zero, and zero must not be read as
+    /// "full" — an unknown is not a constraint, or an unreadable volume would
+    /// quietly downgrade a 64 GB Mac to the smallest of everything.
+    @Test func anUnreadableDiskConstrainsNothing() {
+        let r = Recommendation.recommended(for: Self.mac(ram: 64 * Self.gb, disk: 0))
+        #expect(r.engine == .whisper)
+        #expect(r.formatterMode == .localLLM)
+        #expect(r.constraint == .none)
+    }
+
+    // MARK: What it must never propose
+
+    /// ISC-149. The 14B and Whisper Large v3 are real choices in Preferences and
+    /// have never been measured here; proposing one would be promising a quality
+    /// nobody has seen. This sweeps every machine from a 4 GB Mac to a 256 GB one.
+    @Test func neverProposesAModelNobodyMeasured() {
+        let allowed: Set<String> = [ModelCatalog.smallCleanupID, ModelCatalog.previousDefaultCleanupID]
+        for gb in stride(from: UInt64(4), through: 256, by: 4) {
+            let r = Recommendation.recommended(for: Self.mac(ram: gb * Self.gb))
+            #expect(allowed.contains(r.cleanupModelID), "\(gb) GB proposed \(r.cleanupModelID)")
+        }
+    }
+
+    /// Whatever is proposed has to be selectable afterwards, or the app starts up
+    /// pointing at a model that is not in its own menu.
+    @Test func everyProposalIsInTheCatalogue() {
+        let ids = Set(ModelCatalog.cleanup.map(\.id))
+        for gb in stride(from: UInt64(4), through: 128, by: 4) {
+            #expect(ids.contains(Recommendation.recommended(for: Self.mac(ram: gb * Self.gb)).cleanupModelID))
+        }
+    }
+
+    /// ISC-148 — the chip is shown, never used to decide. Two machines that differ
+    /// only in the name of their chip must get the same proposal, because the only
+    /// measurements this app owns are about what fits, not about which silicon.
+    @Test func theChipNameChangesNothing() {
+        let m4 = Recommendation.recommended(for: Self.mac(ram: 16 * Self.gb, chip: "Apple M4 Max"))
+        let m1 = Recommendation.recommended(for: Self.mac(ram: 16 * Self.gb, chip: "Apple M1"))
+        let unknown = Recommendation.recommended(for: Self.mac(ram: 16 * Self.gb, chip: "Apple M9 Ultra"))
+        #expect(m4 == m1)
+        #expect(m4 == unknown)
+    }
+}
+
+/// The reading side. It cannot assert what this Mac is — the test has to pass on
+/// somebody else's too — so it asserts that every field was actually read, which
+/// is the failure that matters: a `sysctl` key that silently returns nothing puts
+/// a zero on the screen and nobody notices until the page says "0 GB".
+@Suite struct MachineReadingTests {
+    @Test func thisMacReadsAsARealMachine() {
+        let m = MachineProfile.current
+        #expect(!m.chipName.isEmpty)
+        #expect(m.chipName != "Apple Silicon")        // the fallback, not a reading
+        #expect(m.memoryBytes > 2 * 1024 * 1024 * 1024)
+        #expect(m.performanceCores > 0)
+        #expect(m.memoryGB >= 8)
+    }
+
+    /// The summary is what the page prints, so an efficiency-core count of zero
+    /// must not come out as a stray "+ 0".
+    @Test func theCoreSummaryHidesAnAbsentSecondKind() {
+        let both = MachineProfile(chipName: "x", memoryBytes: 0, freeDiskBytes: 0,
+                                  performanceCores: 10, efficiencyCores: 4)
+        let one = MachineProfile(chipName: "x", memoryBytes: 0, freeDiskBytes: 0,
+                                 performanceCores: 8, efficiencyCores: 0)
+        #expect(both.coreSummary == "10 + 4")
+        #expect(one.coreSummary == "8")
+    }
+}
+
+/// Accepting the proposal has to make setup SHORTER, or the page that proposes
+/// is just one more page. A10.
+@Suite struct OnboardingFlowTests {
+    /// Walk the flow the way a person does, and count the pages seen.
+    private func pagesVisited(accepting: Bool) -> [Int] {
+        var seen = [0]
+        var step = 0
+        while step < OnboardingFlow.permissions {
+            step = OnboardingFlow.next(from: step, accepted: accepting)
+            seen.append(step)
+        }
+        return seen
+    }
+
+    @Test func acceptingSkipsThePagesTheMachineDecided() {
+        let accepted = pagesVisited(accepting: true)
+        for page in OnboardingFlow.decided {
+            #expect(!accepted.contains(page), "accepting still walked through page \(page)")
+        }
+    }
+
+    @Test func choosingYourselfWalksThroughThemAll() {
+        let chosen = pagesVisited(accepting: false)
+        for page in OnboardingFlow.decided {
+            #expect(chosen.contains(page))
+        }
+    }
+
+    @Test func acceptingIsStrictlyShorter() {
+        #expect(pagesVisited(accepting: true).count < pagesVisited(accepting: false).count)
+    }
+
+    /// Back out of the permissions after accepting and you land where you left,
+    /// not inside the pages that were skipped — a "Back" that walks into a page
+    /// you never saw is worse than no Back at all.
+    @Test func backFromThePermissionsReturnsToWhereYouWere() {
+        #expect(OnboardingFlow.previous(from: OnboardingFlow.permissions, accepted: true)
+                == OnboardingFlow.lastAsked)
+        #expect(OnboardingFlow.previous(from: OnboardingFlow.permissions, accepted: false)
+                == OnboardingFlow.permissions - 1)
+    }
+
+    /// Every page between the first and the permissions is reachable when nobody
+    /// accepts anything — the guard against inserting a page and forgetting to
+    /// wire it into the sequence.
+    @Test func noPageIsUnreachable() {
+        #expect(pagesVisited(accepting: false) == Array(0...OnboardingFlow.permissions))
+    }
+}

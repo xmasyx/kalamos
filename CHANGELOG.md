@@ -4,7 +4,37 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
-## Unreleased
+## v1.1.0
+
+### Setup looks at the Mac instead of asking about it
+
+- **A new page, "Your Mac".** It shows what was read from the machine — chip,
+  memory, cores, free disk — and the four settings chosen from it: which engine
+  listens, whether the cleanup model runs, which cleanup model, and when the
+  memory is freed. Each one carries the number that decided it.
+- **Accepting makes setup shorter, not longer.** *That's fine* applies the
+  proposal and skips the two pages the machine already answered; *I'll choose*
+  opens them with the proposal already selected, so you disagree with it rather
+  than starting from nothing.
+- **Nothing is written unless you press a button.** Opening setup and closing it
+  on that page leaves every setting untouched, which is also true for anyone who
+  re-runs setup from Preferences on an install they have been using for months.
+- **The memory page no longer prints the rule.** It used to say "after 5 minutes,
+  if you have 8 or 16 GB of RAM" and leave the arithmetic to the reader. The app
+  knows the number.
+- **The disk is checked before a download is proposed.** Under what the models
+  need plus 2 GB of headroom, the proposal steps down to punctuation-only, and
+  then to the smaller engine — a first run that ends in a failed download was a
+  real way to fail that nothing looked at.
+- **Two things are deliberately never proposed:** the Qwen2.5 14B and Whisper
+  Large v3. Neither has been measured here, and proposing one would be promising
+  a quality nobody has seen. Both stay one click away in Preferences.
+- **The chip is shown, never used to decide.** "Apple M4 Max" is what makes
+  someone recognise their own machine, but every decision keys off memory and
+  disk, which are the only quantities there are measurements for.
+- `--scatta --onboarding --passo=<n>` photographs any page of setup. The first
+  version of the new page recommended "Always ready" while the tile it meant was
+  called "Never" — caught in the screenshot, not in the source.
 
 ### A second speech engine, off by default
 

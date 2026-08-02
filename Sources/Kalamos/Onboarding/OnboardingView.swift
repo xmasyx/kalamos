@@ -10,10 +10,39 @@ import AVFoundation
 struct OnboardingActions {
     var applyTriggerKey: (UInt16) -> Void
     var applyTriggerMode: (TriggerMode) -> Void
+    /// Writing the engine and the two model ids down is not enough: the live
+    /// engine has to be told, or the choice only takes effect at the next launch.
+    /// Same reason the trigger key is applied through here rather than assigned.
+    var applyRecommendation: (Recommendation) -> Void
     var requestMicrophone: (@escaping (Bool) -> Void) -> Void
     var requestAccessibility: () -> Void
     var openMicrophoneSettings: () -> Void
     var finish: () -> Void
+}
+
+/// Where each page of setup sits, and what accepting the proposal skips.
+///
+/// Pulled out of the view so it can be tested: "accepting makes setup shorter"
+/// is a claim about a sequence of integers, and a claim nobody can check is one
+/// that quietly stops being true the next time a page is inserted.
+enum OnboardingFlow {
+    static let machine = 1
+    /// The last page the machine did NOT decide. After it come the two it did.
+    static let lastAsked = 4
+    static let permissions = 7
+    static let questionCount = 8
+
+    /// The pages the machine decides for you: cleanup model, and when the memory
+    /// is freed. Both are answered by the amount of RAM.
+    static let decided = [5, 6]
+
+    static func next(from step: Int, accepted: Bool) -> Int {
+        (step == lastAsked && accepted) ? permissions : step + 1
+    }
+
+    static func previous(from step: Int, accepted: Bool) -> Int {
+        (step == permissions && accepted) ? lastAsked : step - 1
+    }
 }
 
 /// First-run setup.
@@ -30,7 +59,19 @@ struct OnboardingView: View {
     @ObservedObject var state: AppState
     let actions: OnboardingActions
 
-    @State private var step = 0
+    @State private var step = Self.probeStep
+    /// Only ever set by `--scatta --onboarding --passo=<n>`. A screen nobody can
+    /// photograph past its first page is a screen whose later pages are checked by
+    /// reading the source, which is how a list running off the bottom of a window
+    /// stayed a diagnosis instead of something somebody saw.
+    static var probeStep = 0
+    /// True once "that's fine" was pressed: the two pages the machine already
+    /// decided are then skipped, so accepting the proposal makes setup SHORTER
+    /// rather than adding a page to it.
+    @State private var acceptedProfile = false
+    /// Read once. Nothing here changes while the window is up, and re-reading it
+    /// per redraw would put a `sysctl` behind every keystroke.
+    private let machine = MachineProfile.current
     /// Read straight from the settings, never copied into a `@State`. The copy is
     /// what made the first question pointless: whatever you chose here died with
     /// the window, and the menu bar stayed in English.
@@ -44,8 +85,9 @@ struct OnboardingView: View {
     /// indistinguishable, from the outside, from a page where nothing is clickable.
     @State private var idleSeconds = Tuning.idleUnloadRaw
 
-    private let questionCount = 7
-    private let permissionsStepIndex = 6
+    private let questionCount = OnboardingFlow.questionCount
+    private let permissionsStepIndex = OnboardingFlow.permissions
+    private let machineStepIndex = OnboardingFlow.machine
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -83,15 +125,21 @@ struct OnboardingView: View {
     @ViewBuilder private var content: some View {
         switch step {
         case 0: interfaceLanguageStep
-        case 1: dictationLanguageStep
-        case 2: triggerKeyStep
-        case 3: triggerModeStep
-        case 4: cleanupStep
-        case 5: memoryStep
-        case 6: permissionsStep
+        case 1: machineStep
+        case 2: dictationLanguageStep
+        case 3: triggerKeyStep
+        case 4: triggerModeStep
+        case 5: cleanupStep
+        case 6: memoryStep
+        case 7: permissionsStep
         default: doneStep
         }
     }
+
+    /// Move on, skipping what the machine already decided for someone who said the
+    /// proposal was fine.
+    private func advance() { step = OnboardingFlow.next(from: step, accepted: acceptedProfile) }
+    private func retreat() { step = OnboardingFlow.previous(from: step, accepted: acceptedProfile) }
 
     /// First, because everything after it is written in the answer.
     private var interfaceLanguageStep: some View {
@@ -102,6 +150,191 @@ struct OnboardingView: View {
             grid([(1, "Italiano", ""), (2, "English", ""), (3, "Français", "")],
                  selected: { ui == Self.language($0) },
                  pick: { state.uiLanguage = Self.language($0) })
+        }
+    }
+
+    /// What this Mac is, and what Kalamos would like to do about it.
+    ///
+    /// The page exists because the two that follow it were asking questions the
+    /// computer can answer — the memory page printed the rule ("if you have 8 or
+    /// 16 GB") and left the arithmetic to the reader.
+    ///
+    /// **Only facts, never a prediction.** Chip, memory, cores and free space are
+    /// read from the machine; the reason under each proposal is one of those
+    /// numbers. No timing appears here: the seconds this app quotes anywhere were
+    /// measured on one Mac, and printing them next to somebody else's would be
+    /// inventing them (ISC-152).
+    private var machineStep: some View {
+        question(t("Il tuo Mac", "Your Mac", "Votre Mac"),
+                 t("Ho guardato la macchina e ho scelto di conseguenza. Puoi cambiare tutto, adesso o più tardi.",
+                   "I looked at the machine and chose accordingly. You can change all of it, now or later.",
+                   "J’ai regardé la machine et choisi en conséquence. Tout reste modifiable, maintenant ou plus tard.")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(machineFacts)
+                    .font(Theme.font(12, .medium))
+                    .foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(Theme.rule, lineWidth: 1.5))
+
+                proposalRow(t("Ascolto", "Listening", "Écoute"), engineProposal)
+                proposalRow(t("Pulizia", "Tidy-up", "Nettoyage"), cleanupProposal)
+                proposalRow(t("Memoria", "Memory", "Mémoire"), memoryProposal)
+
+                HStack(spacing: 8) {
+                    Button {
+                        acceptedProfile = true
+                        applyProposal()
+                        advance()
+                    } label: {
+                        Text(t("Va bene così", "That’s fine", "Très bien"))
+                            .font(Theme.font(13, .semibold))
+                            .foregroundStyle(Theme.paper)
+                            .padding(.horizontal, 18).padding(.vertical, 8)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.pen))
+                            .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(t("Va bene così", "That’s fine", "Très bien"))
+
+                    Button {
+                        acceptedProfile = false
+                        applyProposal()
+                        advance()
+                    } label: {
+                        Text(t("Scelgo io", "I’ll choose", "Je choisis"))
+                            .font(Theme.font(13, .medium))
+                            .foregroundStyle(Theme.pen)
+                            .padding(.horizontal, 18).padding(.vertical, 8)
+                            .background(RoundedRectangle(cornerRadius: 7).fill(Theme.penWash))
+                            .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(t("Scelgo io", "I’ll choose", "Je choisis"))
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    /// The proposal for this machine. Computed rather than stored: it depends on
+    /// nothing that changes while the window is open, and a stored copy is one
+    /// more thing that can go stale.
+    private var suggestion: Recommendation { Recommendation.recommended(for: machine) }
+
+    /// Write the proposal down — on either button, because "I'll choose" means
+    /// *see the pages*, not *start from nothing*: they open with the proposal
+    /// already selected and you disagree with it if you want to.
+    ///
+    /// Nothing applies it on its own. Opening setup and closing it here leaves
+    /// every setting exactly as it was, which is what makes this a proposal
+    /// rather than something done to you while you read (ISC-153).
+    private func applyProposal() {
+        actions.applyRecommendation(suggestion)
+        // The idle timeout is the one setting that does not live on AppState, so
+        // the memory page's tile is lit from this copy and has to be told too.
+        idleSeconds = suggestion.idleUnloadSeconds
+    }
+
+    private var machineFacts: String {
+        let core = t("core", "cores", "cœurs")
+        let free = t("liberi sul disco", "free on disk", "libres sur le disque")
+        return "\(machine.chipName) · \(machine.memoryGB) GB · \(machine.coreSummary) \(core) · \(machine.freeDiskGB) GB \(free)"
+    }
+
+    /// One line of the proposal: what it is about, what was chosen, and the number
+    /// that chose it. The reason is not decoration — a choice made for you in
+    /// silence is one you cannot disagree with.
+    private func proposalRow(_ label: String, _ value: (String, String)) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .font(Theme.font(11.5, .bold))
+                .tracking(0.8)
+                .foregroundStyle(Theme.pen)
+                .frame(width: 74, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value.0).font(Theme.font(13.5, .medium)).foregroundStyle(Theme.ink)
+                Text(value.1).font(Theme.font(11.5)).foregroundStyle(Theme.inkFaded)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var engineProposal: (String, String) {
+        let gb = machine.memoryGB
+        switch (suggestion.engine, suggestion.constraint) {
+        case (.parakeet, .verySmallMemory):
+            return ("Parakeet", t("più leggero, 461 MB invece di 1,5 GB, e hai \(gb) GB di memoria",
+                                  "lighter, 461 MB instead of 1.5 GB, and you have \(gb) GB of memory",
+                                  "plus léger, 461 Mo au lieu de 1,5 Go, et vous avez \(gb) Go de mémoire"))
+        case (.parakeet, _):
+            return ("Parakeet", t("461 MB: sul disco restano \(machine.freeDiskGB) GB",
+                                  "461 MB: you have \(machine.freeDiskGB) GB left on disk",
+                                  "461 Mo : il reste \(machine.freeDiskGB) Go sur le disque"))
+        default:
+            return ("Whisper Turbo", t("1,5 GB, scaricati una volta sola",
+                                       "1.5 GB, downloaded once",
+                                       "1,5 Go, téléchargés une seule fois"))
+        }
+    }
+
+    private var cleanupProposal: (String, String) {
+        let gb = machine.memoryGB
+        guard suggestion.formatterMode == .localLLM else {
+            let why = suggestion.constraint == .tightDisk
+                ? t("sul disco non ci starebbe: hai \(machine.freeDiskGB) GB",
+                    "it would not fit: \(machine.freeDiskGB) GB left on disk",
+                    "il n’y tiendrait pas : \(machine.freeDiskGB) Go restants")
+                : t("con \(gb) GB di memoria il modello starebbe stretto",
+                    "on \(gb) GB of memory the model would be squeezed",
+                    "avec \(gb) Go de mémoire le modèle serait à l’étroit")
+            return (t("Solo punteggiatura", "Punctuation only", "Ponctuation seule"), why)
+        }
+        let title = ModelCatalog.cleanupTitle(for: suggestion.cleanupModelID)
+        let why = suggestion.constraint == .tightMemory
+            ? t("il modello piccolo, perché hai \(gb) GB di memoria",
+                "the small model, because you have \(gb) GB of memory",
+                "le petit modèle, car vous avez \(gb) Go de mémoire")
+            : t("hai \(gb) GB di memoria, ci sta comodo",
+                "you have \(gb) GB of memory, it fits comfortably",
+                "vous avez \(gb) Go de mémoire, il y tient à l’aise")
+        return (title, why)
+    }
+
+    /// The name of the tile this proposal points at, in the words printed ON that
+    /// tile. Written separately from the sentence below on purpose: the first
+    /// version of this page recommended "Always ready" while the tile it meant was
+    /// called "Never", so the advice pointed at a choice that did not exist by
+    /// that name. Seen in the screenshot, not in the source.
+    private var memoryTileName: String {
+        switch suggestion.idleUnloadSeconds {
+        case 0:   return t("Mai", "Never", "Jamais")
+        case 900: return t("Dopo 15 minuti", "After 15 minutes", "Après 15 minutes")
+        default:  return t("Dopo 5 minuti", "After 5 minutes", "Après 5 minutes")
+        }
+    }
+
+    private var memoryProposal: (String, String) {
+        let gb = machine.memoryGB
+        switch suggestion.idleUnloadSeconds {
+        case 0:
+            return (t("Mai liberata", "Never freed", "Jamais libérée"),
+                    t("con \(gb) GB conviene tenere i modelli in memoria, sempre pronti",
+                      "with \(gb) GB it is worth keeping the models loaded and ready",
+                      "avec \(gb) Go, autant garder les modèles en mémoire, toujours prêts"))
+        case 900:
+            return (t("Liberata dopo 15 minuti", "Freed after 15 minutes", "Libérée après 15 minutes"),
+                    t("hai \(gb) GB: pronta durante la giornata, libera la sera",
+                      "you have \(gb) GB: ready through the day, free by the evening",
+                      "vous avez \(gb) Go : prête la journée, libre le soir"))
+        default:
+            return (t("Liberata dopo 5 minuti", "Freed after 5 minutes", "Libérée après 5 minutes"),
+                    t("con \(gb) GB è meglio restituirla presto al resto del Mac",
+                      "with \(gb) GB it is better to give it back to the rest of the Mac",
+                      "avec \(gb) Go, mieux vaut la rendre vite au reste du Mac"))
         }
     }
 
@@ -198,9 +431,7 @@ struct OnboardingView: View {
                 // Which model, decided by the machine instead of asked. Said out
                 // loud: a choice made for you in silence is one you cannot
                 // disagree with. Nobody installing a dictation app knows their RAM.
-                Text(t("Modello \(chosenModel.title), scelto per il tuo Mac. Si cambia nelle Preferenze.",
-                       "The \(chosenModel.title) model, chosen for your Mac. Change it in Preferences.",
-                       "Modèle \(chosenModel.title), choisi pour votre Mac. Modifiable dans les Préférences."))
+                Text(recommendedNote(cleanupProposal.0))
                     .font(Theme.font(11.5))
                     .foregroundStyle(Theme.inkFaded)
                     .fixedSize(horizontal: false, vertical: true)
@@ -222,26 +453,47 @@ struct OnboardingView: View {
             .trimmingCharacters(in: .whitespaces) ?? "~4 GB"
     }
 
+    /// The line under a grid whose right answer the machine already worked out.
+    /// The recommended tile is the lit one, so this says WHICH and leaves the
+    /// disagreeing to the reader.
+    private func recommendedNote(_ what: String) -> String {
+        t("Consigliato per il tuo Mac: \(what). Si cambia quando vuoi.",
+          "Recommended for your Mac: \(what). Change it whenever you like.",
+          "Recommandé pour votre Mac : \(what). Modifiable à tout moment.")
+    }
+
     private var memoryStep: some View {
         question(t("Quando deve liberare la memoria?", "When should it free the memory?",
                    "Quand doit-il libérer la mémoire ?"),
                  t("Mentre stanno in memoria i modelli occupano circa 6 GB, e per tornare ci mettono qualche secondo.",
                    "While loaded, the models hold about 6 GB, and take a few seconds to come back.",
                    "En mémoire, les modèles occupent environ 6 Go et reviennent en quelques secondes.")) {
-            grid([
-                (300, t("Dopo 5 minuti", "After 5 minutes", "Après 5 minutes"),
-                      t("se hai 8 o 16 GB di RAM", "on 8 or 16 GB of RAM", "avec 8 ou 16 Go de RAM")),
-                (900, t("Dopo 15 minuti", "After 15 minutes", "Après 15 minutes"),
-                      t("se detti spesso durante il giorno", "if you dictate through the day",
-                        "si vous dictez toute la journée")),
-                (0, t("Mai", "Never", "Jamais"),
-                    t("da 32 GB in su: sempre pronta", "32 GB and up: always ready",
-                      "à partir de 32 Go : toujours prête")),
-            ], selected: { idleSeconds == $0 },
-               pick: { seconds in
-                   idleSeconds = seconds        // drives the redraw
-                   Tuning.setIdleUnload(seconds)
-               })
+            VStack(alignment: .leading, spacing: 12) {
+                // The notes no longer quote the RAM thresholds. They used to print
+                // the rule — "on 8 or 16 GB" — and leave the reader to look up
+                // their own machine and apply it, which is the arithmetic the
+                // previous page now does for them.
+                grid([
+                    (300, t("Dopo 5 minuti", "After 5 minutes", "Après 5 minutes"),
+                          t("torna pronta in qualche secondo", "a few seconds to come back",
+                            "quelques secondes pour revenir")),
+                    (900, t("Dopo 15 minuti", "After 15 minutes", "Après 15 minutes"),
+                          t("se detti spesso durante il giorno", "if you dictate through the day",
+                            "si vous dictez toute la journée")),
+                    (0, t("Mai", "Never", "Jamais"),
+                        t("sempre pronta, sempre in memoria", "always ready, always loaded",
+                          "toujours prête, toujours en mémoire")),
+                ], selected: { idleSeconds == $0 },
+                   pick: { seconds in
+                       idleSeconds = seconds        // drives the redraw
+                       Tuning.setIdleUnload(seconds)
+                   })
+
+                Text(recommendedNote(memoryTileName))
+                    .font(Theme.font(11.5))
+                    .foregroundStyle(Theme.inkFaded)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -457,7 +709,7 @@ struct OnboardingView: View {
             }
             Spacer()
             if step > 0 {
-                Button { step -= 1 } label: {
+                Button { retreat() } label: {
                     Text(t("Indietro", "Back", "Retour"))
                         .font(Theme.font(13, .medium))
                         .foregroundStyle(Theme.inkFaded)
@@ -468,11 +720,15 @@ struct OnboardingView: View {
                 .padding(.trailing, 2)
                 .accessibilityLabel(t("Indietro", "Back", "Retour"))
             }
+            // The machine page carries its own two buttons, and they are the
+            // choice: a third one in the corner saying "Continue" would be a way
+            // past the question that answers nothing.
+            if step != machineStepIndex {
             let label = step < questionCount
                 ? t("Avanti", "Continue", "Continuer")
                 : t("Inizia a dettare", "Start dictating", "Commencer")
             Button {
-                if step < questionCount { step += 1 } else { actions.finish() }
+                if step < questionCount { advance() } else { actions.finish() }
             } label: {
                 // Everything that makes this look like a button lives INSIDE the
                 // label. Applied outside, the padding and the filled rectangle are
@@ -489,6 +745,7 @@ struct OnboardingView: View {
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
             .accessibilityLabel(label)
+            }
         }
     }
 

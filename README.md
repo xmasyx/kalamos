@@ -233,11 +233,28 @@ First run downloads the two models — between 3.4 and 6 GB depending on which
 cleanup model your Mac was given — with a progress panel that says so while it
 happens. After that, nothing: no network, no account, no subscription.
 
-**You are not asked which cleanup model to use.** Nobody installing a dictation
-app knows how much RAM their Mac has, and nobody who does knows what changes
-between a 3B and a 7B. Kalamos reads the memory and picks: the small model below
-16 GB, the full one above. It says which one it chose, and Preferences ▸ Cleanup
-changes it in one click.
+**You are not asked what your Mac can take.** Nobody installing a dictation app
+knows how much RAM they have, and nobody who does knows what changes between a
+3B and a 7B. So setup reads the machine — chip, memory, cores, free disk — and
+proposes four settings from it: which engine listens, whether the cleanup model
+runs at all, which one, and when the memory is freed. Every proposal is shown
+with the number that decided it, on a page called **Your Mac**. Say *that's fine*
+and setup skips the two pages it just answered; say *I'll choose* and they open
+with the proposal already selected.
+
+Three rules that page keeps:
+
+- **It shows facts, never predictions.** The seconds quoted elsewhere in this app
+  were measured on one machine; printing them next to somebody else's would be
+  inventing them. So every reason is a quantity read off your Mac.
+- **It never proposes a model nobody measured.** The Qwen2.5 14B and Whisper
+  Large v3 are real choices in Preferences and have never been benchmarked here.
+- **Nothing is written unless you press a button.** Open setup, read the page,
+  close it, and every setting is where you left it.
+
+If the disk cannot hold what the memory could have run, the proposal steps down
+on its own and says why — a first run that ends in a failed download is not a
+first run.
 
 ## Edit Mode — rewriting what is already there
 
