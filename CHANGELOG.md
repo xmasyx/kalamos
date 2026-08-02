@@ -4,7 +4,38 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
-## Unreleased
+## v1.1.1
+
+### Two of the four speech models could not be selected
+
+- **Choosing Small or Large v3 no longer kills dictation.** On a machine that did
+  not already have them, picking either one failed with `modelsUnavailable`,
+  hunting for a file the download had never fetched. The cause is a race this
+  process loses every time: the Hub asks a network monitor whether the machine is
+  offline, and that monitor is born believing it is, corrected only by a callback
+  that has not arrived yet. Worse, its offline path does not fail — it finds the
+  models you already have sitting in the folder and returns, having downloaded
+  nothing at all. Verified by fetching both models in full, 479 MB and 2.9 GB.
+- **A download is finished when the files are there**, not when the function
+  returns. The check that says so is new, and so is the error it raises: it names
+  the model and tells you what to try, instead of naming a file no reader has
+  heard of.
+
+### Whisper's own vocabulary, measured and left off
+
+- **The `promptTokens` switch stays off, and now for a reason with numbers.**
+  Teaching Whisper a word before it mishears it is the only lever that acts
+  before the word is lost, and it has been disabled since a bad day in July. On
+  16 real recordings, 5 passes, both language modes, turning it on returns an
+  empty transcription 160 times out of 160 on the Turbo model. Forcing the
+  language does not help, which was the standing hypothesis.
+- **The prompt itself is fine.** The same prompt on `openai_whisper-base` works,
+  and repairs exactly the failure it was written for. This is
+  [WhisperKit #372](https://github.com/argmaxinc/WhisperKit/issues/372), fixed
+  upstream on 2026-07-30 and in no released tag yet.
+- The bench that decided it ships with the app: `--selftest-engine` now takes
+  `--prompt` and `--modello`, and counts empty decodes BEFORE the reload gets a
+  chance to rescue them, because that rescue is what hid the failure.
 
 ### Preferences stays where you left it
 
