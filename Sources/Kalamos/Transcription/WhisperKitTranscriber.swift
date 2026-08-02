@@ -4,6 +4,23 @@ import os
 #if canImport(WhisperKit)
 @preconcurrency import WhisperKit
 
+/// A download that reported success and left nothing behind.
+///
+/// It has its own error because the one it replaces was worse: the loader used
+/// to fail later, complaining that a file was missing from a folder nobody had
+/// been told was empty. This says what actually happened, at the moment it
+/// happened.
+enum ModelDownloadError: LocalizedError {
+    case nothingArrived(model: String, folder: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .nothingArrived(model, _):
+            return "Non è stato possibile scaricare il modello \(model). Controlla la connessione e riprova."
+        }
+    }
+}
+
 /// WhisperKit-backed transcriber. Runs entirely on-device (Core ML / ANE / GPU).
 /// Auto-detects the spoken language and constrains it to the enabled set.
 ///
@@ -83,10 +100,34 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         } else {
             // First run: download fully (progress in the menu bar), into the
             // persistent App Support base so it's reused on every later launch.
+            //
+            // The env var is not a CI flag here, it is the fix for a race that
+            // this process loses every single time. `HubApi.snapshot` asks a
+            // network monitor whether we are offline; that monitor starts life
+            // with `isConnected = false` and only learns the truth from an
+            // asynchronous NWPathMonitor callback. It is a lazy singleton
+            // created on first use, which IS this call, so the first download of
+            // a process always believes the machine is offline.
+            //
+            // And offline mode does not fail loudly. It checks that the models
+            // folder exists, finds the OTHER models already sitting in it, and
+            // returns that folder having downloaded nothing. So asking for a
+            // model you do not have yet gets you a successful-looking return and
+            // then `modelsUnavailable` when the loader looks for the files.
+            // Two of the four models in Preferences could not be selected.
+            //
+            // `CI_DISABLE_NETWORK_MONITOR` is upstream's own early-out from that
+            // check, and losing it costs nothing: we skip the download entirely
+            // when the model is already on disk (above), and if the machine is
+            // genuinely offline the HTTP call fails with a real network error,
+            // which is a better answer than a silent no-op.
+            setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
             Self.report(.downloading(.speech, fraction: nil))
             folder = try await WhisperKit.download(variant: modelName, downloadBase: base) { progress in
                 Self.report(.downloading(.speech, fraction: progress.fractionCompleted))
             }
+
+            try Self.assertModelArrived(in: folder, model: modelName)
         }
 
         Self.report(.loading(.speech))
@@ -98,6 +139,20 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         let built = try await WhisperKit(config)
         pipeBox.withLock { $0 = built }
         scheduleIdleUnload()
+    }
+
+    /// Trust the files, not the return value.
+    ///
+    /// `WhisperKit.download` returning a URL only means no error was raised, and
+    /// the bug this exists for is precisely a path where no error is raised and
+    /// no files arrive. The marker is the encoder, because it is the one piece
+    /// no variant of this model can load without.
+    static func assertModelArrived(in folder: URL, model: String) throws {
+        let encoder = folder.appendingPathComponent("AudioEncoder.mlmodelc")
+        guard FileManager.default.fileExists(atPath: encoder.path) else {
+            Log.write("download di \(model) finito senza file in \(folder.path)")
+            throw ModelDownloadError.nothingArrived(model: model, folder: folder.path)
+        }
     }
 
     // Unload the speech model after idle to free ~1.5 GB. Reloads (~few s) on the
