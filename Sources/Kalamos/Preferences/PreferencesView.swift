@@ -107,10 +107,27 @@ struct PreferencesView: View {
                     // Keying the section on the language rebuilds it. The cost is
                     // that a half-typed word in the vocabulary field is lost when
                     // you switch language, which happens roughly never.
-                    .id(state.uiLanguage)
                     .padding(26)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                // A fresh scroll view per section, and that is the whole point.
+                //
+                // One scroll view kept ONE offset: scroll to the bottom of
+                // Dictation, click Cleanup, and Cleanup opened at the bottom —
+                // of a page you had never scrolled. The content had changed
+                // underneath while the scroll position had not, so where you
+                // landed depended on how far down you happened to be in the
+                // section before. Reported 2026-08-02.
+                //
+                // The identity carries the language too, which is what the inner
+                // `.id` used to do alone: every string on this page comes from
+                // `L.t(…)` read while the body is built, and three of the four
+                // sections take only the draft — so on a language change nothing
+                // about their inputs changed, SwiftUI correctly declined to
+                // rebuild them, and the page kept the old language until you left
+                // it and came back. Real use hit exactly that on Advanced, which
+                // is where the language control lives.
+                .id("\(section.rawValue)/\(state.uiLanguage.rawValue)")
                 footer
             }
             .background(Theme.paper)

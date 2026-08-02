@@ -8,6 +8,11 @@ an estimate.
 
 ### Preferences stays where you left it
 
+- **Each section opens at its own top.** One scroll view kept one offset, so
+  scrolling to the bottom of Dictation and clicking Cleanup opened Cleanup at the
+  bottom — of a page you had never scrolled. Where you landed depended on how far
+  down you happened to be in the section before.
+
 - **Clicking another app no longer makes the settings window vanish.** It goes
   behind, like any other window. `hidesOnDeactivate` had been switched on the day
   before to answer a specific report — a window shown while a terminal is
