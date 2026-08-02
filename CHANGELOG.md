@@ -22,8 +22,14 @@ an estimate.
   idle timeout any number of seconds — so a value set elsewhere can leave every
   tile dark. Walking past a question you never answered, believing you did, was
   the failure.
+- **"Both" became "Hold or double-tap".** It was named back when there were two
+  modes to be both of; with four tiles on the page it stopped naming anything.
+- **Tile text is aligned across a row.** The titles sit on one line and the notes
+  hang below, so a tile whose note runs to two lines no longer pushes its own
+  title up and leaves the row looking crooked.
 - **Air on the "Your Mac" page**, and the two buttons moved to the bottom,
-  centred. It is the densest of the eight pages and was taking its spacing from a
+  centred. The facts line sits midway between the sentence above it and the
+  proposals below, instead of hugging the proposals. It is the densest of the eight pages and was taking its spacing from a
   grid of tiles it does not have.
 - `--scatta` no longer prints a filename it never wrote: `screencapture` exits 0
   without producing an image when the bundle has no Screen Recording permission,

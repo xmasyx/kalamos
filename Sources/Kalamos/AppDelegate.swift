@@ -606,11 +606,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hintItem.title = triggerHint()
     }
 
+    /// The name of each mode, everywhere: the menu, Preferences and setup.
+    ///
+    /// `.both` was called "Both" back when there were two modes to be both of.
+    /// With four on the page — hold, one tap, double-tap, both — "Both" stopped
+    /// naming anything: both of which? It now says which two it means. His point,
+    /// 2026-08-02, looking at the four tiles side by side.
     static func modeTitle(_ mode: TriggerMode) -> String {
         switch mode {
         case .hold:      return L.t("Tieni premuto", "Hold to talk", "Maintenir")
         case .doubleTap: return L.t("Doppio tocco", "Double-tap", "Double-appui")
-        case .both:      return L.t("Entrambi", "Both", "Les deux")
+        case .both:      return L.t("Premuto o doppio tocco", "Hold or double-tap",
+                                    "Maintenir ou double-appui")
         case .singleTap: return L.t("Un tocco", "One tap", "Un appui")
         }
     }

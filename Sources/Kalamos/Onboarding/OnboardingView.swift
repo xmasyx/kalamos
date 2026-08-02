@@ -207,10 +207,17 @@ struct OnboardingView: View {
     /// measured on one Mac, and printing them next to somebody else's would be
     /// inventing them (ISC-152).
     private var machineStep: some View {
+        // A shorter header than the other pages, on purpose. The 104 points are
+        // cut for the longest hint in the flow (three lines); this page's is two,
+        // so the leftover band left the facts line sitting nearer the proposals
+        // than the sentence above it — "too low", his words, 2026-08-02. Nothing
+        // aligns across to another page here anyway: this is the one page with no
+        // grid of tiles.
         question(t("Il tuo Mac", "Your Mac", "Votre Mac"),
                  t("Ho guardato la macchina e ho scelto di conseguenza. Puoi cambiare tutto, adesso o più tardi.",
                    "I looked at the machine and chose accordingly. You can change all of it, now or later.",
-                   "J’ai regardé la machine et choisi en conséquence. Tout reste modifiable, maintenant ou plus tard.")) {
+                   "J’ai regardé la machine et choisi en conséquence. Tout reste modifiable, maintenant ou plus tard."),
+                 headerHeight: 86) {
             // Air, and the two buttons pushed to the bottom and centred — his call
             // on 2026-08-02, looking at the first version: "it is all too
             // compressed". The page is the densest of the eight (a facts line plus
@@ -606,7 +613,9 @@ struct OnboardingView: View {
     // MARK: Pieces
 
     private func question<Content: View>(
-        _ title: String, _ hint: String, @ViewBuilder content: () -> Content
+        _ title: String, _ hint: String,
+        headerHeight: CGFloat = OnboardingView.headerHeight,
+        @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // Fixed height, so the choices start at the same point on every page.
@@ -624,7 +633,7 @@ struct OnboardingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(height: Self.headerHeight, alignment: .topLeading)
+            .frame(height: headerHeight, alignment: .topLeading)
 
             content()
         }
@@ -694,9 +703,16 @@ struct OnboardingView: View {
             // One size for every choice on every page. Tiles that grow to fit their
             // own text make each page a slightly different shape, and flipping
             // through seven of them turns into a series of small jumps.
+            //
+            // Aligned to the TOP, not centred. Centred, a tile whose note runs to
+            // two lines pushes its own title upward, so two tiles side by side put
+            // their titles at different heights and the row reads as crooked —
+            // visible the moment the mode page went to four tiles. The titles now
+            // sit on one line and the notes hang below, however long they are.
             .frame(maxWidth: .infinity,
                    minHeight: Self.tileHeight, maxHeight: Self.tileHeight,
-                   alignment: .center)
+                   alignment: .top)
+            .padding(.top, 11)
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 8)
                 .fill(on ? Theme.penWash : Theme.card))
@@ -710,7 +726,7 @@ struct OnboardingView: View {
     }
 
     /// Every tile, on every page.
-    private static let tileHeight: CGFloat = 58
+    private static let tileHeight: CGFloat = 62
 
     private func permissionRow(granted: Bool, title: String, why: String,
                                button: String, action: @escaping () -> Void) -> some View {
@@ -845,8 +861,11 @@ struct OnboardingView: View {
                        "hands-free, and the key keeps its normal job",
                        "mains libres, et la touche garde son rôle normal")
         case .both:
-            return L.t("tieni premuto oppure tocca due volte", "hold, or double-tap",
-                       "maintenir, ou double-appui")
+            // No longer a restatement of the title, now that the title says which
+            // two gestures it means: this says when you would want each.
+            return L.t("una frase tenendo premuto, le mani libere col doppio",
+                       "a sentence by holding, hands-free by double-tapping",
+                       "une phrase en maintenant, mains libres en double-appuyant")
         }
     }
 
