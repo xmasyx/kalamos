@@ -18,6 +18,43 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     private let pipeBox = OSAllocatedUnfairLock<WhisperKit?>(initialState: nil)
     private let idleBox = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
+    // Whisper-level vocabulary biasing. OFF unless somebody sets it — see the
+    // long note in `transcribe`. Kept as a settable property rather than read
+    // from settings inside the transcriber so a measurement can hold the text
+    // constant: a probe that reads the app's own defaults measures whichever
+    // domain the probe happens to run in, which has cost this project three
+    // wrong answers.
+    private let promptBox = OSAllocatedUnfairLock<String?>(initialState: nil)
+    var initialPrompt: String? {
+        get { promptBox.withLock { $0 } }
+        set { promptBox.withLock { $0 = newValue } }
+    }
+
+    // Two hypotheses were tested here on 2026-08-02 and both are dead; the
+    // switches are gone so nobody re-runs them by accident.
+    //
+    // `firstTokenLogProbThreshold = nil` — the idea was that a prompt flattens
+    // the first-token distribution below the −1.5 floor and WhisperKit abandons
+    // the segment. Disabling the floor changed nothing: still empty.
+    //
+    // `usePrefillPrompt = false` — this one LOOKED like a fix, and it is the
+    // reason the switch is deleted rather than kept. Transcription came back
+    // perfect. It came back perfect because WhisperKit builds the prompt
+    // tokens INSIDE the prefill branch (TextDecoder.prefillDecoderInputs, called
+    // only `if options.usePrefillPrompt`), so turning the prefill off drops the
+    // prompt on the floor. That run was the baseline wearing a costume.
+
+    // How often a decode came back empty on audio that had speech in it — read
+    // BEFORE the ISC-108 reload gets a chance to rescue it. The rescue is the
+    // right behaviour for a dictation and the wrong one for a measurement: it
+    // turns "this configuration breaks one decode in five" into a slightly
+    // slower run with nothing to see. Counted here so a bench can ask.
+    private let emptyBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    /// Empties seen since the last call, and resets the counter.
+    func takeEmptyBeforeRecovery() -> Int {
+        emptyBox.withLock { n in let v = n; n = 0; return v }
+    }
+
     init(modelName: String) { self.nameBox = OSAllocatedUnfairLock(initialState: modelName) }
 
     /// Switch the speech model. Unloads the current pipeline; the new variant
@@ -133,17 +170,54 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         options.task = .transcribe          // keep words in the spoken language
         options.usePrefillPrompt = true
 
-        // NOTE: Whisper-level vocabulary biasing via `options.promptTokens` is
-        // DELIBERATELY DISABLED. Empirically (kalamos.log 2026-07-01) setting
-        // promptTokens — even a 3-token prompt — makes this model+config return
-        // an EMPTY transcription and mis-detect the language, deterministically,
-        // regardless of prompt content (dropping the old "Glossary:" prime did
-        // NOT help). The prepended prompt shifts the start-of-transcript token to
-        // a non-zero prefill index and the decode degenerates to end-of-text.
-        // Vocabulary still works: the LLM cleanup/translation prompts enforce the
-        // custom spellings (Vocabulary.list → MLXFormatter/MLXTranslator). Do not
-        // re-enable promptTokens without a live transcription test proving the
-        // empty-output regression is gone.
+        // Whisper-level vocabulary biasing via `options.promptTokens`: OFF
+        // unless `initialPrompt` was set, and nothing in the app sets it yet.
+        //
+        // MEASURED on 2026-08-02 — 16 recordings, 5 passes, both language
+        // modes: with the prompt on, the Turbo model returns an empty
+        // transcription 160 times out of 160. Forcing the language does not help
+        // — that hypothesis died here. But the same prompt on
+        // `openai_whisper-base` works and repairs the exact failure it was
+        // written for ("comandasse" → "Command S"), which means the prompt
+        // tokens are not the problem: the Turbo decode is.
+        //
+        // It is a known WhisperKit bug — issue #372, fixed by PR #514 on
+        // 2026-07-30: the end-of-text check fires DURING the forced prompt
+        // prefill, so the segment ends before the first real token. The fix is
+        // in no released tag, and this package is held at 0.14.1 by a dependency
+        // wall, so the switch stays off until that moves.
+        //
+        // And it would not be free even then: on `base` the prompt turned the
+        // ordinary Italian "comandasse" into "commandasse" and emptied two
+        // clips. So whoever turns this on measures the ordinary sentences
+        // first, not just the shortcuts — the failure that matters is the one
+        // that damages speech the vocabulary has nothing to do with.
+        //
+        // The encoding follows WhisperKit's own reference
+        // (WhisperKitCLI/TranscribeCLI.swift): a leading space, and every
+        // special token filtered out. A Whisper prompt is prior context, not an
+        // instruction, so the text has to read like ordinary speech — a
+        // "Glossary:" label makes the model believe it is transcribing a
+        // glossary and degenerate on everything else.
+        //
+        // The cap is 200 tokens because the prompt eats the same 448-token
+        // decoder window the transcription needs.
+        if let prompt = initialPrompt,
+           !prompt.trimmingCharacters(in: .whitespaces).isEmpty,
+           let tokenizer = pipe.tokenizer {
+            let encoded = tokenizer
+                .encode(text: " " + prompt.trimmingCharacters(in: .whitespaces))
+                .filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+            if !encoded.isEmpty {
+                let tokens = Array(encoded.suffix(200))
+                options.promptTokens = tokens
+                // The round-trip is logged because "the tokens are wrong" was a
+                // live suspect for a month. They are not: the decode comes back
+                // byte-identical to what went in.
+                Log.write("vocab prompt: \(tokens.count) tokens"
+                          + " · round-trip=\"\(tokenizer.decode(tokens: tokens))\"")
+            }
+        }
 
         var results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
         var raw = results.map(\.text).joined(separator: " ")
@@ -171,6 +245,7 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         //
         // Reloading costs a few seconds. Losing what you just said costs more.
         if raw.isEmpty {
+            emptyBox.withLock { $0 += 1 }
             Log.write("empty result on non-silent audio — reloading the speech model")
             unload()
             try await prepare()

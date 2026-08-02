@@ -99,7 +99,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
     let args = CommandLine.arguments
     let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
     guard !path.isEmpty, !path.hasPrefix("--") else {
-        print("usage: Kalamos --selftest-engine <file.wav> [--engine whisper|parakeet] [--lang it|en|fr] [--ripeti N]")
+        print("usage: Kalamos --selftest-engine <file.wav> [--engine whisper|parakeet] [--lang it|en|fr] [--ripeti N] [--prompt \"…\"]")
         exit(2)
     }
     let engineName = args.firstIndex(of: "--engine").flatMap {
@@ -111,6 +111,14 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
     let repeats = args.firstIndex(of: "--ripeti").flatMap {
         $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
     } ?? 1
+    // The Whisper prompt under test, passed in as TEXT. It is not read from the
+    // app's vocabulary on purpose: a probe that reads settings measures the
+    // defaults domain it happens to run in, and the two domains have disagreed
+    // three times in this project. What is measured has to be visible in the
+    // command that measured it.
+    let promptText = args.firstIndex(of: "--prompt").flatMap {
+        $0 + 1 < args.count ? args[$0 + 1] : nil
+    }
     let sem = DispatchSemaphore(value: 0)
     Task.detached {
         #if canImport(FluidAudio) && canImport(WhisperKit)
@@ -142,11 +150,24 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                 samplesByClip.append((file.lastPathComponent,
                                       try converter.resampleAudioFile(file)))
             }
-            let transcriber: Transcriber = engine == .whisper
-                ? WhisperKitTranscriber(modelName: await AppState.shared.whisperModel)
-                : ParakeetTranscriber()
+            // Which speech model, said out loud rather than inherited from
+            // whichever defaults domain this process happens to read.
+            let modelloScelto = args.firstIndex(of: "--modello").flatMap {
+                $0 + 1 < args.count ? args[$0 + 1] : nil
+            }
+            let modello: String
+            if let m = modelloScelto { modello = m }
+            else { modello = await AppState.shared.whisperModel }
+            let whisper: WhisperKitTranscriber? = engine == .whisper
+                ? WhisperKitTranscriber(modelName: modello)
+                : nil
+            whisper?.initialPrompt = promptText
+            if promptText != nil && engine != .whisper {
+                print("--prompt vale solo per whisper — ignorato")
+            }
+            let transcriber: Transcriber = whisper ?? ParakeetTranscriber()
             FileHandle.standardError.write(Data(
-                "motore: \(engine.rawValue) · \(samplesByClip.count) clip · \(repeats) passate · lingua \(forced?.rawValue ?? "auto")\n".utf8))
+                "motore: \(engine.rawValue) · \(samplesByClip.count) clip · \(repeats) passate · lingua \(forced?.rawValue ?? "auto") · prompt \(promptText == nil ? "spento" : "acceso")\n".utf8))
             try await transcriber.prepare()
             // Warm-up discarded: the first CoreML call pays lazy compilation.
             if let first = samplesByClip.first {
@@ -156,8 +177,14 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
             struct EngineRow: Codable {
                 let clip: String, engine: String, pass: Int
                 let text: String, seconds: Double, language: String?
+                // The gate metric. `vuota` is what the caller got; `vuotaPrimaDelRecupero`
+                // is what the decoder produced before ISC-108 reloaded the model
+                // and tried again. Only the second one measures the decode.
+                let vuota: Bool, vuotaPrimaDelRecupero: Bool
+                let lingua: String, prompt: Bool
             }
             var rows: [EngineRow] = []
+            _ = whisper?.takeEmptyBeforeRecovery()   // discard the warm-up's
             for pass in 1...max(1, repeats) {
                 for clip in samplesByClip {
                     let t0 = Date()
@@ -165,11 +192,17 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                         clip.samples, allowedLanguages: [.italian, .english, .french],
                         forced: forced)
                     let seconds = Date().timeIntervalSince(t0)
+                    let empties = whisper?.takeEmptyBeforeRecovery() ?? 0
                     rows.append(EngineRow(clip: clip.name, engine: engine.rawValue, pass: pass,
                                           text: out.text, seconds: seconds,
-                                          language: out.detectedLanguage?.rawValue))
-                    print(String(format: "[p%d %@] %.3fs lang=%@ %@", pass, clip.name, seconds,
+                                          language: out.detectedLanguage?.rawValue,
+                                          vuota: out.text.isEmpty,
+                                          vuotaPrimaDelRecupero: empties > 0,
+                                          lingua: forced?.rawValue ?? "auto",
+                                          prompt: promptText != nil))
+                    print(String(format: "[p%d %@] %.3fs lang=%@%@ %@", pass, clip.name, seconds,
                                  out.detectedLanguage?.rawValue ?? "?",
+                                 empties > 0 ? " VUOTA-PRIMA-DEL-RECUPERO" : "",
                                  out.text.isEmpty ? "*** VUOTA ***" : out.text))
                 }
             }
