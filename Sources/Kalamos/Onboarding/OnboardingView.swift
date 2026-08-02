@@ -45,6 +45,30 @@ enum OnboardingFlow {
     }
 }
 
+/// What setup offers, for the settings where the app has a closed set of answers.
+///
+/// It exists because setup drifted away from the app and nobody noticed. The
+/// trigger gained a fourth mode on 2026-07-31 (`singleTap`); Preferences picked
+/// it up for free, because it builds its row from `allCases`, while setup had its
+/// three written out by hand. The person running `singleTap` then reached that
+/// page and saw **nothing selected** — his own setting was not drawable — and
+/// could walk past it with Continue, which checked nothing. One omission, two
+/// symptoms, reported 2026-08-02.
+///
+/// The order here is the display order, chosen: best answer first. The *coverage*
+/// is not a choice — `OnboardingCoverageTests` fails if a case exists in the app
+/// and is missing here, so the next mode added cannot repeat this.
+enum OnboardingChoices {
+    static let triggerModes: [TriggerMode] = [.hold, .singleTap, .doubleTap, .both]
+    static let formatterModes: [FormatterMode] = [.localLLM, .ruleBased, .off]
+    /// The keys setup offers. Deliberately NOT every key on the keyboard: these
+    /// three are the ones free on an Apple keyboard. An open set, so this page can
+    /// legitimately show nothing selected — which is why Continue is gated.
+    static let triggerKeys: [UInt16] = [0x36, 0x3D, 0x3F]
+    /// Presets, not the whole range — `idleUnloadSeconds` accepts any number.
+    static let idleSeconds: [Int] = [300, 900, 0]
+}
+
 /// First-run setup.
 ///
 /// It exists for one failure in particular. Without it someone installs Kalamos,
@@ -141,6 +165,24 @@ struct OnboardingView: View {
     private func advance() { step = OnboardingFlow.next(from: step, accepted: acceptedProfile) }
     private func retreat() { step = OnboardingFlow.previous(from: step, accepted: acceptedProfile) }
 
+    /// Whether the current page has an answer on it.
+    ///
+    /// Two pages offer a *subset* of what the setting accepts — the trigger key is
+    /// any key code, the idle timeout any number of seconds — so a value set from
+    /// Preferences or `defaults write` can leave every tile dark. Continue used to
+    /// be pressable anyway, which walks someone past a question they never
+    /// answered and leaves them believing they did. Reported 2026-08-02.
+    ///
+    /// The pages built from `allCases` cannot be empty by construction, and say so
+    /// by returning true rather than by being absent from this switch.
+    private var currentStepAnswered: Bool {
+        switch step {
+        case 3: return OnboardingChoices.triggerKeys.contains(state.hotKeyCode)
+        case 6: return OnboardingChoices.idleSeconds.contains(idleSeconds)
+        default: return true
+        }
+    }
+
     /// First, because everything after it is written in the answer.
     private var interfaceLanguageStep: some View {
         question(t("Lingua delle impostazioni", "Settings language", "Langue des réglages"),
@@ -169,21 +211,36 @@ struct OnboardingView: View {
                  t("Ho guardato la macchina e ho scelto di conseguenza. Puoi cambiare tutto, adesso o più tardi.",
                    "I looked at the machine and chose accordingly. You can change all of it, now or later.",
                    "J’ai regardé la machine et choisi en conséquence. Tout reste modifiable, maintenant ou plus tard.")) {
-            VStack(alignment: .leading, spacing: 8) {
+            // Air, and the two buttons pushed to the bottom and centred — his call
+            // on 2026-08-02, looking at the first version: "it is all too
+            // compressed". The page is the densest of the eight (a facts line plus
+            // three two-line rows plus two buttons), and it was taking its spacing
+            // from a grid of tiles that has none of that.
+            //
+            // The room comes from the empty band this page had underneath, not
+            // from the window: 470 points is shared with the other seven, and a
+            // page that grows makes the whole flow jump as you go through it.
+            VStack(alignment: .leading, spacing: 0) {
                 Text(machineFacts)
                     .font(Theme.font(12, .medium))
                     .foregroundStyle(Theme.ink)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .padding(.horizontal, 13).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
                     .overlay(RoundedRectangle(cornerRadius: 7)
                         .strokeBorder(Theme.rule, lineWidth: 1.5))
+                    .padding(.bottom, 18)
 
-                proposalRow(t("Ascolto", "Listening", "Écoute"), engineProposal)
-                proposalRow(t("Pulizia", "Tidy-up", "Nettoyage"), cleanupProposal)
-                proposalRow(t("Memoria", "Memory", "Mémoire"), memoryProposal)
+                VStack(alignment: .leading, spacing: 14) {
+                    proposalRow(t("Ascolto", "Listening", "Écoute"), engineProposal)
+                    proposalRow(t("Pulizia", "Tidy-up", "Nettoyage"), cleanupProposal)
+                    proposalRow(t("Memoria", "Memory", "Mémoire"), memoryProposal)
+                }
 
-                HStack(spacing: 8) {
+                Spacer(minLength: 18)
+
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
                     Button {
                         acceptedProfile = true
                         applyProposal()
@@ -213,8 +270,9 @@ struct OnboardingView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(t("Scelgo io", "I’ll choose", "Je choisis"))
+                    Spacer(minLength: 0)
                 }
-                .padding(.top, 2)
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -373,41 +431,28 @@ struct OnboardingView: View {
                  t("Scegline uno che non usi già per altro.",
                    "Pick one you do not already use for something else.",
                    "Choisissez-en une que vous n’utilisez pas déjà.")) {
-            grid([
-                // Key names stay in English: that is what is printed on the keyboard.
-                (0x36, "Right Command",
-                       t("libero su quasi tutti i Mac", "free on most Macs",
-                         "libre sur presque tous les Mac")),
-                (0x3D, "Right Option",
-                       t("se non lo usi per gli accenti", "if you do not type accents with it",
-                         "si vous ne tapez pas d’accents avec")),
-                (0x3F, "Fn / Globe",
-                       t("se non l’hai rimappato", "unless you remapped it",
-                         "sauf si vous l’avez remappée")),
-            ], selected: { state.hotKeyCode == UInt16($0) },
-               pick: { actions.applyTriggerKey(UInt16($0)) })
+            // Key names stay in English: that is what is printed on the keyboard.
+            grid(OnboardingChoices.triggerKeys.map {
+                ($0, HotkeyManager.displayName(for: $0), Self.keyNote($0, ui))
+            }, selected: { state.hotKeyCode == $0 },
+               pick: { actions.applyTriggerKey($0) })
         }
     }
 
     private var triggerModeStep: some View {
         question(t("Come vuoi attivare la dettatura?", "How do you want to start it?",
                    "Comment voulez-vous la lancer ?"),
-                 t("Tenerlo premuto è il modo più preciso e non lascia mai il microfono aperto. Il doppio tocco serve quando devi parlare a lungo senza tenere il dito sul tasto.",
-                   "Holding is the precise way, and never leaves the microphone open. Double-tap is for talking at length without keeping a finger down.",
-                   "Maintenir est le plus précis et ne laisse jamais le micro ouvert. Le double-appui sert à parler longtemps sans garder le doigt appuyé.")) {
-            grid([
-                (0, t("Tieni premuto", "Hold to talk", "Maintenir"),
-                    t("un tocco singolo non fa niente", "a single tap does nothing",
-                      "un appui simple ne fait rien")),
-                (1, t("Doppio tocco", "Double-tap", "Double-appui"),
-                    t("a mani libere: tocchi di nuovo e il testo viene scritto",
-                      "hands-free: tap again and the text is written",
-                      "mains libres : réappuyez et le texte s’écrit")),
-                (2, t("Entrambi", "Both", "Les deux"),
-                    t("tieni premuto oppure tocca due volte", "hold, or double-tap",
-                      "maintenir, ou double-appui")),
-            ], selected: { state.triggerMode == Self.mode($0) },
-               pick: { actions.applyTriggerMode(Self.mode($0)) })
+                 // Four modes now, so the hint stopped naming them one by one: it
+                 // used to describe two and leave the reader to work out what the
+                 // others were for. The distinction that matters is holding versus
+                 // not, and each tile says the rest.
+                 t("Tenerlo premuto è il modo più preciso e non lascia mai il microfono aperto. Gli altri servono a parlare a lungo senza tenere il dito sul tasto.",
+                   "Holding is the precise way, and never leaves the microphone open. The others are for talking at length without keeping a finger down.",
+                   "Maintenir est le plus précis et ne laisse jamais le micro ouvert. Les autres servent à parler longtemps sans garder le doigt appuyé.")) {
+            grid(OnboardingChoices.triggerModes.map {
+                ($0, AppDelegate.modeTitle($0), Self.modeNote($0, ui))
+            }, selected: { state.triggerMode == $0 },
+               pick: { actions.applyTriggerMode($0) })
         }
     }
 
@@ -418,15 +463,10 @@ struct OnboardingView: View {
                    "The local model adds punctuation, drops filler and resolves the sentences you abandon halfway. It downloads once and never leaves your Mac.",
                    "Le modèle local ponctue, retire les hésitations et résout les phrases abandonnées. Il se télécharge une fois et ne quitte jamais votre Mac.")) {
             VStack(alignment: .leading, spacing: 12) {
-                grid([
-                    (1, t("Sì, con il modello", "Yes, use the model", "Oui, avec le modèle"),
-                        t("\(modelSize), una volta sola", "\(modelSize), once",
-                          "\(modelSize), une seule fois")),
-                    (0, t("Solo punteggiatura", "Punctuation only", "Ponctuation seule"),
-                        t("istantaneo, niente da scaricare", "instant, nothing to download",
-                          "instantané, rien à télécharger")),
-                ], selected: { state.formatterMode == ($0 == 1 ? .localLLM : .ruleBased) },
-                   pick: { state.formatterMode = $0 == 1 ? .localLLM : .ruleBased })
+                grid(OnboardingChoices.formatterModes.map {
+                    ($0, Self.formatterTitle($0, ui), Self.formatterNote($0, ui, size: modelSize))
+                }, selected: { state.formatterMode == $0 },
+                   pick: { state.formatterMode = $0 })
 
                 // Which model, decided by the machine instead of asked. Said out
                 // loud: a choice made for you in silence is one you cannot
@@ -594,10 +634,14 @@ struct OnboardingView: View {
     /// page has to push the choices down to fit.
     private static let headerHeight: CGFloat = 104
 
-    private func grid(_ items: [(Int, String, String)],
-                      selected: @escaping (Int) -> Bool,
-                      pick: @escaping (Int) -> Void) -> some View {
-        func tile(_ item: (Int, String, String)) -> some View {
+    /// Generic in the id so a page can be built straight from the app's own enum
+    /// (`TriggerMode`, `FormatterMode`) instead of a hand-written list of Ints that
+    /// has to be kept in step with it — the drift that produced a page with
+    /// nothing selected on it.
+    private func grid<ID: Hashable>(_ items: [(ID, String, String)],
+                                    selected: @escaping (ID) -> Bool,
+                                    pick: @escaping (ID) -> Void) -> some View {
+        func tile(_ item: (ID, String, String)) -> some View {
             choice(title: item.1, note: item.2, on: selected(item.0)) { pick(item.0) }
         }
 
@@ -727,6 +771,10 @@ struct OnboardingView: View {
             let label = step < questionCount
                 ? t("Avanti", "Continue", "Continuer")
                 : t("Inizia a dettare", "Start dictating", "Commencer")
+            // Greyed AND inert, together. Either one alone is a lie: a button that
+            // looks pressable and does nothing reads as a broken app, and one that
+            // refuses silently while looking normal reads as a broken click.
+            let answered = currentStepAnswered
             Button {
                 if step < questionCount { advance() } else { actions.finish() }
             } label: {
@@ -737,14 +785,19 @@ struct OnboardingView: View {
                 // rounded rectangle is hit-tested, background or not.
                 Text(label)
                     .font(Theme.font(13, .semibold))
-                    .foregroundStyle(Theme.paper)
+                    .foregroundStyle(answered ? Theme.paper : Theme.inkFaded)
                     .padding(.horizontal, 20).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.pen))
+                    .background(RoundedRectangle(cornerRadius: 7)
+                        .fill(answered ? Theme.pen : Theme.rule))
                     .contentShape(RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
+            .disabled(!answered)
             .keyboardShortcut(.defaultAction)
             .accessibilityLabel(label)
+            .help(answered ? "" : t("Scegli un'opzione per continuare",
+                                    "Pick an option to continue",
+                                    "Choisissez une option pour continuer"))
             }
         }
     }
@@ -759,11 +812,63 @@ struct OnboardingView: View {
         }
     }
 
-    private static func mode(_ choice: Int) -> TriggerMode {
-        switch choice {
-        case 0: return .hold
-        case 1: return .doubleTap
-        default: return .both
+    /// The one-line hint under each key, mode and cleanup tile.
+    ///
+    /// These are `switch`es over the enum rather than a parallel array of strings,
+    /// so adding a case makes the compiler ask for its wording instead of letting
+    /// the tile ship with a blank line under it. `ui` is passed in — unused by
+    /// `L.t`, which reads the same value — because reading it in the body is what
+    /// makes SwiftUI redraw these when the language changes.
+    private static func keyNote(_ code: UInt16, _ ui: Language) -> String {
+        switch code {
+        case 0x36: return L.t("libero su quasi tutti i Mac", "free on most Macs",
+                              "libre sur presque tous les Mac")
+        case 0x3D: return L.t("se non lo usi per gli accenti", "if you do not type accents with it",
+                              "si vous ne tapez pas d’accents avec")
+        case 0x3F: return L.t("se non l’hai rimappato", "unless you remapped it",
+                              "sauf si vous l’avez remappée")
+        default:   return ""
+        }
+    }
+
+    static func modeNote(_ mode: TriggerMode, _ ui: Language) -> String {
+        switch mode {
+        case .hold:
+            return L.t("un tocco singolo non fa niente", "a single tap does nothing",
+                       "un appui simple ne fait rien")
+        case .singleTap:
+            return L.t("tocchi una volta e parli, tocchi ancora e il testo viene scritto",
+                       "tap once and talk, tap again and the text is written",
+                       "un appui, vous parlez ; un autre, le texte s’écrit")
+        case .doubleTap:
+            return L.t("a mani libere, e il tasto resta libero per il suo uso normale",
+                       "hands-free, and the key keeps its normal job",
+                       "mains libres, et la touche garde son rôle normal")
+        case .both:
+            return L.t("tieni premuto oppure tocca due volte", "hold, or double-tap",
+                       "maintenir, ou double-appui")
+        }
+    }
+
+    static func formatterTitle(_ mode: FormatterMode, _ ui: Language) -> String {
+        switch mode {
+        case .localLLM:  return L.t("Sì, con il modello", "Yes, use the model", "Oui, avec le modèle")
+        case .ruleBased: return L.t("Solo punteggiatura", "Punctuation only", "Ponctuation seule")
+        case .off:       return L.t("Niente", "Nothing", "Rien")
+        }
+    }
+
+    private static func formatterNote(_ mode: FormatterMode, _ ui: Language,
+                                      size: String) -> String {
+        switch mode {
+        case .localLLM:
+            return L.t("\(size), una volta sola", "\(size), once", "\(size), une seule fois")
+        case .ruleBased:
+            return L.t("istantaneo, niente da scaricare", "instant, nothing to download",
+                       "instantané, rien à télécharger")
+        case .off:
+            return L.t("le parole esatte che hai detto", "the exact words you said",
+                       "les mots exacts que vous avez dits")
         }
     }
 

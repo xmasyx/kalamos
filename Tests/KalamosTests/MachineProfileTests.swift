@@ -212,3 +212,54 @@ import Testing
         #expect(pagesVisited(accepting: false) == Array(0...OnboardingFlow.permissions))
     }
 }
+
+/// Setup has to offer everything the app accepts, for the settings whose answers
+/// are a closed set.
+///
+/// The bug this exists to stop: the trigger gained a fourth mode on 2026-07-31,
+/// Preferences picked it up for free because it builds from `allCases`, and setup
+/// kept its three hand-written ones. Someone running the fourth mode reached that
+/// page and saw nothing selected — his own setting was not on it — and Continue
+/// let him walk past. Found by him, in the real window, on 2026-08-02.
+@Suite @MainActor struct OnboardingCoverageTests {
+    @Test func everyTriggerModeIsOffered() {
+        #expect(Set(OnboardingChoices.triggerModes) == Set(TriggerMode.allCases))
+    }
+
+    @Test func everyCleanupModeIsOffered() {
+        #expect(Set(OnboardingChoices.formatterModes) == Set(FormatterMode.allCases))
+    }
+
+    /// Order is a choice, coverage is not — but a duplicate would draw the same
+    /// tile twice and is never intended.
+    @Test func nothingIsOfferedTwice() {
+        #expect(OnboardingChoices.triggerModes.count == Set(OnboardingChoices.triggerModes).count)
+        #expect(OnboardingChoices.formatterModes.count == Set(OnboardingChoices.formatterModes).count)
+        #expect(OnboardingChoices.triggerKeys.count == Set(OnboardingChoices.triggerKeys).count)
+        #expect(OnboardingChoices.idleSeconds.count == Set(OnboardingChoices.idleSeconds).count)
+    }
+
+    /// The two open sets. They CANNOT cover their setting — a key code is any key,
+    /// an idle timeout any number — which is precisely why those two pages gate
+    /// Continue instead of pretending an answer is always present. This test is
+    /// here so that fact stays written down: if one of them ever becomes closed,
+    /// it belongs in the coverage tests above.
+    @Test func theOpenSetsAreTheOnesThatCanBeEmpty() {
+        #expect(!OnboardingChoices.triggerKeys.isEmpty)
+        #expect(!OnboardingChoices.idleSeconds.isEmpty)
+        // A value outside each list is what a page with nothing lit looks like.
+        #expect(!OnboardingChoices.triggerKeys.contains(0x00))
+        #expect(!OnboardingChoices.idleSeconds.contains(600))
+    }
+
+    /// Every mode the app has gets its own wording on the tile. A case added
+    /// without one would ship a tile with a blank second line.
+    @Test func everyModeHasANote() {
+        for mode in TriggerMode.allCases {
+            #expect(!OnboardingView.modeNote(mode, .italian).isEmpty, "\(mode) has no note")
+        }
+        for mode in FormatterMode.allCases {
+            #expect(!OnboardingView.formatterTitle(mode, .italian).isEmpty, "\(mode) has no title")
+        }
+    }
+}

@@ -4,6 +4,31 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
+## Unreleased
+
+### Setup offers everything the app does
+
+- **The trigger's fourth mode reached setup.** One-tap was added to the app on
+  2026-07-31 and Preferences picked it up for free, because that row is built
+  from the enum; setup had its three written out by hand. Anyone running one-tap
+  arrived at that page and saw **nothing selected** — their own setting was not
+  drawable — and Continue let them walk past it. Setup now builds that page and
+  the cleanup page from the same enums, and a test fails if a case exists in the
+  app and is missing from setup.
+- **Cleanup can be turned off from setup too** ("Nothing", the raw words you
+  said). Preferences had it; setup did not.
+- **Continue is greyed and inert until the page has an answer.** Two pages offer
+  a subset of what their setting accepts — the trigger key is any key code, the
+  idle timeout any number of seconds — so a value set elsewhere can leave every
+  tile dark. Walking past a question you never answered, believing you did, was
+  the failure.
+- **Air on the "Your Mac" page**, and the two buttons moved to the bottom,
+  centred. It is the densest of the eight pages and was taking its spacing from a
+  grid of tiles it does not have.
+- `--scatta` no longer prints a filename it never wrote: `screencapture` exits 0
+  without producing an image when the bundle has no Screen Recording permission,
+  which a downloaded or freshly rebuilt copy always lacks.
+
 ## v1.1.0
 
 ### Setup looks at the Mac instead of asking about it

@@ -797,9 +797,9 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
         // printed a filename that did not exist and returned success: a
         // verification tool reporting evidence it never produced, which is worse
         // than one that fails. Found on 2026-08-02, checking a release artifact.
-        let exists = FileManager.default.fileExists(atPath: path)
-        let bytes = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
-        guard exists, (bytes ?? 0) > 0 else {
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: path))
+            .flatMap { $0[.size] as? Int } ?? 0
+        guard bytes > 0 else {
             FileHandle.standardError.write(Data("""
                 scatta: no file written to \(path)
                    screencapture exited \(shot.terminationStatus) — the usual cause is that THIS
