@@ -788,6 +788,28 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
         shot.arguments = ["-x", "-o", "-l\(window.windowNumber)", path]
         try? shot.run()
         shot.waitUntilExit()
+
+        // Print the path only if there IS a picture at it.
+        //
+        // `screencapture` writes nothing and still exits 0 when this bundle lacks
+        // Screen Recording — which is what a freshly downloaded copy of the app
+        // always lacks, since the grant follows the code identity. The probe then
+        // printed a filename that did not exist and returned success: a
+        // verification tool reporting evidence it never produced, which is worse
+        // than one that fails. Found on 2026-08-02, checking a release artifact.
+        let exists = FileManager.default.fileExists(atPath: path)
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+        guard exists, (bytes ?? 0) > 0 else {
+            FileHandle.standardError.write(Data("""
+                scatta: no file written to \(path)
+                   screencapture exited \(shot.terminationStatus) — the usual cause is that THIS
+                   bundle has no Screen Recording permission (the grant follows the code
+                   identity, so a downloaded or rebuilt copy starts without it).
+                   System Settings ▸ Privacy & Security ▸ Screen Recording.
+
+                """.utf8))
+            exit(3)
+        }
         print(path)
         exit(0)
     }
