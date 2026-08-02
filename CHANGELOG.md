@@ -6,6 +6,28 @@ an estimate.
 
 ## Unreleased
 
+### Preferences stays where you left it
+
+- **Clicking another app no longer makes the settings window vanish.** It goes
+  behind, like any other window. `hidesOnDeactivate` had been switched on the day
+  before to answer a specific report — a window shown while a terminal is
+  full-screen is placed INTO that space by macOS and then sits on top of its host
+  — and that flag was too blunt by half: it hid the window on every deactivation,
+  full-screen or not. The stepping-aside is now scoped to the case that asked for
+  it, detected by the missing menu-bar inset.
+
+### The chips stopped quoting one machine's stopwatch
+
+- **The engine row no longer shows a transcription time.** "0,66 s" against
+  "0,10 s" were measured on one Mac; printed next to somebody else's engine they
+  are an invention. Only the download size is left, which is true everywhere. The
+  qualitative difference the measurements did establish stays in the sentence
+  above the row.
+- **A row of four choices drops to two columns when a label is too long for a
+  quarter of the pane.** "Premuto o doppio tocco" was coming out as "Premuto o
+  doppio…", and a choice you cannot read is not a choice. Two columns is also the
+  shape the same question has in setup, so the two no longer disagree.
+
 ### The app said it was downloading a model it had downloaded weeks ago
 
 - **A cached model no longer announces a download.** The cleanup model's loader

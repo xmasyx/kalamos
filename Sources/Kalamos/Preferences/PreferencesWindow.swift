@@ -17,6 +17,7 @@ import SwiftUI
 final class PreferencesWindow: NSObject, NSWindowDelegate {
     static let shared = PreferencesWindow()
     private var window: NSWindow?
+    private var deactivation: NSObjectProtocol?
 
     func show(state: AppState, actions: PreferencesActions,
               openAt: PreferencesView.Section = .dictation) {
@@ -37,21 +38,21 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
 
         let w = NSWindow(contentViewController: hosting)
         w.title = L.t("Preferenze di Kalamos", "Kalamos Preferences", "Préférences de Kalamos")
-        // Goes away when Kalamos is not the app you are using.
+        // It goes BEHIND, like any other window. It does not go away.
         //
-        // Reported 2026-08-01: open Preferences while a terminal is full-screen,
-        // click back on the terminal, and the window is still there — sitting on
-        // top of a full-screen app that is supposed to own the whole screen.
-        // Nothing is floating: the window is level 0 with no collection
-        // behaviour set, measured. That is just what macOS does — a window shown
-        // while another app is full-screen is placed INTO that space, and once
-        // there it stays above its host until the space changes.
+        // This was `true` from 2026-08-01 to 2026-08-02, and that was too blunt
+        // by half. The report it answered was specific: open Preferences while a
+        // terminal is full-screen, click back on the terminal, and the window is
+        // still there — sitting on top of a full-screen app that is supposed to
+        // own the whole screen. macOS places a window shown during someone's
+        // full-screen space INTO that space, and there it stays above its host.
         //
-        // For an app with a Dock icon that would be wrong; for a menu-bar app it
-        // is the ordinary answer, and the one the platform gives us. Coming back
-        // is the menu-bar item, or the Dock icon that exists while the window is
-        // open (the policy is `.regular` for exactly that stretch).
-        w.hidesOnDeactivate = true
+        // `hidesOnDeactivate` fixed that case and broke the ordinary one: click
+        // any other app, in any normal window, and the settings you were reading
+        // vanished. "I wanted it to stay open, it should simply go to the back"
+        // — his words, 2026-08-02. So the flag is off, and the disappearing act
+        // is now scoped to the only situation that asked for it, below.
+        w.hidesOnDeactivate = false
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.titlebarAppearsTransparent = true
         w.backgroundColor = Theme.paperNS
@@ -69,9 +70,36 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         // to sitting on top of full-screen apps and nothing else would say so.
         Log.write("preferences window: level=\(w.level.rawValue)"
                   + " hidesOnDeactivate=\(w.hidesOnDeactivate)")
+
+        // The narrow version of what the flag used to do bluntly: step out of the
+        // way ONLY when this window is sitting inside another app's full-screen
+        // space. Everywhere else it stays where you left it.
+        deactivation = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.hideIfInsideAFullScreenSpace() }
+            }
+    }
+
+    /// Whether the window is currently living in a space with no menu bar, which
+    /// is what someone else's full-screen space looks like from in here.
+    ///
+    /// A heuristic, and named as one: AppKit will not say whose space a window is
+    /// in. In an ordinary space the menu bar eats the top of `visibleFrame`; in a
+    /// full-screen space it does not. The cost of it being wrong is that the
+    /// window stays visible when it might have stepped aside — the old behaviour,
+    /// not a new failure.
+    private func hideIfInsideAFullScreenSpace() {
+        guard let window, window.isVisible, let screen = window.screen else { return }
+        let menuBarInset = screen.frame.maxY - screen.visibleFrame.maxY
+        guard menuBarInset < 1 else { return }
+        Log.write("preferences window: inside a full-screen space — stepping aside")
+        window.orderOut(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
+        if let deactivation { NotificationCenter.default.removeObserver(deactivation) }
+        deactivation = nil
         window = nil
         // The notification arrives BEFORE the window goes away, so the decision
         // has to be taken on the next turn of the loop, when `isVisible` tells

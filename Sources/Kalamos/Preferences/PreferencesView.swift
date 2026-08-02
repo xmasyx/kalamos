@@ -260,9 +260,23 @@ struct PrefRow<Content: View>: View {
 /// hides every option but the chosen one behind a click, which is exactly the
 /// "you have to go looking" problem this window exists to remove.
 struct ChipRow<Value: Hashable>: View {
+    /// Roughly what fits on a chip a quarter of the pane wide. "Right Command"
+    /// (13) fits; "Premuto o doppio tocco" (22) did not, and said so by
+    /// truncating itself in the middle of a word.
+    static var charactersInAQuarterPane: Int { 14 }
+
     let options: [(value: Value, label: String, note: String)]
     let isOn: (Value) -> Bool
     let pick: (Value) -> Void
+
+    /// How many columns this row gets. A plain function so the rule can be
+    /// checked without a renderer — the failure it prevents (a label truncated
+    /// mid-word) is invisible to every other kind of test.
+    static func columnCount(labels: [String], hasNotes: Bool) -> Int {
+        guard !hasNotes else { return 2 }
+        let longest = labels.map(\.count).max() ?? 0
+        return longest > charactersInAQuarterPane ? 2 : min(labels.count, 4)
+    }
 
     var body: some View {
         // A note on some chips and not others makes those chips taller than
@@ -296,8 +310,19 @@ struct ChipRow<Value: Hashable>: View {
         // (reported with a screenshot, 2026-08-01). A row narrower than the
         // ceiling now fills the width it has; rows of four still agree with
         // each other, which is what the ceiling was for.
-        let plainWords = options.allSatisfy { $0.note.isEmpty }
-        let columns = plainWords ? min(options.count, 4) : 2
+        //
+        // And four columns only while the words FIT in a quarter of the pane. A
+        // quarter holds about fourteen characters; "Premuto o doppio tocco" is
+        // twenty-two, and it came out as "Premuto o doppio…" — a choice you
+        // cannot read is not a choice (reported with a screenshot, 2026-08-02).
+        // A long row drops to two columns, which is the shape the same question
+        // already has in setup, so the two do not disagree either.
+        //
+        // Counting characters is a crude stand-in for measuring text, and it is
+        // the right crudeness here: it is deterministic, it is testable without a
+        // renderer, and being wrong costs one row a wider column.
+        let columns = Self.columnCount(labels: options.map(\.label),
+                                       hasNotes: options.contains { !$0.note.isEmpty })
         return LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
             alignment: .leading, spacing: 8

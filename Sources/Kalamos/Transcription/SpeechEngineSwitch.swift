@@ -17,7 +17,21 @@ enum SpeechEngine: String, CaseIterable, Sendable {
         }
     }
 
-    /// The two numbers that differ, and nothing else.
+    /// The one number that is true on every Mac: how big the download is.
+    ///
+    /// It used to carry a time as well — "0,66 s" against "0,10 s" — and those
+    /// were measured on ONE machine, his. Printed next to somebody else's engine
+    /// they are an invention, which is the same rule the setup page is built on:
+    /// facts read from the machine, never a timing predicted for it. Taken off on
+    /// his instruction, 2026-08-02: *"that is calculated on my computer, so it
+    /// must not stay there"*. The qualitative difference the measurements DID
+    /// establish stays in the sentence above the row, where it belongs.
+    ///
+    /// Earlier history, kept because it is the same lesson twice: the note once
+    /// claimed Whisper was "more accurate on your names", and by the evening of
+    /// 2026-08-01 the vocabulary repair had erased that difference — both engines
+    /// land on 150/150 of his terms. A chip that claims an advantage the
+    /// measurement has since erased is worse than a chip that says nothing.
     ///
     /// It used to read "più preciso sui tuoi nomi" against "10× più veloce,
     /// meglio sull'italiano comune", and by the evening of 2026-08-01 the first
@@ -27,8 +41,8 @@ enum SpeechEngine: String, CaseIterable, Sendable {
     /// in-app figures with the language forced, which is his configuration.
     @MainActor var note: String {
         switch self {
-        case .whisper: return "1,5 GB · 0,66 s"
-        case .parakeet: return "461 MB · 0,10 s"
+        case .whisper: return "1,5 GB"
+        case .parakeet: return "461 MB"
         }
     }
 }

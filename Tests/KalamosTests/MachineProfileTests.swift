@@ -287,3 +287,44 @@ import Testing
         }
     }
 }
+
+/// A row of choices in Preferences must not truncate one of them.
+///
+/// "Premuto o doppio tocco" came out as "Premuto o doppio…" once the trigger had
+/// four modes and the row still insisted on four columns. A choice you cannot
+/// read is not a choice. Reported with a screenshot, 2026-08-02.
+@Suite @MainActor struct ChipRowLayoutTests {
+    private func columns(_ labels: [String], notes: Bool = false) -> Int {
+        ChipRow<Int>.columnCount(labels: labels, hasNotes: notes)
+    }
+
+    @Test func fourShortWordsStayInFourColumns() {
+        #expect(columns(["Right Command", "Right Option", "Right Shift", "Fn / Globe"]) == 4)
+    }
+
+    /// The row that reported the bug, in all three languages it ships in.
+    @Test func aLongLabelDropsTheRowToTwoColumns() {
+        #expect(columns(["Tieni premuto", "Un tocco", "Doppio tocco", "Premuto o doppio tocco"]) == 2)
+        #expect(columns(["Hold to talk", "One tap", "Double-tap", "Hold or double-tap"]) == 2)
+        #expect(columns(["Maintenir", "Un appui", "Double-appui", "Maintenir ou double-appui"]) == 2)
+    }
+
+    /// A row shorter than the ceiling fills the width it has rather than leaving
+    /// a hole where a fourth chip would be — the behaviour before this rule, kept.
+    @Test func threeShortWordsFillTheirRow() {
+        #expect(columns(["Italiano", "English", "Français"]) == 3)
+    }
+
+    /// Chips with a second line have always been two-up, whatever their length.
+    @Test func notesStillMeanTwoColumns() {
+        #expect(columns(["Whisper", "Parakeet"], notes: true) == 2)
+    }
+
+    /// The boundary, from both sides — where a truncation would start.
+    @Test func theBoundaryIsWhereAQuarterPaneRunsOut() {
+        let fits = String(repeating: "a", count: ChipRow<Int>.charactersInAQuarterPane)
+        let doesNot = fits + "a"
+        #expect(columns([fits, fits, fits, fits]) == 4)
+        #expect(columns([fits, fits, fits, doesNot]) == 2)
+    }
+}
