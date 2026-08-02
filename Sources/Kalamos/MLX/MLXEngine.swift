@@ -118,7 +118,15 @@ actor MLXEngine {
         let configuration = LLMModelFactory.shared.configuration(id: requested)
         let hub = HubApi(downloadBase: ModelStorage.base)
         let loaded = try await LLMModelFactory.shared.loadContainer(hub: hub, configuration: configuration) { progress in
-            // progressHandler only fires for actual downloads.
+            // "progressHandler only fires for actual downloads" is what this line
+            // used to say, and it is false: it fires while the cached model is
+            // read off the disk as well. So every relaunch overrode the `.loading`
+            // decided two lines above with `.downloading`, and the panel announced
+            // a download of a model that had been on this Mac for weeks. Reported
+            // 2026-08-02 — "it says it is downloading and nothing should be".
+            //
+            // `onDisk` was already computed and already right. Trust it.
+            guard !onDisk else { return }
             Self.report(.downloading(.cleanup, fraction: progress.fractionCompleted))
         }
         guard modelID == requested else {

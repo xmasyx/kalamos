@@ -36,12 +36,30 @@ final class ParakeetTranscriber: Transcriber, @unchecked Sendable {
     private let managerBox = OSAllocatedUnfairLock<AsrManager?>(initialState: nil)
     private let idleBox = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
+    /// Whether FluidAudio's cache already holds the model. Its own directory,
+    /// not ours — checked by the file the loader itself writes there.
+    private static var modelsAreOnDisk: Bool {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory,
+                                               in: .userDomainMask).first
+        guard let support else { return false }
+        let config = support
+            .appendingPathComponent("FluidAudio/Models/parakeet-tdt-0.6b-v3/config.json")
+        return FileManager.default.fileExists(atPath: config.path)
+    }
+
     func prepare() async throws {
         if managerBox.withLock({ $0 }) != nil { scheduleIdleUnload(); return }
         // FluidAudio caches under its own Application Support directory and
         // reports no progress fraction, so the status is the indeterminate one.
-        // 461 MB the first time, nothing afterwards.
-        Self.report(.downloading(.speech, fraction: nil))
+        // 461 MB the first time, nothing afterwards — and *nothing afterwards* is
+        // the half this line used to get wrong: it announced a download on every
+        // single prepare, cached or not. Same defect as the cleanup model's, found
+        // in the same sweep on 2026-08-02.
+        if Self.modelsAreOnDisk {
+            Self.report(.loading(.speech))
+        } else {
+            Self.report(.downloading(.speech, fraction: nil))
+        }
         let models = try await AsrModels.downloadAndLoad(version: .v3)
         Self.report(.loading(.speech))
         managerBox.withLock { $0 = AsrManager(config: .default, models: models) }

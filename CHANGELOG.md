@@ -6,6 +6,36 @@ an estimate.
 
 ## Unreleased
 
+### The app said it was downloading a model it had downloaded weeks ago
+
+- **A cached model no longer announces a download.** The cleanup model's loader
+  decided correctly that the file was on disk, then its progress handler
+  overrode that decision one line later — the handler fires while a cached model
+  is *read*, not only while one is fetched, and the comment saying otherwise was
+  simply wrong. So every relaunch popped a panel announcing a 4 GB download of a
+  model that had been here for weeks.
+- **The same defect in the Parakeet engine**, found by sweeping for it: it
+  announced a download on every prepare, cached or not.
+- **And the panel itself was landing off the edge of the screen.** It was
+  positioned before SwiftUI had laid out its content, so its size read as zero
+  and it was parked with its left edge where its right edge belonged. What you
+  saw was an unreadable sliver at the edge of the display — reported three times
+  as "a little icon appeared and I cannot tell you what it says". It is now
+  measured before it is placed, placed again once the window server has
+  certainly measured it, and clamped so it can never sit outside the screen.
+
+### The text inside the choice tiles
+
+- **Centred, and aligned across a row.** Both, which is why it took two passes:
+  centring alone lets a two-line note push its own title upward so a row reads as
+  crooked, and aligning alone leaves a page of bare words hanging from the top of
+  their boxes. Every tile on a page that has any note now reserves the room for
+  one, so the block can be centred and the titles still line up.
+- Titles are semibold, notes a point smaller and a little further down.
+- The one note on the language page is gone: a single tile with a note forces
+  every tile on that page to reserve room for one, which lifted four bare words
+  off centre. What it said is already the hint at the top of the page.
+
 ### A hands-free dictation closes its own microphone
 
 - **Ten seconds of silence and the microphone closes by itself**, in one-tap and

@@ -420,8 +420,13 @@ struct OnboardingView: View {
                 (1, "Italiano", ""),
                 (2, "English", ""),
                 (3, "Français", ""),
-                (0, t("Automatico", "Detect it", "Automatique"),
-                    t("se cambi lingua spesso", "if you switch often", "si vous changez souvent")),
+                // No note, and that is the whole page's layout decision. One tile
+                // with a note forces every tile on the page to reserve room for
+                // one, which lifts four bare words off the centre of their boxes.
+                // The sentence it carried ("if you switch often") is already the
+                // hint at the top of the page, so nothing was lost by dropping it
+                // and the four words sit dead centre. His call, 2026-08-02.
+                (0, t("Automatico", "Detect it", "Automatique"), ""),
             ], selected: { choice in
                 choice == 0 ? state.autoDetectLanguage
                             : !state.autoDetectLanguage && state.defaultLanguage == Self.language(choice)
@@ -657,8 +662,16 @@ struct OnboardingView: View {
     private func grid<ID: Hashable>(_ items: [(ID, String, String)],
                                     selected: @escaping (ID) -> Bool,
                                     pick: @escaping (ID) -> Void) -> some View {
+        // If ANY tile on this page carries a note, every tile reserves the room
+        // for one. That is what lets the block be centred AND the titles line up
+        // across a row: without the reservation, a two-line note pushes its own
+        // title upward and the row reads as crooked (his report, 2026-08-02);
+        // with it and no centring, a page of bare words hangs from the top of its
+        // boxes (his report, an hour later). Reserve, then centre — both hold.
+        let anyNote = items.contains { !$0.2.isEmpty }
         func tile(_ item: (ID, String, String)) -> some View {
-            choice(title: item.1, note: item.2, on: selected(item.0)) { pick(item.0) }
+            choice(title: item.1, note: item.2, reserveNote: anyNote,
+                   on: selected(item.0)) { pick(item.0) }
         }
 
         return Group {
@@ -689,21 +702,21 @@ struct OnboardingView: View {
     /// the columns. If the window size changes, this changes with it.
     private static let columnWidth: CGFloat = (540 - 28 * 2 - 10) / 2
 
-    private func choice(title: String, note: String, on: Bool,
+    private func choice(title: String, note: String, reserveNote: Bool, on: Bool,
                         act: @escaping () -> Void) -> some View {
         Button(action: act) {
-            VStack(spacing: 3) {
-                Text(title).font(Theme.font(14, .medium)).foregroundStyle(Theme.ink)
-                // Only when there is something to say. A blank reserved line used
-                // to keep tiles the same height, back when they sized themselves —
-                // the fixed height below does that now, and the leftover placeholder
-                // was pushing every note-less title above the centre of its own box.
-                if !note.isEmpty {
+            VStack(spacing: 5) {
+                Text(title).font(Theme.font(14, .semibold)).foregroundStyle(Theme.ink)
+                if reserveNote {
                     Text(note)
-                        .font(Theme.font(11.5))
+                        .font(Theme.font(11))
                         .foregroundStyle(Theme.inkFaded)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                        // Two lines' worth, always. The height is what every tile
+                        // on the page agrees on, so an empty note holds the same
+                        // room as a long one and no title moves.
+                        .frame(height: Self.noteHeight, alignment: .top)
                 }
             }
             .multilineTextAlignment(.center)
@@ -718,8 +731,8 @@ struct OnboardingView: View {
             // sit on one line and the notes hang below, however long they are.
             .frame(maxWidth: .infinity,
                    minHeight: Self.tileHeight, maxHeight: Self.tileHeight,
-                   alignment: .top)
-            .padding(.top, 11)
+                   alignment: .center)
+            .padding(.vertical, 9)
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 8)
                 .fill(on ? Theme.penWash : Theme.card))
@@ -733,7 +746,9 @@ struct OnboardingView: View {
     }
 
     /// Every tile, on every page.
-    private static let tileHeight: CGFloat = 62
+    private static let tileHeight: CGFloat = 56
+    /// Two lines of note, reserved whether or not this tile has one.
+    private static let noteHeight: CGFloat = 30
 
     private func permissionRow(granted: Bool, title: String, why: String,
                                button: String, action: @escaping () -> Void) -> some View {

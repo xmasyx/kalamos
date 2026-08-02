@@ -56,17 +56,39 @@ final class DownloadPanel: NSObject, NSWindowDelegate {
         p.delegate = self
         // Top right, under the menu bar: the corner the status icon lives in, so
         // the panel and the icon that carries the same percentage are together.
-        if let screen = NSScreen.main {
-            let size = p.frame.size
-            let visible = screen.visibleFrame
-            p.setFrameOrigin(NSPoint(x: visible.maxX - size.width - 18,
-                                     y: visible.maxY - size.height - 18))
-        }
+        //
+        // The size has to be REAL before the corner is computed. A hosting
+        // controller reports nothing until SwiftUI has laid out, so the panel was
+        // positioned as if it were zero wide — which put its left edge where its
+        // right edge belonged, and the whole thing then grew off the screen. What
+        // the user saw was a sliver at the edge of the display, too narrow to read
+        // and impossible to describe. Reported twice before it was caught, because
+        // "a little icon appeared" is not a bug report anyone can act on.
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitting = hosting.view.fittingSize
+        if fitting.width > 1, fitting.height > 1 { p.setContentSize(fitting) }
+        place(p)
         panel = p
         // `orderFrontRegardless` and NOT `makeKeyAndOrderFront`: a panel that
         // takes the keyboard away mid-sentence would be a worse bug than the one
         // this fixes.
         p.orderFrontRegardless()
+        // Once more when the window server has certainly measured it. Cheap, and
+        // it is the pass that catches a first layout that reported nothing.
+        DispatchQueue.main.async { [weak p] in if let p { self.place(p) } }
+    }
+
+    /// Park the panel under the menu bar on the right, and never outside the
+    /// screen — a clamp, not an assumption, so a wrong size can no longer put it
+    /// where nobody can read it.
+    private func place(_ p: NSPanel) {
+        guard let screen = p.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let size = p.frame.size
+        let x = min(max(visible.minX + 18, visible.maxX - size.width - 18),
+                    visible.maxX - size.width - 18)
+        let y = visible.maxY - size.height - 18
+        p.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 18, y)))
     }
 
     private func hide() {
