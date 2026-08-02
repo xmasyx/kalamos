@@ -131,13 +131,24 @@ import Testing
 /// is the failure that matters: a `sysctl` key that silently returns nothing puts
 /// a zero on the screen and nobody notices until the page says "0 GB".
 @Suite struct MachineReadingTests {
+    /// It asserts that a reading HAPPENED, never how big the machine is. The first
+    /// version ended in `memoryGB >= 8` and went red on CI, where the runner has
+    /// 7 GB — the test was smuggling in an assumption about whose Mac runs it,
+    /// which is the same mistake the whole feature exists to stop making. (And a
+    /// 7 GB machine is not hypothetical: it is exactly the branch that gets
+    /// Parakeet and no cleanup model.)
     @Test func thisMacReadsAsARealMachine() {
         let m = MachineProfile.current
         #expect(!m.chipName.isEmpty)
         #expect(m.chipName != "Apple Silicon")        // the fallback, not a reading
         #expect(m.memoryBytes > 2 * 1024 * 1024 * 1024)
         #expect(m.performanceCores > 0)
-        #expect(m.memoryGB >= 8)
+        // Not `memoryGB == <the same formula>`: that is a tautology dressed as a
+        // check. What can actually break is a field that reads as nothing, so the
+        // assertion is that each one is non-degenerate.
+        #expect(m.memoryGB > 0)
+        #expect(!m.coreSummary.isEmpty)
+        #expect(!m.coreSummary.hasSuffix("+ 0"))
     }
 
     /// The summary is what the page prints, so an efficiency-core count of zero
