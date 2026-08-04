@@ -40,6 +40,17 @@ enum Tuning {
         return HandsFreeSilence.defaultSeconds
     }
 
+    /// How many recent dictations keep their audio on disk, for diagnosing one
+    /// that went wrong. 0 turns the archive off entirely and deletes nothing that
+    /// is already there — emptying the folder stays the user's call.
+    /// `defaults write com.kalamos.app keepLastDictations -int <count|0=off>`
+    static var keepLastDictations: Int {
+        let v = UserDefaults.standard.object(forKey: "keepLastDictations")
+        if let n = v as? Int { return n }
+        if let s = v as? String, let n = Int(s) { return n }
+        return 20
+    }
+
     static func setIdleUnload(_ seconds: Int) {
         UserDefaults.standard.set(seconds, forKey: "idleUnloadSeconds")
     }

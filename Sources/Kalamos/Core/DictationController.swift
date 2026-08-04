@@ -83,6 +83,13 @@ final class DictationController {
     private var silenceGuard: Timer?
     private var handsFreeStartedAt: TimeInterval?
 
+    /// When the microphone opened, so the end of a dictation can say how long it
+    /// was held against how much audio came back. Without those two numbers side
+    /// by side, audio dropped on the way in is indistinguishable from a short
+    /// dictation, and on 2026-08-04 that ambiguity could not be resolved for a
+    /// recording that had already happened.
+    private var recordingStartedAt: Date?
+
     func handle(_ action: DictationAction, editMode: Bool = false, handsFree: Bool = false) {
         switch action {
         case .beginRecording:
@@ -172,6 +179,8 @@ final class DictationController {
         let busyElsewhere = AudioRecorder.inputDeviceBusyElsewhere()
         do {
             try recorder.start()
+            recordingStartedAt = Date()
+            Log.write("recording started")
             state.status = .listening
             checkMicrophoneCameUp(wasBusyElsewhere: busyElsewhere)
         } catch {
@@ -220,7 +229,24 @@ final class DictationController {
     private func endAndProcess() {
         disarmSilenceGuard()
         let samples = recorder.stop()
-        Log.write("endAndProcess: samples=\(samples.count)")
+        let startedAt = recordingStartedAt ?? Date()
+        recordingStartedAt = nil
+
+        // Two numbers, not one. Seconds of audio alone cannot tell a short
+        // dictation from a long one that lost its middle; the wall clock can.
+        // A gap between them is audio that never reached the buffer.
+        let heldSeconds = Date().timeIntervalSince(startedAt)
+        let audioSeconds = Double(samples.count) / AudioRecorder.targetSampleRate
+        Log.write(String(format: "endAndProcess: samples=%d (%.1fs audio, %.1fs al microfono)",
+                         samples.count, audioSeconds, heldSeconds))
+        if heldSeconds - audioSeconds > 1.0 {
+            Log.write(String(format: "WARNING: %.1fs di audio non sono arrivati nel buffer",
+                             heldSeconds - audioSeconds))
+        }
+
+        // Keep the sound itself, before anything can go wrong with the words.
+        let archived = DictationArchive.keep(samples, startedAt: startedAt,
+                                             sampleRate: AudioRecorder.targetSampleRate)
 
         // ISC-109 — say it out loud instead of writing it in a log nobody reads.
         //
@@ -275,6 +301,7 @@ final class DictationController {
                 let sourceLang = result.detectedLanguage ?? defaultLanguage
                 var text = result.text
                 Log.write("transcribed lang=\(sourceLang.rawValue) text=\"\(text)\"")
+                let rawText = text
                 guard !text.isEmpty else { state.status = .idle; return }
 
                 // Apply user replacement rules ("rosi" → "Rossi") on the raw
@@ -332,6 +359,21 @@ final class DictationController {
                             promptOverride: promptOverride))
                 }
                 Log.write("output=\"\(text)\"")
+
+                // The words, beside the sound they came from. This is the whole
+                // point of the archive: a dictation that lost something is only
+                // a usable bug report when both halves survive it.
+                DictationArchive.annotate(archived, lines: [
+                    String(format: "durata audio: %.1fs · microfono aperto: %.1fs",
+                           audioSeconds, heldSeconds),
+                    "lingua: \(sourceLang.rawValue)",
+                    "",
+                    "GREZZO:",
+                    rawText,
+                    "",
+                    "CONSEGNATO:",
+                    text,
+                ])
 
                 // Say it out loud when the model's version was refused. Not a
                 // system notification — that would mean asking for one more

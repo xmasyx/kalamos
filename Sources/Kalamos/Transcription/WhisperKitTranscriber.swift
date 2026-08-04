@@ -225,6 +225,28 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         options.task = .transcribe          // keep words in the spoken language
         options.usePrefillPrompt = true
 
+        // `chunkingStrategy` stays UNSET, and that is a measured decision rather
+        // than an omission — do not "fix" it by turning `.vad` on.
+        //
+        // The problem is real: on audio longer than one 30-second window,
+        // WhisperKit's blind sequential seek drops words with no error and no
+        // log line. Measured 2026-08-04, the same 70-second file decoded sixteen
+        // times gave 159 words fourteen times, 158 once and 150 once — identical
+        // audio, three different answers, which is what a dictation quietly
+        // losing a sentence looks like from outside.
+        //
+        // `.vad` was the obvious candidate and it is far WORSE: same file, same
+        // sixteen passes, 106 words in fourteen of them. It silently deletes
+        // three whole utterances, the ones straddling the first window boundary.
+        // Not a loudness effect — those three are the LOUDEST in the file
+        // (RMS 0.021, 0.019, 0.017 against 0.011 for the quietest, which
+        // survives). The defect is positional, it sits at the window seam, and
+        // the VAD chunker only makes it easier to hit.
+        //
+        // Bench, still standing, ~30 seconds a pass:
+        //   Kalamos --selftest-engine <70s.wav> --engine whisper --lang it \
+        //     --modello openai_whisper-large-v3-v20240930_turbo --ripeti 8
+
         // Whisper-level vocabulary biasing via `options.promptTokens`: OFF
         // unless `initialPrompt` was set, and nothing in the app sets it yet.
         //
@@ -375,9 +397,29 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
                          sampleRate: Float = 16_000) -> Bool {
         guard !s.isEmpty else { return true }
         if Float(s.count) / sampleRate < minimumVoicedSeconds { return true }
-        var sum: Float = 0
-        for v in s { sum += v * v }
-        return (sum / Float(s.count)).squareRoot() < rmsFloor
+
+        // The LOUDEST quarter-second, not the average of the whole recording.
+        //
+        // The average answers "is this mostly speech?"; the question here is "is
+        // there any speech in here at all?" — a different question, and the gap
+        // between the two grows with the length of the recording. Measured
+        // 2026-08-04: real speech at a normal level, surrounded by enough
+        // thinking-time, averages below this floor, and the whole dictation was
+        // discarded in 82 ms without the decoder ever running. `trimSilence`
+        // hides it whenever the quiet sits at the ENDS, which is why this
+        // survived until a recording turned up with the quiet in the middle.
+        let window = max(1, Int(minimumVoicedSeconds * sampleRate))
+        let hop = max(1, window / 2)   // overlapped, so a short word cannot fall in a seam
+        let floorEnergy = rmsFloor * rmsFloor * Float(window)
+
+        var start = 0
+        while start + window <= s.count {
+            var energy: Float = 0
+            for i in start ..< (start + window) { energy += s[i] * s[i] }
+            if energy >= floorEnergy { return false }   // found speech; stop looking
+            start += hop
+        }
+        return true
     }
 
     /// Drop near-silent leading/trailing samples (keeps a small pad).
