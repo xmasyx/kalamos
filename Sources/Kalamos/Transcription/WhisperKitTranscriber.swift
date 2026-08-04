@@ -296,6 +296,35 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
             }
         }
 
+        // ISC-163 — four candidate fixes were measured here and all four lose.
+        // The decode is handed the whole recording, which is what it always was.
+        //
+        // The defect is real: on audio longer than Whisper's 30-second window the
+        // decode is not deterministic and quietly drops words. Same 120-second
+        // file, eight passes: 170 · 162 · 142 · 168 · 160 · 162 · 160 · 170.
+        // A dictation losing a sentence looks exactly like this from outside.
+        //
+        // What was tried, with the bench in 03-Plans/kalamos-finestre:
+        //   · `chunkingStrategy = .vad` — far worse. 106 words instead of 159,
+        //     three whole utterances deleted, the ones straddling the first
+        //     window boundary. Not loudness: those three are the LOUDEST in the
+        //     file (RMS 0.021/0.019/0.017 against 0.011 for the quietest, which
+        //     survives).
+        //   · Cutting the audio ourselves at pauses, pieces all inside the
+        //     window — it worked as designed (five pieces, no cut through
+        //     speech, proven by test) and the decode still came out worse:
+        //     154 words on average against 162 whole.
+        //   · `temperatureFallbackCount = 0` — perfectly deterministic and
+        //     worse every time: 135 words, eight passes out of eight. Those
+        //     random re-decodes are RESCUING text, not destroying it.
+        //     Raising it instead does nothing: 10 → 159 average, 20 → 154.
+        //   · `noSpeechThreshold` 0.6 → 0.99 — 161 average against 159, inside
+        //     the noise, and it buys that by making the model likelier to
+        //     transcribe silence, which this app has fought before.
+        //
+        // So the seam is not the cause and the knobs are not the cure. The next
+        // idea needs the real audio of a failure, which is what the archive
+        // (ISC-161) now keeps.
         var results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
         var raw = results.map(\.text).joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

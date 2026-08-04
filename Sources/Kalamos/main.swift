@@ -533,6 +533,58 @@ if CommandLine.arguments.contains("--selftest-translate") {
     exit(0)
 }
 
+// `Kalamos --selftest-archive` — prove the dictation archive writes real files.
+//
+// ISC-161. It exists because the only other way to watch the archive work is to
+// speak into the app, and the person who needed to see it was away from the Mac.
+// It goes through the SAME functions a dictation uses, into the SAME folder,
+// reads back what landed, and cleans up after itself.
+if CommandLine.arguments.contains("--selftest-archive") {
+    let sr = 16_000.0
+    let tone = (0..<Int(sr * 2)).map { 0.02 * sin(Float($0) * 0.05) }
+    print("cartella: \(DictationArchive.directory.path)")
+    print("tetto configurato: \(Tuning.keepLastDictations)")
+
+    // Fixed past dates, one second apart, so the pruning has something to sort
+    // and this probe can never collide with a real dictation's filename.
+    var written: [URL] = []
+    for i in 0..<25 {
+        let when = Date(timeIntervalSince1970: 1_700_000_000 + Double(i))
+        guard let url = DictationArchive.keep(tone, startedAt: when, sampleRate: sr) else {
+            print("✗ keep ha restituito nil alla \(i)-esima"); exit(1)
+        }
+        DictationArchive.annotate(url, lines: ["prova \(i)", "GREZZO:", "ciao", "CONSEGNATO:", "Ciao."])
+        written.append(url)
+    }
+
+    let fm = FileManager.default
+    let survivors = written.filter { fm.fileExists(atPath: $0.path) }
+    let sidecars = written.filter {
+        fm.fileExists(atPath: $0.deletingPathExtension().appendingPathExtension("txt").path)
+    }
+    print("scritte 25 · sopravvissute al taglio: \(survivors.count) wav, \(sidecars.count) txt")
+
+    // The NEWEST must survive and the OLDEST must not. A cap that kept the wrong
+    // twenty would pass a count check and be useless.
+    let newestKept = fm.fileExists(atPath: written.last!.path)
+    let oldestGone = !fm.fileExists(atPath: written.first!.path)
+    print(newestKept ? "✓ la più recente è rimasta" : "✗ la più recente è stata cancellata")
+    print(oldestGone ? "✓ la più vecchia è stata tolta" : "✗ la più vecchia è ancora lì")
+    if let sample = survivors.last { print("da controllare fuori da qui: \(sample.path)") }
+
+    let ok = survivors.count == Tuning.keepLastDictations && newestKept && oldestGone
+    if CommandLine.arguments.contains("--tieni") {
+        print("⚠ file di prova LASCIATI sul disco (--tieni)")
+    } else {
+        for url in written {
+            try? fm.removeItem(at: url)
+            try? fm.removeItem(at: url.deletingPathExtension().appendingPathExtension("txt"))
+        }
+        print("✓ file di prova rimossi")
+    }
+    exit(ok ? 0 : 1)
+}
+
 // Headless diagnostic for the cleanup prompt (#1 corrections, #3 lists, no-reply).
 if CommandLine.arguments.contains("--selftest-cleanup") {
     let sem = DispatchSemaphore(value: 0)
