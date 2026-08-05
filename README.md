@@ -442,6 +442,54 @@ what your actual dictation rhythm implies:
 bun Scripts/analyze-idle.ts
 ```
 
+## Three engines, and why you would pick each
+
+The same words can be heard by three different engines. They are not three
+qualities — two of them run the **same** Whisper large-v3-turbo weights — they are
+three machines carrying a model, and the machine turns out to matter.
+
+| Engine | What it runs | Pick it when |
+|---|---|---|
+| **Whisper** (WhisperKit, Core ML) | four model sizes you choose from a menu | you want to swap model size, or you are on a Mac where Core ML on the Neural Engine wins |
+| **Parakeet** (FluidAudio) | one model, 461 MB | you want the smallest download and the fastest answer, and your vocabulary has no unusual names in it |
+| **Whisper.cpp** (C and Metal) | the same large-v3-turbo, 1.62 GB | you want the app to learn **your** words, and you want the same audio to give the same text every time |
+
+### Why Whisper.cpp was added
+
+Two things the app could not do, and neither was about the app.
+
+**Your vocabulary could only repair, never prevent.** Whisper accepts an *initial
+prompt* — words handed to the decoder before it guesses. Through WhisperKit that
+channel returns an empty transcription: measured on 16 real recordings, 48 times
+out of 48, and it is a known upstream defect (WhisperKit issue #372, fixed in no
+released tag; the package is held at 0.14.x by a dependency wall). So the word
+list could only fix a mistake after it was made, and a word missing from the list
+had nobody to fix it. Through whisper.cpp the channel works: terms that came out
+wrong 8 times out of 8 come out right 5 times out of 5.
+
+**And long audio drifted.** The same file, decoded eight times, gave word counts
+that swung by 11 and by 31. Whisper.cpp gave 200 identical texts over 200 passes
+of the same five files. If you have ever watched a sentence go missing from a long
+dictation, that is what this fixes.
+
+One measured surprise, written down because it is counterintuitive: **a long
+prompt damages the very words it contains.** With sixteen terms in the prompt,
+`endomidollare` — present in the prompt — came out `endomi-dollare`. With three, it
+came out right. So Kalamos does not hand over your whole list: it decodes once,
+looks at what came back, and re-decodes with only the words that look wrong, at
+most five. The second pass costs about a third of a second, and only on the
+dictations that need it.
+
+### Why you might stay on Whisper
+
+It is the default, and it stays the default. It has the **model picker** —
+whisper.cpp ships one size, turbo, and ignores that menu the way Parakeet does. On
+short clips with a script to compare against, WhisperKit was marginally closer to
+the script. And it is the engine with the most hours behind it in this app.
+
+Nothing is locked in: the choice is one row in **Preferences ▸ Dictation**, and
+switching takes effect on your next dictation.
+
 ## Which models your Mac can run
 
 Two models sit in memory: one that hears you, one that cleans up what you said. On
