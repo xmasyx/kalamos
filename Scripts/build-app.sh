@@ -37,6 +37,32 @@ for b in "${PRODUCTS}"/*.bundle; do
 done
 cp "Sources/Kalamos/Resources/Kalamos-Info.plist" "${BUNDLE_DIR}/Contents/Info.plist"
 
+# whisper.cpp arriva come framework DINAMICO (2026-08-05), quindi va spedito
+# dentro il bundle: il binario lo cerca a `@rpath/whisper.framework/...`, e in
+# `.build` lo trova solo perché SwiftPM glielo mette accanto. Senza questo passo
+# l'app compila, si firma, e poi non parte sul Mac di chi la scarica.
+#
+# Assottigliato ad arm64: la fetta universale pesa 35 MB e Kalamos gira solo su
+# Apple Silicon, quindi metà di quei byte sarebbe x86_64 che nessuno esegue.
+WHISPER_FW=""
+for cand in "${PRODUCTS}/whisper.framework" \
+            ".build/artifacts/kalamos/whisper/whisper.xcframework/macos-arm64_x86_64/whisper.framework"; do
+    [ -d "$cand" ] && { WHISPER_FW="$cand"; break; }
+done
+[ -n "${WHISPER_FW}" ] || { echo "✗ whisper.framework non trovato — il motore whisper.cpp non partirebbe"; exit 1; }
+mkdir -p "${BUNDLE_DIR}/Contents/Frameworks"
+cp -R "${WHISPER_FW}" "${BUNDLE_DIR}/Contents/Frameworks/"
+FW_BIN="${BUNDLE_DIR}/Contents/Frameworks/whisper.framework/Versions/A/whisper"
+if lipo -info "${FW_BIN}" 2>/dev/null | grep -q x86_64; then
+    lipo -thin arm64 "${FW_BIN}" -output "${FW_BIN}.arm64" && mv "${FW_BIN}.arm64" "${FW_BIN}"
+fi
+# `@executable_path/../Frameworks` è il posto standard; si aggiunge solo se manca,
+# perché install_name_tool duplica volentieri.
+if ! otool -l "${BUNDLE_DIR}/Contents/MacOS/${APP_NAME}" | grep -q "@executable_path/../Frameworks"; then
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "${BUNDLE_DIR}/Contents/MacOS/${APP_NAME}"
+fi
+echo "▶ whisper.framework incorporato ($(du -sh "${BUNDLE_DIR}/Contents/Frameworks/whisper.framework" | cut -f1))"
+
 # The version the app reports must be the version being shipped.
 #
 # Info.plist otherwise carries whatever number was last typed into it by hand,
@@ -99,6 +125,12 @@ fi
 # Always relaunch the FRESH binary. `open` on an already-running menu-bar app
 # only foregrounds the old in-memory instance, so kill it first — otherwise you
 # test a stale build and chase ghosts.
-killall "${APP_NAME}" 2>/dev/null && sleep 1 || true
+#
+# By PATH and not by name (2026-08-05). `killall Kalamos` matches every process
+# called Kalamos, and a headless probe — `--selftest-engine`, `--bench-clean`,
+# any of them — is called Kalamos too. It killed a 1,6 GB model download at 534
+# MB, half an hour in, from a terminal that had nothing to do with the build. The
+# GUI instance is the one running from the installed bundle; nothing else is.
+pkill -f "${LAUNCH}/Contents/MacOS/${APP_NAME}" 2>/dev/null && sleep 1 || true
 open "${LAUNCH}"
 echo "✓ Relaunched ${LAUNCH}"
