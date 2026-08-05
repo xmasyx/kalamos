@@ -135,5 +135,5 @@ final class SpeechEngineSwitch: Transcriber, @unchecked Sendable {
     /// whisper.cpp ha, e mandarlo anche agli altri due sarebbe scrivere in un
     /// campo che nessuno legge, cioè la premessa perfetta per credere un domani
     /// che sia acceso quando non lo è.
-    func setVocabularyPrompt(_ text: String?) { active.setVocabularyPrompt(text) }
+    func setVocabulary(_ terms: [String]) { active.setVocabulary(terms) }
 }

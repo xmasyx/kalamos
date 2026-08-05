@@ -56,6 +56,7 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
     private let idleBox = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     private let promptBox = OSAllocatedUnfairLock<String?>(initialState: nil)
     private let decodeQueue = DispatchQueue(label: "kalamos.whispercpp.decode")
+    private let vocabBox = OSAllocatedUnfairLock<[String]>(initialState: [])
 
     /// The vocabulary, as prior context handed to the decoder BEFORE it guesses.
     /// Settable rather than read from settings inside the transcriber, for the
@@ -152,7 +153,9 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
         Log.write("modello whisper.cpp scaricato in \(path.path)")
     }
 
-    func setVocabularyPrompt(_ text: String?) { initialPrompt = text }
+    /// Le parole dell'utente, passate dal chiamante. Il prompt vero si costruisce
+    /// dopo la prima decodifica, tenendo solo quelle che sembrano sbagliate.
+    func setVocabulary(_ terms: [String]) { vocabBox.withLock { $0 = terms } }
 
     func setModel(_ name: String) async {
         // The variant picker belongs to WhisperKit — this engine ships one model,
@@ -225,12 +228,35 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
         let language = forced?.rawValue
         let threads = Int32(max(4, ProcessInfo.processInfo.activeProcessorCount - 2))
 
+        let vocab = vocabBox.withLock { $0 }
         return try await withCheckedThrowingContinuation { continuation in
             decodeQueue.async {
                 do {
-                    let result = try Self.run(ctx: ctx.raw, samples: trimmed, language: language,
-                                              prompt: prompt, threads: threads)
-                    continuation.resume(returning: result)
+                    let primo = try Self.run(ctx: ctx.raw, samples: trimmed, language: language,
+                                             prompt: prompt, threads: threads)
+                    // Un prompt passato a mano (il banco) è un ordine: una passata
+                    // sola, con quel testo, e nessuna intelligenza in mezzo.
+                    if prompt != nil || vocab.isEmpty || primo.text.isEmpty {
+                        continuation.resume(returning: primo); return
+                    }
+                    // Altrimenti il prompt si costruisce SU questa prima passata,
+                    // e contiene solo i termini che sembrano sbagliati. Se non ce
+                    // ne sono, il secondo giro non si fa: costo zero.
+                    guard let mirato = VocabularyPrompt.text(for: primo.text, terms: vocab) else {
+                        continuation.resume(returning: primo); return
+                    }
+                    let secondo = try Self.run(ctx: ctx.raw, samples: trimmed, language: language,
+                                               prompt: mirato, threads: threads)
+                    Log.write("whisper.cpp: prompt mirato «\(mirato)» — "
+                              + "«\(primo.text)» → «\(secondo.text)»")
+                    // E se il secondo giro esce vuoto o degenera, si tiene il
+                    // primo. Un miglioramento che può peggiorare deve avere una
+                    // via di ritorno, e qui costa una riga.
+                    if secondo.text.isEmpty || RepetitionGuard.degenerated(secondo.text) {
+                        Log.write("whisper.cpp: secondo giro scartato, tengo il primo")
+                        continuation.resume(returning: primo); return
+                    }
+                    continuation.resume(returning: secondo)
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -266,16 +292,23 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
         params.carry_initial_prompt = true
 
         return try withExtendedLifetime(samples) {
-            func decode(_ languageC: UnsafePointer<CChar>?, _ promptC: UnsafePointer<CChar>?)
+            func decode(_ languageC: UnsafePointer<CChar>, _ promptC: UnsafePointer<CChar>?)
                 throws -> TranscriptionResult
             {
                 var p = params
-                if let languageC {
-                    p.language = languageC
-                    p.detect_language = false
-                } else {
-                    p.detect_language = true
-                }
+                // `detect_language = true` NON vuol dire «rileva e trascrivi»:
+                // in whisper.cpp vuol dire «rileva **e basta**», ed è la stessa
+                // cosa che fa `-dl` nella loro riga di comando, documentata come
+                // *exit after automatically detecting language*. Con quel flag il
+                // decode ritorna senza segmenti e la trascrizione esce **vuota**.
+                //
+                // Costo reale: 84 clip su 84 vuote nella prima validazione larga,
+                // e sarebbe finita addosso a lui per primo, perché il rilevamento
+                // automatico è la configurazione che tiene. La lingua automatica
+                // si chiede scrivendo `"auto"` nel campo lingua, non alzando quel
+                // flag. Misurato il 2026-08-05.
+                p.language = languageC
+                p.detect_language = false
                 p.initial_prompt = promptC
 
                 let code = samples.withUnsafeBufferPointer { buffer in
@@ -309,16 +342,13 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
 
             // The C strings have to outlive `whisper_full`, so the nesting is the
             // lifetime: `withCString` guarantees the pointer only inside its body.
-            switch (language, prompt.flatMap { $0.isEmpty ? nil : $0 }) {
-            case let (l?, p?):
-                return try l.withCString { lc in try p.withCString { pc in try decode(lc, pc) } }
-            case let (l?, nil):
-                return try l.withCString { lc in try decode(lc, nil) }
-            case let (nil, p?):
-                return try p.withCString { pc in try decode(nil, pc) }
-            case (nil, nil):
-                return try decode(nil, nil)
+            // «auto» è una lingua come le altre per whisper.cpp, e questo toglie
+            // di mezzo il ramo `nil` che aveva prodotto il guasto delle vuote.
+            let lang = language ?? "auto"
+            if let p = prompt.flatMap({ $0.isEmpty ? nil : $0 }) {
+                return try lang.withCString { lc in try p.withCString { pc in try decode(lc, pc) } }
             }
+            return try lang.withCString { lc in try decode(lc, nil) }
         }
     }
 

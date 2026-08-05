@@ -303,7 +303,7 @@ final class DictationController {
                 // lista, ed è esattamente il caso di `fork`, uscito «forco» nelle
                 // sue dettature vere. Su whisper.cpp il canale funziona e la porta
                 // a 5 su 5; sugli altri due questa chiamata non fa niente.
-                transcriber.setVocabularyPrompt(Vocabulary.promptText)
+                transcriber.setVocabulary(Vocabulary.terms)
                 let result = try await transcriber.transcribe(
                     samples, allowedLanguages: enabledLanguages,
                     forced: autoDetect ? nil : defaultLanguage)

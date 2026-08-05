@@ -166,6 +166,21 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                 : nil
             whisper?.initialPrompt = promptText
             cpp?.initialPrompt = promptText
+            // `--vocabolario` esercita il percorso VERO dell'app: le parole
+            // dell'utente iniettate come lista, e il prompt costruito dopo la
+            // prima decodifica su ciò che sembra sbagliato. `--prompt` invece è
+            // un ordine: quel testo, una passata sola. Due strade diverse, e
+            // misurarle con lo stesso flag le avrebbe confuse.
+            if args.contains("--vocabolario") {
+                let voci = args.firstIndex(of: "--vocabolario").flatMap {
+                    $0 + 1 < args.count && !args[$0 + 1].hasPrefix("--")
+                        ? args[$0 + 1].split(separator: ",").map {
+                            $0.trimmingCharacters(in: .whitespaces) }
+                        : nil
+                } ?? Vocabulary.terms
+                cpp?.setVocabulary(voci)
+                FileHandle.standardError.write(Data("vocabolario iniettato: \(voci.count) voci\n".utf8))
+            }
             if promptText != nil && engine == .parakeet {
                 print("--prompt vale solo per i motori Whisper — ignorato")
             }

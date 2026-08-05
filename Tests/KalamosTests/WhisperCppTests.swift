@@ -23,7 +23,7 @@ struct WhisperCppTests {
                         forced: Language?) async throws -> TranscriptionResult {
             TranscriptionResult(text: nome, detectedLanguage: forced)
         }
-        func setVocabularyPrompt(_ text: String?) { promptBox.value = text }
+        func setVocabulary(_ terms: [String]) { promptBox.value = terms.joined(separator: ", ") }
         var prompt: String? { promptBox.value }
     }
 
@@ -59,8 +59,8 @@ struct WhisperCppTests {
     func promptSoloAllAttivo() async throws {
         let (sw, w, p, c) = switchConTre()
         sw.use(.whispercpp)
-        sw.setVocabularyPrompt("Kalamos, Otium, fork.")
-        #expect(c.prompt == "Kalamos, Otium, fork.")
+        sw.setVocabulary(["Kalamos", "Otium", "fork"])
+        #expect(c.prompt == "Kalamos, Otium, fork")
         #expect(w.prompt == nil)
         #expect(p.prompt == nil)
     }
@@ -100,6 +100,48 @@ struct WhisperCppTests {
     func vuoto() {
         #expect(!RepetitionGuard.degenerated(""))
         #expect(RepetitionGuard.longestRun(in: "   ").count == 0)
+    }
+
+    // MARK: - Il prompt mirato
+
+    private let suoVocabolario = ["Claude", "ChatGPT", "limb-lengthening", "zaya", "QWEN",
+                                  "Claude Desktop", "repo", "Kalamos", "LifeOS", "Parakeet",
+                                  "iTerm", "endomidollare", "AssemblyAI", "Otium", "font", "excel"]
+
+    @Test("tiene solo i termini che il grezzo sembra aver sbagliato")
+    func soloISbagliati() {
+        // Il grezzo vero di whisper.cpp sulla clip r02, misurato il 5/08.
+        let grezzo = "Ho aperto Calamos dentro iTerm e ho chiesto a Claude di controllare il chiodo endomidollare che mi ha nominato Brambilla nella cartella LiveOS."
+        let scelti = VocabularyPrompt.candidates(for: grezzo, terms: suoVocabolario)
+        #expect(scelti.contains("Kalamos"))   // «Calamos»
+        #expect(scelti.contains("LifeOS"))    // «LiveOS»
+        // E NON i termini già scritti bene: è tutto il punto, perché è la
+        // lunghezza del prompt a fare il danno.
+        #expect(!scelti.contains("iTerm"))
+        #expect(!scelti.contains("Claude"))
+        #expect(!scelti.contains("endomidollare"))
+        #expect(scelti.count <= VocabularyPrompt.maxTerms)
+    }
+
+    @Test("il polo negativo: se il grezzo è già giusto non si fa nessun secondo giro")
+    func nienteSecondoGiro() {
+        let giusto = "Ho aperto Kalamos dentro iTerm e ho chiesto a Claude di controllare il chiodo endomidollare nella cartella LifeOS."
+        #expect(VocabularyPrompt.text(for: giusto, terms: suoVocabolario) == nil)
+    }
+
+    @Test("un testo che non c'entra niente non tira dentro nessun termine")
+    func nessunFalsoCandidato() {
+        let altro = "Domani mattina ci vediamo in ufficio e vediamo insieme il preventivo."
+        #expect(VocabularyPrompt.text(for: altro, terms: suoVocabolario) == nil)
+    }
+
+    @Test("il prompt è una lista di termini, non una frase con un'etichetta")
+    func formaDelPrompt() {
+        let grezzo = "ho aperto Calamos"
+        let p = VocabularyPrompt.text(for: grezzo, terms: suoVocabolario)
+        #expect(p == "Kalamos.")
+        // Un'etichetta fa credere al modello di trascrivere un glossario.
+        #expect(!(p ?? "").lowercased().contains("glossario"))
     }
 
     // MARK: - Il modello arrivato a metà
