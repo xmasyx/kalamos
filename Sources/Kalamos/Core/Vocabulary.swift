@@ -35,6 +35,43 @@ enum Vocabulary {
         UserDefaults.standard.set(all, forKey: key)
     }
 
+    /// Cambia una parola già salvata, **al suo posto**.
+    ///
+    /// Non è `remove` più `add`: `add` accoda, quindi correggere un refuso in una
+    /// voce a metà lista la manderebbe in fondo. Una modifica che riordina la
+    /// lista non è una modifica, è una modifica più uno spostamento che nessuno
+    /// ha chiesto — la stessa ragione per cui l'annulla ripristina uno scatto
+    /// dell'intera lista invece di ri-aggiungere la parola.
+    ///
+    /// Un nome vuoto o già presente altrove non passa: nel primo caso resterebbe
+    /// una riga fantasma, nel secondo due righe identiche di cui una sola
+    /// riparabile.
+    @discardableResult
+    static func rename(_ old: String, to new: String) -> Bool {
+        guard let updated = renamed(terms, old, to: new) else { return false }
+        UserDefaults.standard.set(updated, forKey: key)
+        return true
+    }
+
+    /// La stessa decisione, senza toccare niente: lista dentro, lista fuori.
+    ///
+    /// Separata perché la versione che scrive nei default non è provabile in
+    /// parallelo — i test di questo progetto girano insieme e condividono un solo
+    /// `UserDefaults`, quindi si sabotavano a vicenda. La regola generale: la
+    /// decisione si prova pura, la scrittura è una riga sola sopra di essa.
+    static func renamed(_ list: [String], _ old: String, to new: String) -> [String]? {
+        let value = new.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        var all = list
+        guard let i = all.firstIndex(of: old) else { return nil }
+        if value.caseInsensitiveCompare(old) != .orderedSame,
+           all.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+            return nil
+        }
+        all[i] = value
+        return all
+    }
+
     static func clear() { UserDefaults.standard.removeObject(forKey: key) }
 
     /// Whisper initial-prompt text that biases recognition toward these terms.

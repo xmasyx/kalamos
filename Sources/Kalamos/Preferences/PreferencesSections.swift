@@ -303,6 +303,14 @@ struct WordsSection: View {
                         undoably(L.t("Togli \(term)", "Remove \(term)", "Retirer \(term)")) {
                             Vocabulary.remove(term)
                         }
+                    } editText: { $0 } commitEdit: { term, nuovo in
+                        // Niente da annullare se non è cambiato niente: un ⌘Z che
+                        // ripristina una lista identica consuma un passo di undo
+                        // e sembra rotto.
+                        guard nuovo.trimmingCharacters(in: .whitespacesAndNewlines) != term else { return }
+                        undoably(L.t("Modifica \(term)", "Edit \(term)", "Modifier \(term)")) {
+                            Vocabulary.rename(term, to: nuovo)
+                        }
                     }
                 }
             }
@@ -388,9 +396,12 @@ struct WordsSection: View {
     private func list<Item: Hashable, Row: View>(
         _ items: [Item], empty: String,
         @ViewBuilder row: @escaping (Item) -> Row,
-        remove: @escaping (Item) -> Void
+        remove: @escaping (Item) -> Void,
+        editText: ((Item) -> String)? = nil,
+        commitEdit: ((Item, String) -> Void)? = nil
     ) -> some View {
-        PrefList(items: items, empty: empty, row: row, remove: remove)
+        PrefList(items: items, empty: empty, row: row, remove: remove,
+                 editText: editText, commitEdit: commitEdit)
     }
 }
 
@@ -413,6 +424,16 @@ private struct PrefList<Item: Hashable, Row: View>: View {
     let empty: String
     @ViewBuilder let row: (Item) -> Row
     let remove: (Item) -> Void
+    /// Modifica in linea, quando la voce è una stringa sola.
+    ///
+    /// `nil` per le liste dove non ha senso — le Correzioni sono una coppia, e
+    /// un campo solo non saprebbe quale metà sta cambiando. Sceglierne una a caso
+    /// sarebbe peggio che non avere il bottone.
+    var editText: ((Item) -> String)? = nil
+    var commitEdit: ((Item, String) -> Void)? = nil
+    @State private var editing: Item? = nil
+    @State private var draft: String = ""
+    @FocusState private var focused: Bool
 
     /// Six rows. A row measures 38 points (photographed, not assumed), so this
     /// is high enough that an ordinary list never scrolls and low enough that a
@@ -430,8 +451,42 @@ private struct PrefList<Item: Hashable, Row: View>: View {
                 } else {
                     ForEach(Array(items.enumerated()), id: \.element) { index, item in
                         HStack {
-                            row(item)
+                            if editing == item, let commitEdit {
+                                TextField("", text: $draft)
+                                    .textFieldStyle(.plain)
+                                    .font(Theme.font(12.5))
+                                    .foregroundStyle(Theme.ink)
+                                    .focused($focused)
+                                    // Invio conferma, Esc annulla. Anche il fuoco
+                                    // perso conferma: una modifica scritta e poi
+                                    // abbandonata cliccando altrove è una modifica
+                                    // che l'utente crede fatta.
+                                    .onSubmit { commitEdit(item, draft); editing = nil }
+                                    .onExitCommand { editing = nil }
+                                    .onChange(of: focused) { _, isFocused in
+                                        if !isFocused, editing == item {
+                                            commitEdit(item, draft); editing = nil
+                                        }
+                                    }
+                            } else {
+                                row(item)
+                            }
                             Spacer(minLength: 8)
+                            if let editText, commitEdit != nil, editing != item {
+                                Button {
+                                    draft = editText(item)
+                                    editing = item
+                                    focused = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(Theme.inkFaded)
+                                        .padding(6)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(L.t("Modifica", "Edit", "Modifier"))
+                            }
                             Button { remove(item) } label: {
                                 Image(systemName: "trash")
                                     .font(.system(size: 11))
