@@ -279,6 +279,7 @@ struct WordsSection: View {
     /// reach it, and so does ⇧⌘Z to put the deletion back.
     @Environment(\.undoManager) private var undoManager
 
+
     var body: some View {
         Group {
             PrefRow(title: L.t("Parole tue", "Your words", "Vos mots"),
@@ -296,22 +297,32 @@ struct WordsSection: View {
                             reload()
                         }
                     }
-                    list(terms, empty: L.t("Nessuna parola, per ora.", "No words yet.",
-                                           "Aucun mot pour l’instant.")) { term in
-                        Text(term).font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    } remove: { term in
-                        undoably(L.t("Togli \(term)", "Remove \(term)", "Retirer \(term)")) {
-                            Vocabulary.remove(term)
+                    // Scritto senza chiusure in coda: `startEditing` è un valore,
+                    // non una chiusura, e in Swift non può seguirle.
+                    PrefList(
+                        items: terms,
+                        empty: L.t("Nessuna parola, per ora.", "No words yet.",
+                                   "Aucun mot pour l’instant."),
+                        row: { term in
+                            Text(term).font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                        },
+                        remove: { term in
+                            undoably(L.t("Togli \(term)", "Remove \(term)", "Retirer \(term)")) {
+                                Vocabulary.remove(term)
+                            }
+                        },
+                        editText: { $0 },
+                        commitEdit: { term, nuovo in
+                            // Niente da annullare se non è cambiato niente: un ⌘Z
+                            // che ripristina una lista identica consuma un passo di
+                            // undo e sembra rotto.
+                            guard nuovo.trimmingCharacters(in: .whitespacesAndNewlines) != term
+                            else { return }
+                            undoably(L.t("Modifica \(term)", "Edit \(term)", "Modifier \(term)")) {
+                                Vocabulary.rename(term, to: nuovo)
+                            }
                         }
-                    } editText: { $0 } commitEdit: { term, nuovo in
-                        // Niente da annullare se non è cambiato niente: un ⌘Z che
-                        // ripristina una lista identica consuma un passo di undo
-                        // e sembra rotto.
-                        guard nuovo.trimmingCharacters(in: .whitespacesAndNewlines) != term else { return }
-                        undoably(L.t("Modifica \(term)", "Edit \(term)", "Modifier \(term)")) {
-                            Vocabulary.rename(term, to: nuovo)
-                        }
-                    }
+                    )
                 }
             }
 
@@ -398,10 +409,11 @@ struct WordsSection: View {
         @ViewBuilder row: @escaping (Item) -> Row,
         remove: @escaping (Item) -> Void,
         editText: ((Item) -> String)? = nil,
-        commitEdit: ((Item, String) -> Void)? = nil
+        commitEdit: ((Item, String) -> Void)? = nil,
+        startEditing: Item? = nil
     ) -> some View {
         PrefList(items: items, empty: empty, row: row, remove: remove,
-                 editText: editText, commitEdit: commitEdit)
+                 editText: editText, commitEdit: commitEdit, startEditing: startEditing)
     }
 }
 
@@ -431,9 +443,60 @@ private struct PrefList<Item: Hashable, Row: View>: View {
     /// sarebbe peggio che non avere il bottone.
     var editText: ((Item) -> String)? = nil
     var commitEdit: ((Item, String) -> Void)? = nil
-    @State private var editing: Item? = nil
-    @State private var draft: String = ""
+    /// Riga da aprire già in modifica al primo disegno.
+    ///
+    /// Oggi nessuno la passa. È rimasta perché è il gancio che servirebbe a
+    /// `--scatta` per fotografare la riga MENTRE la modifichi, che il 2026-08-05
+    /// è stato l'unico stato rotto e l'unico che nessuno poteva guardare. Il
+    /// tentativo di collegarla alla sonda quel giorno non ha funzionato e non è
+    /// stato lasciato a metà: o si fa funzionare, o non c'è.
+    var startEditing: Item? = nil
+    @State private var editing: Item?
+    @State private var draft: String
     @FocusState private var focused: Bool
+
+    /// Lo stato iniziale si costruisce QUI, non in `onAppear`.
+    ///
+    /// Scritto in `onAppear` non funzionava e per due motivi insieme: la riga non
+    /// si apriva, e il riquadro si accorciava da sei righe a quattro, perché
+    /// `ContainedScroll` misura l'altezza al primo disegno e una mutazione di
+    /// stato durante quel disegno la fa misurare sul contenuto sbagliato. Trovato
+    /// fotografando il pannello intero, che è l'unica ragione per cui si sapeva.
+    init(items: [Item], empty: String, @ViewBuilder row: @escaping (Item) -> Row,
+         remove: @escaping (Item) -> Void,
+         editText: ((Item) -> String)? = nil,
+         commitEdit: ((Item, String) -> Void)? = nil,
+         startEditing: Item? = nil) {
+        self.items = items
+        self.empty = empty
+        self.row = row
+        self.remove = remove
+        self.editText = editText
+        self.commitEdit = commitEdit
+        self.startEditing = startEditing
+        let apri = startEditing.flatMap { items.contains($0) ? $0 : nil }
+        _editing = State(initialValue: apri)
+        _draft = State(initialValue: apri.flatMap { editText?($0) } ?? "")
+    }
+
+    /// Un bottone di riga: icona, area cliccabile tutta, nessun testo.
+    ///
+    /// `contentShape` non è decorazione — senza, le parti trasparenti del
+    /// riempimento non vengono colpite e il bottone si clicca solo sul disegno
+    /// dell'icona. È la stessa regola che è già costata due volte in questa app.
+    @ViewBuilder
+    private func rowButton(_ icon: String, _ label: String,
+                           strong: Bool = false, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: strong ? .semibold : .regular))
+                .foregroundStyle(strong ? Theme.pen : Theme.inkFaded)
+                .padding(6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
 
     /// Six rows. A row measures 38 points (photographed, not assumed), so this
     /// is high enough that an ordinary list never scrolls and low enough that a
@@ -457,45 +520,45 @@ private struct PrefList<Item: Hashable, Row: View>: View {
                                     .font(Theme.font(12.5))
                                     .foregroundStyle(Theme.ink)
                                     .focused($focused)
-                                    // Invio conferma, Esc annulla. Anche il fuoco
-                                    // perso conferma: una modifica scritta e poi
-                                    // abbandonata cliccando altrove è una modifica
-                                    // che l'utente crede fatta.
                                     .onSubmit { commitEdit(item, draft); editing = nil }
                                     .onExitCommand { editing = nil }
-                                    .onChange(of: focused) { _, isFocused in
-                                        if !isFocused, editing == item {
-                                            commitEdit(item, draft); editing = nil
-                                        }
-                                    }
+                                Spacer(minLength: 8)
+                                // Due bottoni veri, e non solo Invio.
+                                //
+                                // La prima versione si chiudeva con Invio, Esc o
+                                // perdendo il fuoco, e dal campo **non si usciva**
+                                // (segnalato da lui, 2026-08-05). Il campo vive
+                                // dentro un `NSScrollView` ospitato, e lì il tasto
+                                // Invio non arriva all'azione di conferma di
+                                // SwiftUI. Una conferma che dipende dal routing di
+                                // un tasto è una conferma che qualche volta non
+                                // c'è: un bottone che si vede non ha quel modo di
+                                // fallire. Invio resta, come scorciatoia.
+                                rowButton("checkmark", L.t("Conferma", "Confirm", "Confirmer"),
+                                          strong: true) {
+                                    commitEdit(item, draft); editing = nil
+                                }
+                                rowButton("xmark", L.t("Annulla", "Cancel", "Annuler")) {
+                                    editing = nil
+                                }
                             } else {
                                 row(item)
-                            }
-                            Spacer(minLength: 8)
-                            if let editText, commitEdit != nil, editing != item {
-                                Button {
-                                    draft = editText(item)
-                                    editing = item
-                                    focused = true
-                                } label: {
-                                    Image(systemName: "pencil")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(Theme.inkFaded)
-                                        .padding(6)
-                                        .contentShape(Rectangle())
+                                Spacer(minLength: 8)
+                                if let editText, commitEdit != nil {
+                                    rowButton("pencil", L.t("Modifica", "Edit", "Modifier")) {
+                                        draft = editText(item)
+                                        editing = item
+                                        focused = true
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(L.t("Modifica", "Edit", "Modifier"))
+                                // Il cestino sparisce mentre modifichi: tre icone
+                                // in fila, di cui una distruttiva accanto a
+                                // «conferma», è un clic sbagliato che cancella la
+                                // parola che stavi correggendo.
+                                rowButton("trash", L.t("Togli", "Remove", "Retirer")) {
+                                    remove(item)
+                                }
                             }
-                            Button { remove(item) } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Theme.inkFaded)
-                                    .padding(6)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(L.t("Togli", "Remove", "Retirer"))
                         }
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(index.isMultiple(of: 2) ? Theme.card.opacity(0.75) : .clear)
