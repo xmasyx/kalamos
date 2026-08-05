@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observeStatus()
         observeLanguage()
 
-        // Both engines from launch, neither loaded until used, and one switch
+        // All three engines from launch, none loaded until used, and one switch
         // between them. `speechSwitch` is kept so Preferences can change the
         // choice without rebuilding the controller.
         let transcriber: Transcriber
@@ -33,7 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let bothEngines = SpeechEngineSwitch(
             engine: state.speechEngine,
             whisper: WhisperKitTranscriber(modelName: state.whisperModel),
-            parakeet: ParakeetTranscriber())
+            parakeet: ParakeetTranscriber(),
+            whispercpp: WhisperCppTranscriber())
         speechSwitch = bothEngines
         transcriber = bothEngines
         #elseif canImport(WhisperKit)

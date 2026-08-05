@@ -30,10 +30,28 @@ let package = Package(
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
     ],
     targets: [
+        // whisper.cpp — il terzo motore (2026-08-05), come XCFramework già
+        // compilato preso dalla loro release. Non è una dipendenza sorgente
+        // perché whisper.cpp non pubblica un `Package.swift`, e NON è il binario
+        // `whisper-cli`: un'app che lancia un eseguibile esterno deve spedirlo,
+        // firmarlo e tenerlo su un percorso, mentre l'API C sta qui dentro.
+        //
+        // Il checksum è ciò che trasforma una URL in una dipendenza invece che in
+        // uno scaricamento. Si ricalcola con `swift package compute-checksum`
+        // quando il tag si muove.
+        //
+        // Licenza MIT, letta dal loro repo il 2026-08-05, quindi può stare dentro
+        // un'app a sua volta pubblica.
+        .binaryTarget(
+            name: "whisper",
+            url: "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-v1.9.2-xcframework.zip",
+            checksum: "af74fed13ea7f2d5ca2a39d9f58ec177713fafd7cab63aef4e27b79f3ceca80b"
+        ),
         .executableTarget(
             name: "Kalamos",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
+                "whisper",
                 // ── Phase 2 ──
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),

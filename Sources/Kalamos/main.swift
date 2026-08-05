@@ -161,11 +161,23 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
             let whisper: WhisperKitTranscriber? = engine == .whisper
                 ? WhisperKitTranscriber(modelName: modello)
                 : nil
+            let cpp: WhisperCppTranscriber? = engine == .whispercpp
+                ? WhisperCppTranscriber()
+                : nil
             whisper?.initialPrompt = promptText
-            if promptText != nil && engine != .whisper {
-                print("--prompt vale solo per whisper — ignorato")
+            cpp?.initialPrompt = promptText
+            if promptText != nil && engine == .parakeet {
+                print("--prompt vale solo per i motori Whisper — ignorato")
             }
-            let transcriber: Transcriber = whisper ?? ParakeetTranscriber()
+            // Scritto a mano e non con due `??`: i tre tipi non hanno un
+            // antenato comune che l'inferenza possa trovare, e il compilatore su
+            // quella riga non riusciva nemmeno a stampare l'errore.
+            let transcriber: Transcriber
+            switch engine {
+            case .whisper: transcriber = whisper!
+            case .whispercpp: transcriber = cpp!
+            case .parakeet: transcriber = ParakeetTranscriber()
+            }
             FileHandle.standardError.write(Data(
                 "motore: \(engine.rawValue) · \(samplesByClip.count) clip · \(repeats) passate · lingua \(forced?.rawValue ?? "auto") · prompt \(promptText == nil ? "spento" : "acceso")\n".utf8))
             try await transcriber.prepare()

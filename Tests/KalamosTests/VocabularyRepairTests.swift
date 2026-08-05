@@ -193,7 +193,8 @@ import Testing
     }
 
     private func make(_ engine: SpeechEngine) -> SpeechEngineSwitch {
-        SpeechEngineSwitch(engine: engine, whisper: Named("whisper"), parakeet: Named("parakeet"))
+        SpeechEngineSwitch(engine: engine, whisper: Named("whisper"), parakeet: Named("parakeet"),
+                           whispercpp: Named("whispercpp"))
     }
 
     @Test func itAsksTheEngineYouChose() async throws {

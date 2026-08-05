@@ -452,7 +452,11 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     }
 
     /// Drop near-silent leading/trailing samples (keeps a small pad).
-    private static func trimSilence(_ s: [Float], threshold: Float = 0.008) -> [Float] {
+    // `internal`, not `private`, since 2026-08-05: `WhisperCppTranscriber` calls it.
+    // Copying the body into the new engine would have been the worse move — the
+    // trim and the silence gate are the two places where this project has
+    // already been wrong twice, and two copies drift apart without a test noticing.
+    static func trimSilence(_ s: [Float], threshold: Float = 0.008) -> [Float] {
         guard !s.isEmpty else { return s }
         var end = s.count
         while end > 0 && abs(s[end - 1]) < threshold { end -= 1 }

@@ -127,9 +127,9 @@ struct DictationSection: View {
 
             PrefRow(title: L.t("Motore che ti ascolta", "The engine that hears you",
                                "Le moteur qui vous écoute"),
-                    note: L.t("Sulla precisione non si distinguono. Whisper indovina meglio i nomi che non gli hai insegnato.",
-                              "Indistinguishable on accuracy. Whisper guesses better at names you have not taught it.",
-                              "Indiscernables en précision. Whisper devine mieux les noms que vous ne lui avez pas appris.")) {
+                    note: L.t("Sulla precisione non si distinguono. Whisper indovina meglio i nomi che non gli hai insegnato. Whisper.cpp usa lo stesso modello di Whisper in un altro formato, ed è l'unico a cui le tue parole arrivano PRIMA che indovini: se tieni tutti e due, sul disco sono circa 3 GB.",
+                              "Indistinguishable on accuracy. Whisper guesses better at names you have not taught it. Whisper.cpp runs the same model as Whisper in another format, and is the only one your words reach BEFORE it guesses: keeping both costs about 3 GB on disk.",
+                              "Indiscernables en précision. Whisper devine mieux les noms que vous ne lui avez pas appris. Whisper.cpp exécute le même modèle dans un autre format, et vos mots lui parviennent AVANT qu'il devine : garder les deux coûte environ 3 Go.")) {
                 ChipRow(options: SpeechEngine.allCases.map { ($0.rawValue, $0.title, $0.note) },
                         isOn: { draft.speechEngine.rawValue == $0 },
                         pick: { draft.speechEngine = SpeechEngine(rawValue: $0) ?? .whisper })

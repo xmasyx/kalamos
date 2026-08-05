@@ -295,6 +295,15 @@ final class DictationController {
             do {
                 // 1. Transcribe (the transcriber already strips Whisper's
                 //    trailing-silence hallucinations like "thank you"/"grazie").
+                // Il vocabolario PRIMA, non solo dopo.
+                //
+                // `VocabularyRepair` più sotto ripara il testo quando la parola è
+                // già uscita sbagliata, e resta: è la rete. Ma una parola che il
+                // motore non ha mai sentito non si ripara a valle se non è in
+                // lista, ed è esattamente il caso di `fork`, uscito «forco» nelle
+                // sue dettature vere. Su whisper.cpp il canale funziona e la porta
+                // a 5 su 5; sugli altri due questa chiamata non fa niente.
+                transcriber.setVocabularyPrompt(Vocabulary.promptText)
                 let result = try await transcriber.transcribe(
                     samples, allowedLanguages: enabledLanguages,
                     forced: autoDetect ? nil : defaultLanguage)
