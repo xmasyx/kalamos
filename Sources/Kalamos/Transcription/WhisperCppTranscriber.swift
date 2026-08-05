@@ -177,6 +177,22 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
         old?.cancel()
     }
 
+    /// Libera il contesto ADESSO, e aspetta che sia libero.
+    ///
+    /// Serve prima di `exit`, e non è un vezzo: ggml tiene i Metal residency set
+    /// in una collezione globale distrutta dai distruttori statici, e
+    /// `ggml-metal-device.m:657` asserisce che a quel punto sia vuota. Con un
+    /// contesto ancora vivo l'asserzione salta e il processo **aborta uscendo**,
+    /// dopo aver fatto tutto il lavoro giusto: exit 134 su un binario che aveva
+    /// già scritto il suo JSON. Da fuori sembra un crash dell'app, ed è il
+    /// momento peggiore in cui sembrarlo.
+    func shutdown() {
+        let ctx = ctxBox.withLock { box -> Ctx? in let p = box; box = nil; return p }
+        guard let ctx else { return }
+        decodeQueue.sync { whisper_free(ctx.raw) }
+        Log.write("whisper.cpp: contesto liberato prima dell'uscita")
+    }
+
     private func unload() {
         let ctx = ctxBox.withLock { box -> Ctx? in let p = box; box = nil; return p }
         if let ctx { decodeQueue.async { whisper_free(ctx.raw) } }

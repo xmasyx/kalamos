@@ -218,6 +218,8 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                                  out.text.isEmpty ? "*** VUOTA ***" : out.text))
                 }
             }
+            // Prima di qualunque uscita: vedi `WhisperCppTranscriber.shutdown()`.
+            cpp?.shutdown()
             if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
