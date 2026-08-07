@@ -29,6 +29,12 @@ Every example in this README is real output, and you can reproduce any of them:
 Kalamos --clean "the meeting is on tuesday at ten no wait wednesday at ten thirty"
 ```
 
+![The Kalamos menu in the macOS menu bar, showing the app name, its status, and the engine and language it is listening with](docs/screenshots/menu-bar.png)
+
+It lives in the menu bar and stays out of the way. What you reach for while working
+is one click down: the dictation language, the last transcription, the words you
+have taught it.
+
 *Kalamos* (κάλαμος) is the reed pen of the ancient world, the one in the Latin
 phrase *currente calamo* — writing at the speed of thought, without stopping.
 
@@ -370,6 +376,8 @@ Dictation degrades exactly where your work is most specific: names, jargon,
 product names, foreign words. Four mechanisms handle it, and they run in this
 order.
 
+![Preferences, Words and corrections: a list of terms Kalamos should always get right, and a list of what it hears mapped to what it should type](docs/screenshots/preferences-words.png)
+
 **Corrections — deterministic, always wins.** *When you hear X, write Y.* Applied
 to the raw transcript before anything else touches it, whole-word and
 case-insensitive. This is the right tool when Whisper gets a word wrong **the same
@@ -386,6 +394,11 @@ a hint the model weighs against the sentence. A surname you always want spelled 
 way is a correction. A technical term Whisper mangles differently every time is
 vocabulary. Both are lists you edit in **Preferences ▸ Words & corrections** —
 type, add, delete.
+
+![The correction panel opened with ⌃⌥K, the word it heard already filled in from the selection](docs/screenshots/correction-panel.png)
+
+**⌃⌥K arrives with the first half filled in.** Select the word Kalamos just got
+wrong, press it, type the right one, Enter.
 
 **Your own cleanup prompt.** **Preferences ▸ Cleanup ▸ Instructions for the
 model** replaces the built-in instructions completely, so you can make it more literal, more aggressive, or
@@ -480,17 +493,34 @@ looks at what came back, and re-decodes with only the words that look wrong, at
 most five. The second pass costs about a third of a second, and only on the
 dictations that need it.
 
-### Why you might stay on Whisper
+### Why you might switch back to Whisper
 
-It is the default, and it stays the default. It has the **model picker** —
-whisper.cpp ships one size, turbo, and ignores that menu the way Parakeet does. On
-short clips with a script to compare against, WhisperKit was marginally closer to
-the script. And it is the engine with the most hours behind it in this app.
+Whisper.cpp became the default in 1.2.0, and WhisperKit is still worth choosing for
+three reasons. It has the **model picker**: whisper.cpp ships one size, turbo, and
+ignores that menu the way Parakeet does, so a Mac that wants a smaller download has
+somewhere to go. On short scripted clips, measured against the script, WhisperKit
+came out slightly closer: 5.8% word error rate against 7.6%. And it is the engine
+with the most hours behind it in this app.
 
 Nothing is locked in: the choice is one row in **Preferences ▸ Dictation**, and
 switching takes effect on your next dictation.
 
+![Preferences, Dictation: the trigger key, how dictation starts, the dictation language, and on-device translation](docs/screenshots/preferences-dictation.png)
+
 ## Which models your Mac can run
+
+**You do not have to work this out.** First run reads the chip, the memory, the
+cores and the free disk, proposes what fits, and shows you the number that decided
+each choice. Accept it and setup is two pages shorter; say *I'll choose* and every
+page opens.
+
+![First run, Your Mac: the machine it read, and the speech model, cleanup model and memory policy it proposes, each with the figure behind it](docs/screenshots/setup-your-mac.png)
+
+The cleanup model is a choice, not a requirement. Setup offers the local model, or
+rule-based punctuation that costs nothing and downloads nothing, or the exact words
+you said with no tidying at all.
+
+![First run: use the local model, punctuation only, or nothing, with the model recommended for this Mac named underneath](docs/screenshots/setup-cleanup.png)
 
 Two models sit in memory: one that hears you, one that cleans up what you said. On
 Apple Silicon both live in unified memory, shared with everything else you have

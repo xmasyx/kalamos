@@ -335,18 +335,31 @@ struct OnboardingView: View {
         }
     }
 
+    /// Il motore proposto, **col suo nome e col suo peso**.
+    ///
+    /// Il ramo di riserva diceva «Whisper Turbo, 1,5 GB» per qualunque motore non-Parakeet, e fino
+    /// al 2026-08-07 era vero perché il non-Parakeet era sempre Whisper. Spostato il default su
+    /// whisper.cpp, la stessa riga ha cominciato a stampare il nome e il peso di un altro motore:
+    /// una pagina che dice al lettore cosa ha letto sulla sua macchina non può poi sbagliare la cosa
+    /// che gli sta proponendo. Visto nella fotografia, che è l'unico posto dove si vedeva.
     private var engineProposal: (String, String) {
         let gb = machine.memoryGB
+        let leggero = SpeechEngine.whispercpp.note   // il peso vero, non un numero riscritto
         switch (suggestion.engine, suggestion.constraint) {
         case (.parakeet, .verySmallMemory):
-            return ("Parakeet", t("più leggero, 461 MB invece di 1,5 GB, e hai \(gb) GB di memoria",
-                                  "lighter, 461 MB instead of 1.5 GB, and you have \(gb) GB of memory",
-                                  "plus léger, 461 Mo au lieu de 1,5 Go, et vous avez \(gb) Go de mémoire"))
+            return ("Parakeet", t("più leggero, 461 MB invece di \(leggero), e hai \(gb) GB di memoria",
+                                  "lighter, 461 MB instead of \(leggero), and you have \(gb) GB of memory",
+                                  "plus léger, 461 Mo au lieu de \(leggero), et vous avez \(gb) Go de mémoire"))
         case (.parakeet, _):
             return ("Parakeet", t("461 MB: sul disco restano \(machine.freeDiskGB) GB",
                                   "461 MB: you have \(machine.freeDiskGB) GB left on disk",
                                   "461 Mo : il reste \(machine.freeDiskGB) Go sur le disque"))
-        default:
+        case (.whispercpp, _):
+            return (SpeechEngine.whispercpp.title,
+                    t("\(leggero), scaricati una volta sola",
+                      "\(leggero), downloaded once",
+                      "\(leggero), téléchargés une seule fois"))
+        case (.whisper, _):
             return ("Whisper Turbo", t("1,5 GB, scaricati una volta sola",
                                        "1.5 GB, downloaded once",
                                        "1,5 Go, téléchargés une seule fois"))

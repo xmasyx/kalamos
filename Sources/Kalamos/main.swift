@@ -945,6 +945,26 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
             showDiagnostics: {}, rerunOnboarding: {}), openAt: sezione)
     }
 
+    // Il rettangolo della finestra in coordinate schermo, pronto da passare a
+    // `screencapture -R`.
+    //
+    // Serve perché il permesso Registrazione dello schermo segue l'IDENTITÀ del codice: una
+    // ricompilazione cambia il binario e il diritto decade in silenzio, quindi la sonda si trova a
+    // non poter scattare la propria finestra mentre il terminale che l'ha lanciata può benissimo.
+    // Stampato qui, chi ha il diritto scatta esattamente questa area senza indovinare le coordinate
+    // e senza che nessuno debba concedere un permesso nuovo.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        guard let w = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) }),
+              let screen = w.screen ?? NSScreen.main else { return }
+        let f = w.frame
+        let top = screen.frame.maxY - f.maxY
+        FileHandle.standardError.write(Data("""
+            scatta -R: \(Int(f.origin.x)),\(Int(top)),\(Int(f.width)),\(Int(f.height))
+            scatta -l: \(w.windowNumber)
+
+            """.utf8))
+    }
+
     // `--attesa=<secondi>` holds the window open before the shutter. Two seconds
     // is enough to photograph a screen that just sits there, and not enough to
     // photograph one you have to OPERATE first — a list only proves it scrolls

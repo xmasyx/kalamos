@@ -66,11 +66,20 @@ enum SpeechEngine: String, CaseIterable, Sendable {
         }
     }
 
+    /// **La lingua dell'app, non quella del Mac.** `ByteCountFormatter` prende il separatore
+    /// decimale dalla lingua di sistema, quindi su un Mac italiano scriveva «1,62 GB» in mezzo a una
+    /// frase inglese. Non è un dettaglio da niente: quella riga sta nella pagina che il primo avvio
+    /// mostra a chiunque installi l'app, e la virgola in inglese si legge come un errore di chi ha
+    /// tradotto a metà.
+    @MainActor
     private static func gb(_ bytes: Int64) -> String {
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        f.allowedUnits = [.useGB]
-        return f.string(fromByteCount: bytes)
+        let nf = NumberFormatter()
+        nf.locale = Locale(identifier: L.t("it_IT", "en_US", "fr_FR"))
+        nf.maximumFractionDigits = 2
+        nf.minimumFractionDigits = 0
+        // Stile file, come faceva `ByteCountFormatter`: mille alla terza, non 1024.
+        let value = Double(bytes) / 1_000_000_000
+        return (nf.string(from: NSNumber(value: value)) ?? "\(value)") + " GB"
     }
 }
 
