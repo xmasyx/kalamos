@@ -32,6 +32,28 @@ enum Footprint {
 
     static var megabytes: Int? { bytes().map { Int($0 / 1_048_576) } }
 
+    /// Il massimo che questo processo ha toccato **da quando è partito**, come lo stampa
+    /// `/usr/bin/footprint` alla voce `phys_footprint_peak`.
+    ///
+    /// **Perché la guardia guarda questo e non il valore istantaneo.** Il campione arriva ogni
+    /// mezz'ora: un picco che sale e scende fra due campioni non è mai esistito, per chi guarda. Il
+    /// 2026-08-07, con l'app avviata da mezza giornata, il valore istantaneo diceva 6521 MB, cioè
+    /// sotto il tetto, mentre il massimo di vita era **7315 MB**, cioè 147 sopra. Il registro non
+    /// aveva una riga: la guardia non stava fallendo, stava guardando la domanda più debole.
+    ///
+    /// Il massimo di vita è monotono, quindi non può sfuggire fra due campioni, e per la stessa
+    /// ragione va riportato una volta sola per gradino, cosa di cui si occupa già `shouldReport`.
+    static var peakMegabytes: Int? {
+        var usage = rusage_info_current()
+        let ok = withUnsafeMutablePointer(to: &usage) { p in
+            p.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(getpid(), RUSAGE_INFO_CURRENT, $0)
+            }
+        }
+        guard ok == 0 else { return nil }
+        return Int(usage.ri_lifetime_max_phys_footprint / 1_048_576)
+    }
+
     /// How long this process has been up. The footprint claim is about a DAY of
     /// use, so a reading without an age is not evidence of anything — that is
     /// exactly how "4.9 GB" got mistaken for a healthy number when it was simply
@@ -95,9 +117,11 @@ enum Footprint {
             try? await Task.sleep(nanoseconds: UInt64(warmup * 1_000_000_000))
             var reportedAt = 0
             while !Task.isCancelled {
-                if let mb = megabytes, shouldReport(mb: mb, lastReported: reportedAt) {
+                // Il massimo di vita, non il valore del momento: vedi `peakMegabytes`.
+                if let mb = peakMegabytes ?? megabytes,
+                   shouldReport(mb: mb, lastReported: reportedAt) {
                     Log.write(String(format:
-                        "footprint %d MB after %.1f h — above the %d MB ceiling ISC-107 set",
+                        "footprint peak %d MB after %.1f h — above the %d MB ceiling ISC-107 set",
                         mb, ageHours, ceilingMB))
                     reportedAt = mb
                 }

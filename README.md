@@ -29,8 +29,6 @@ Every example in this README is real output, and you can reproduce any of them:
 Kalamos --clean "the meeting is on tuesday at ten no wait wednesday at ten thirty"
 ```
 
-![The Kalamos menu in the macOS menu bar, showing the app name, its status, and the engine and language it is listening with](docs/screenshots/menu-bar.png)
-
 It lives in the menu bar and stays out of the way. What you reach for while working
 is one click down: the dictation language, the last transcription, the words you
 have taught it.
@@ -539,6 +537,12 @@ No rebuild, no reinstall. Any MLX repo id works, not just the ones in the menu.
 
 And it is a **peak, not a resting cost**: both models unload themselves after the
 idle timeout, and come back in a few seconds when you next dictate.
+
+![First run: free the memory after 5 minutes, after 15, or never, with the amount the two chosen models hold stated above and the recommendation for this Mac underneath](docs/screenshots/setup-memory.png)
+
+The figure in that sentence is the sum of the two models **you** were just
+proposed, not an average: choose punctuation-only cleanup and it drops, take the
+small model on a 8 GB Mac and it drops again.
 
 ## What I would actually use
 

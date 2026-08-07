@@ -155,6 +155,20 @@ struct FootprintWatchTests {
         #expect(Footprint.shouldReport(mb: Footprint.ceilingMB, lastReported: 0))
     }
 
+    /// **Il massimo di vita si legge davvero, ed è per definizione almeno quanto l'istantaneo.**
+    ///
+    /// La lettura passa da `proc_pid_rusage` con un rebind di memoria: sbagliarlo non produce un
+    /// errore di compilazione, produce un `nil` oppure un numero senza senso. Questo test è ciò che
+    /// distingue le due cose. E l'invariante *picco ≥ adesso* è la ragione per cui la guardia è
+    /// stata spostata sul picco: il 2026-08-07 l'istantaneo diceva 6521 MB e il picco 7315, cioè
+    /// sopra il tetto, e il valore del momento non poteva accorgersene.
+    @Test func thePeakIsReadAndIsNeverBelowTheCurrentReading() throws {
+        let peak = try #require(Footprint.peakMegabytes)
+        let now = try #require(Footprint.megabytes)
+        #expect(peak > 0)
+        #expect(peak >= now)
+    }
+
     /// Once said, it stays quiet until another gigabyte — a bad day writes a
     /// short series, not a thousand identical lines.
     @Test func itDoesNotRepeatItself() {

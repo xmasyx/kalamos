@@ -534,12 +534,33 @@ struct OnboardingView: View {
           "Recommandé pour votre Mac : \(what). Modifiable à tout moment.")
     }
 
+    /// Quanto tengono in memoria **i due modelli scelti su questa pagina**, non una cifra fissa.
+    ///
+    /// Diceva «circa 6 GB» a chiunque, ed era il totale di una sola configurazione: Qwen 7B più il
+    /// motore grande. Chi sceglieva la pulizia solo di punteggiatura, o un Mac da 8 GB a cui la
+    /// pagina precedente ha appena proposto il modello piccolo, leggeva un numero che non era il
+    /// suo. È la stessa regola con cui è costruita la pagina «Il tuo Mac»: si mostra il numero letto
+    /// per QUELLA macchina, mai un numero previsto per una media. Misurato il 2026-08-07 sul Mac
+    /// grande: la somma dà 5,9 GB e `/usr/bin/footprint` ne legge 6,5, quindi la stima regge.
+    /// I pesi vengono dalle stesse costanti con cui la pagina precedente ha deciso che ci stanno,
+    /// così le due pagine non possono raccontare due storie diverse. Il modello grande da 14 GB non
+    /// compare qui perché la proposta non lo sceglie mai: si prende da soli, dalle Preferenze.
+    private var memoryHeldGB: Int {
+        let engine = Double(WhisperCppTranscriber.modelBytes)
+        let cleanup: Double = suggestion.formatterMode == .localLLM
+            ? Double(suggestion.cleanupModelID == ModelCatalog.smallCleanupID
+                     ? Recommendation.cleanup3BBytes : Recommendation.cleanup7BBytes)
+            : 0
+        return Int(((engine + cleanup) / 1_000_000_000).rounded())
+    }
+
     private var memoryStep: some View {
-        question(t("Quando deve liberare la memoria?", "When should it free the memory?",
-                   "Quand doit-il libérer la mémoire ?"),
-                 t("Mentre stanno in memoria i modelli occupano circa 6 GB, e per tornare ci mettono qualche secondo.",
-                   "While loaded, the models hold about 6 GB, and take a few seconds to come back.",
-                   "En mémoire, les modèles occupent environ 6 Go et reviennent en quelques secondes.")) {
+        let gb = memoryHeldGB
+        return question(t("Quando deve liberare la memoria?", "When should it free the memory?",
+                          "Quand doit-il libérer la mémoire ?"),
+                 t("Mentre stanno in memoria i modelli occupano circa \(gb) GB, e per tornare ci mettono qualche secondo.",
+                   "While loaded, the models hold about \(gb) GB, and take a few seconds to come back.",
+                   "En mémoire, les modèles occupent environ \(gb) Go et reviennent en quelques secondes.")) {
             VStack(alignment: .leading, spacing: 12) {
                 // The notes no longer quote the RAM thresholds. They used to print
                 // the rule — "on 8 or 16 GB" — and leave the reader to look up
