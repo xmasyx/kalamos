@@ -4,7 +4,7 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
-## Unreleased
+## v1.2.0
 
 ### Whisper.cpp is now the engine a new install starts on
 
