@@ -6,7 +6,9 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private var statusItem: NSStatusItem!
+    /// Non privato per una ragione sola: la sonda `--scatta --menu-aperto` deve poter cliccare
+    /// questo bottone per fotografare il menu VERO, invece di ridisegnarne una copia.
+    var statusItem: NSStatusItem!
     private let state = AppState.shared
     private let history = TranscriptHistory.shared
     private var hotkey: HotkeyManager!
@@ -182,7 +184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// two engines compiled in, which is the mock path.
     private var speechSwitch: AnyObject?
 
-    private func setupMenuBar() {
+    /// Non privata: la sonda costruisce il menu con QUESTO codice, così la fotografia non può
+    /// mostrare un menu che nell'app non esiste.
+    func setupMenuBar() {
         if statusItem == nil {
             statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         }

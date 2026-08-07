@@ -849,6 +849,41 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
     // menu, ma la cosa da giudicare è la relazione fra il titolo, lo stato e la riga di sotto, e
     // quella è identica. `--stato` esiste perché a riposo l'accento non si vede mai, ed è proprio
     // l'unico colore del pannello.
+    // `--menu-aperto` — il menu VERO della barra, aperto, con il pannello in testa e le voci sotto.
+    //
+    // È l'immagine che apre il README, quindi non può essere una ricostruzione: costruisce il menu
+    // chiamando `setupMenuBar()` dell'app, poi clicca il proprio bottone nella barra. Il click apre
+    // un ciclo modale che blocca questo processo, quindi la fotografia la scatta chi l'ha lanciato,
+    // e le coordinate della barra escono su stderr prima del click.
+    if CommandLine.arguments.contains("--menu-aperto") {
+        // Uno sfondo neutro sotto il menu, e non è estetica: il menu di macOS è traslucido, quindi
+        // qualunque cosa ci sia sullo schermo si intravede dentro la fotografia. Sul Mac di chi
+        // sviluppa quella roba è il suo desktop, con i nomi delle sue cartelle. La carta dell'app
+        // copre tutto e la fotografia mostra solo il menu.
+        let backdrop = NSWindow(contentRect: NSScreen.main?.frame ?? .zero,
+                                styleMask: [.borderless], backing: .buffered, defer: false)
+        backdrop.backgroundColor = Theme.paperNS
+        backdrop.level = .normal
+        backdrop.orderFront(nil)
+
+        let delegate = AppDelegate()
+        delegate.setupMenuBar()
+        if let button = delegate.statusItem.button, let w = button.window {
+            let f = w.frame
+            let screen = w.screen ?? NSScreen.main
+            let top = (screen?.frame.maxY ?? f.maxY) - f.maxY
+            FileHandle.standardError.write(Data(
+                "icona a: \(Int(f.origin.x)),\(Int(top)) larga \(Int(f.width))\n".utf8))
+        }
+        NSApp.setActivationPolicy(.accessory)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            delegate.statusItem.button?.performClick(nil)
+        }
+        // Il ciclo modale del menu non restituisce il controllo, quindi la sonda si spegne da sola.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25) { exit(0) }
+        app.run()
+    }
+
     if CommandLine.arguments.contains("--menu") {
         let status: DictationStatus
         switch CommandLine.arguments.first(where: { $0.hasPrefix("--stato=") })?
