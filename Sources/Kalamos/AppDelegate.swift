@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Combine
 import ServiceManagement
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -13,9 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: DictationController!
     private var recentMenu: NSMenu!
     private var languageMenu: NSMenu!
-    private var hintItem: NSMenuItem!
-    private var statusItem_: NSMenuItem!
-    private var headerSeparator: NSMenuItem!
+    /// Il pannello disegnato in testa al menu e la vista che lo ospita. Tenuta perché il contenuto
+    /// si ricostruisce a ogni apertura: vedi `menuNeedsUpdate`.
+    private var panelHost: NSHostingView<MenuPanel>!
     private var accessibilityTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     /// Tenuto per una ragione sola: liberarlo prima che l'app esca. Vedi
@@ -190,22 +191,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
 
-        // The status line and the trigger hint are NOT permanent rows.
+        // Il pannello, che è la testa del menu e la livrea dell'app.
         //
-        // "Kalamos — idle" says nothing is happening, which is true almost every
-        // time you open this menu, and the hint teaches a key you learned on day
-        // one. Two lines and a separator of pure furniture above the things you
-        // actually came here to click. Both are built here and then shown or
-        // hidden per open, in `menuNeedsUpdate`: the status when there IS
-        // something happening, the hint until you have dictated a few times.
-        statusItem_ = NSMenuItem(title: L.statusLine(state.status), action: nil, keyEquivalent: "")
-        statusItem_.isEnabled = false
-        menu.addItem(statusItem_)
-        hintItem = NSMenuItem(title: triggerHint(), action: nil, keyEquivalent: "")
-        hintItem.isEnabled = false
-        menu.addItem(hintItem)
-        headerSeparator = NSMenuItem.separator()
-        menu.addItem(headerSeparator)
+        // Prima qui c'erano due voci disabilitate — la riga di stato e il suggerimento del tasto —
+        // che si nascondevano quando non avevano niente da dire, perché come voci di menu erano
+        // arredamento: "Kalamos — in attesa" è vero quasi ogni volta che apri, e il suggerimento
+        // insegna un tasto che hai imparato il primo giorno. Disegnate invece che scritte cambiano
+        // mestiere: il nome dell'app grande, lo stato piccolo sulla destra e una riga di dettaglio
+        // sotto sono la stessa forma con cui si aprono Otium e NoSleep, e a quel punto la riga
+        // "in attesa" non è più rumore, è il posto dove uno guarda per sapere come sta.
+        //
+        // **L'altezza la detta il contenuto, mai una costante**: la riga di sotto va a capo quando
+        // il suggerimento del tasto è lungo, e un numero scritto a mano scommette sull'altezza del
+        // testo — scommessa che si perde alla prima traduzione più lunga dell'originale.
+        panelHost = MenuPanel.host(panelContent())
+        let panelItem = NSMenuItem()
+        panelItem.view = panelHost
+        menu.addItem(panelItem)
+        menu.addItem(.separator())
 
         // ⌃⌥, not ⌘. These two used to print ⌘C and ⌘S, which never worked from
         // anywhere except this menu while it was open: a status-bar menu is not
@@ -290,43 +293,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func triggerHint() -> String {
-        let key = HotkeyManager.displayName(for: state.hotKeyCode)
-        switch state.triggerMode {
-        case .both:
-            return L.t("Tieni premuto \(key) per parlare · doppio tocco = mani libere",
-                       "Hold \(key) to talk · double-tap = hands-free",
-                       "Maintenez \(key) · double-appui = mains libres")
-        case .hold:
-            return L.t("Tieni premuto \(key) per parlare",
-                       "Hold \(key) to talk",
-                       "Maintenez \(key) pour parler")
-        case .doubleTap:
-            return L.t("Doppio tocco su \(key) = mani libere",
-                       "Double-tap \(key) = hands-free",
-                       "Double-appui sur \(key) = mains libres")
-        case .singleTap:
-            return L.t("Tocca \(key) per cominciare, toccalo di nuovo per finire",
-                       "Tap \(key) to start, tap again to finish",
-                       "Appuyez sur \(key) pour commencer, à nouveau pour finir")
-        }
+        MenuPanel.Content.triggerHint(key: HotkeyManager.displayName(for: state.hotKeyCode),
+                                      mode: state.triggerMode)
+    }
+
+    /// Quello che il pannello dice adesso. Un posto solo, letto dal menu vero e dalla sonda che lo
+    /// fotografa, così la fotografia mostra la stessa cosa che vedi aprendo il menu.
+    private func panelContent() -> MenuPanel.Content {
+        let language = state.autoDetectLanguage
+            ? L.t("lingua automatica", "language detected", "langue automatique")
+            : state.defaultLanguage.displayName
+        return MenuPanel.Content(
+            status: state.status,
+            phrase: L.statusPhrase(state.status),
+            detail: MenuPanel.Content.detail(dictationCount: history.entries.count,
+                                             hint: triggerHint(),
+                                             engine: state.speechEngine.title,
+                                             language: language))
     }
 
     // MARK: Menu refresh
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === statusItem.menu else { return }
 
-        // Say what is happening only when something is.
-        let busy = state.status != .idle
-        statusItem_.title = L.statusLine(state.status)
-        statusItem_.isHidden = !busy
+        // Il pannello si ricostruisce qui, non si tiene in sincrono: l'apertura del menu è l'unico
+        // istante in cui qualcuno lo guarda, e una vista dentro un `NSMenuItem` non ha un ciclo di
+        // aggiornamento su cui contare. L'altezza si ricalcola con lui, perché la riga di sotto
+        // cambia lunghezza quando il suggerimento del tasto lascia il posto a motore e lingua.
+        panelHost.rootView = MenuPanel(content: panelContent())
+        MenuPanel.resize(panelHost)
 
-        // The hint retires itself. Five dictations is enough to know which key
-        // you hold; after that it is a line you read past forever.
-        let stillLearning = history.entries.count < 5
-        hintItem.title = triggerHint()
-        hintItem.isHidden = !stillLearning
-
-        headerSeparator.isHidden = !busy && !stillLearning
         rebuildRecentMenu()
         rebuildLanguageMenu()
     }
@@ -572,7 +568,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.stop()
         hotkey.updateKeyCode(code)
         if Permissions.accessibilityTrusted(prompt: false) { _ = hotkey.start() }
-        hintItem.title = triggerHint()
         startEditHotkeyIfNeeded()   // re-evaluate the edit-key ≠ trigger-key guard
     }
 
@@ -623,7 +618,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applyTriggerMode(_ mode: TriggerMode) {
         state.triggerMode = mode
         hotkey.setMode(mode)
-        hintItem.title = triggerHint()
     }
 
     /// The name of each mode, everywhere: the menu, Preferences and setup.
@@ -812,20 +806,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// stroke it left. For everything else, the system symbol that says what is
     /// happening: those states are information, and information beats identity
     /// while you are waiting for something.
+    ///
+    /// La scelta del glifo sta in `StatusGlyph` e non più qui, perché adesso la fanno in due — la
+    /// barra e il pannello in testa al menu — e scritta due volte sarebbe divergita alla prima
+    /// aggiunta di uno stato, lasciando un'icona che contraddice la frase accanto.
     private func updateIcon(for status: DictationStatus) {
-        let label = L.statusLine(status)
-        let image: NSImage?
-        switch status {
-        case .idle:         image = CalamoIcon.image(filled: false)
-        case .listening:    image = CalamoIcon.image(filled: true)
-        case .transcribing: image = NSImage(systemSymbolName: "waveform", accessibilityDescription: label)
-        case .downloading:  image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: label)
-        case .loading:      image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: label)
-        case .working:      image = NSImage(systemSymbolName: "wand.and.sparkles", accessibilityDescription: label)
-        case .error:        image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: label)
-        }
-        statusItem.button?.image = image
-        statusItem_?.title = label
+        statusItem.button?.image = StatusGlyph.image(for: status)
     }
 
     // MARK: Permissions → start hot key (auto-detects Accessibility grant; no restart)

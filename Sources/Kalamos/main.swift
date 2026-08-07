@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 #if canImport(FluidAudio)
 import FluidAudio
 #endif
@@ -840,7 +841,70 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
     // `--correzione[=parola]` — the ⌃⌥K panel, with or without its prefill. Both
     // states have to be looked at: the whole point of the prefill is what the
     // window looks like the instant it opens.
-    if let flag = CommandLine.arguments.first(where: { $0 == "--correzione" || $0.hasPrefix("--correzione=") }) {
+    // `--menu [--stato=<idle|ascolto|scrivo|errore>]` — il pannello in testa al menu della barra.
+    //
+    // Un `NSMenu` aperto non è una finestra di questa app, quindi `screencapture -l` non lo vede e
+    // l'unico modo di guardarlo sarebbe cliccarci sopra a mano. La sonda disegna la stessa vista in
+    // una finestra vera, con la carta sotto: nel menu il pannello sta invece sul materiale del
+    // menu, ma la cosa da giudicare è la relazione fra il titolo, lo stato e la riga di sotto, e
+    // quella è identica. `--stato` esiste perché a riposo l'accento non si vede mai, ed è proprio
+    // l'unico colore del pannello.
+    if CommandLine.arguments.contains("--menu") {
+        let status: DictationStatus
+        switch CommandLine.arguments.first(where: { $0.hasPrefix("--stato=") })?
+            .split(separator: "=", maxSplits: 1).last.map(String.init) {
+        case "ascolto":  status = .listening
+        case "scrivo":   status = .transcribing
+        case "errore":   status = .error(L.t("microfono occupato", "microphone busy",
+                                             "micro occupé"))
+        default:         status = .idle
+        }
+        let state = AppState.shared
+        let language = state.autoDetectLanguage
+            ? L.t("lingua automatica", "language detected", "langue automatique")
+            : state.defaultLanguage.displayName
+        // Il conteggio arriva dalla cronologia vera, così la sonda mostra la riga che vedrebbe LUI
+        // aprendo il menu, non quella del primo giorno.
+        let content = MenuPanel.Content(
+            status: status,
+            phrase: L.statusPhrase(status),
+            detail: MenuPanel.Content.detail(
+                dictationCount: TranscriptHistory.shared.entries.count,
+                hint: MenuPanel.Content.triggerHint(
+                    key: HotkeyManager.displayName(for: state.hotKeyCode),
+                    mode: state.triggerMode),
+                engine: state.speechEngine.title,
+                language: language))
+        // La stessa vista e la stessa misura del menu vero, non una copia: `MenuPanel.host` è dove
+        // sta la regola sull'ordine fra larghezza e altezza, e una sonda che se la riscrivesse
+        // finirebbe per fotografare un pannello che nell'app non esiste.
+        let sheet = MenuPanel.host(content)
+        // **Niente zona di sicurezza qui.** Con `.fullSizeContentView` la finestra dichiara i trenta
+        // punti della barra del titolo come area da evitare, e SwiftUI spinge il pannello sotto:
+        // nella fotografia era una fascia vuota in cima che nel menu non esiste — un difetto della
+        // sonda, scambiato per un difetto del pannello finché non l'ho misurato.
+        sheet.safeAreaRegions = []
+        let size = sheet.frame.size
+        sheet.autoresizingMask = [.width, .height]
+        let window = NSWindow(contentRect: sheet.frame,
+                              styleMask: [.titled, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.contentView = sheet
+        // La misura si impone DOPO aver messo il contenuto: passata al costruttore vale per la
+        // finestra intera, la barra del titolo se ne prende trenta punti, e la fotografia esce con
+        // una fascia vuota in cima che nel menu non esiste. Una sonda che aggiunge un difetto suo è
+        // peggio di nessuna sonda.
+        window.setContentSize(size)
+        // La carta la mette la finestra, non il pannello: nel menu vero sotto c'è il materiale del
+        // menu, e dipingerla dentro la vista significherebbe fotografare qualcosa che nel menu non
+        // c'è.
+        window.backgroundColor = Theme.paperNS
+        window.setFrameOrigin(NSPoint(x: 240, y: 420))
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    } else if let flag = CommandLine.arguments.first(where: { $0 == "--correzione" || $0.hasPrefix("--correzione=") }) {
         let value = flag.split(separator: "=", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
         let halves = value.split(separator: ">", maxSplits: 1).map(String.init)
         CorrectionWindow.shared.show(heard: halves.first ?? "",

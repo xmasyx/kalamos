@@ -71,4 +71,16 @@ enum L {
             return "Kalamos — \(message)"
         }
     }
+
+    /// La stessa frase senza il nome davanti, per il pannello in testa al menu: lì "Kalamos" è già
+    /// scritto grande accanto, e ripeterlo su ogni riga di stato è la firma di chi ha riciclato una
+    /// stringa fatta per un altro posto.
+    ///
+    /// **Derivata, non riscritta.** Otto stati per tre lingue copiati in un secondo elenco sarebbero
+    /// ventiquattro frasi che divergono in silenzio alla prima aggiunta. Così la fonte resta una.
+    static func statusPhrase(_ status: DictationStatus) -> String {
+        let full = statusLine(status)
+        guard let cut = full.range(of: " — ") else { return full }
+        return String(full[cut.upperBound...])
+    }
 }
