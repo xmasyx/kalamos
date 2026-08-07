@@ -78,7 +78,20 @@ enum Footprint {
     /// The number ISC-107 was about: 13 GB before the buffer-cache ceiling, and
     /// the claim was "under 7 after a day". A full day of real use ran at 4 GB
     /// with the memory set to never free, which is what closed it.
-    static let ceilingMB = 7 * 1024
+    ///
+    /// **Nove, non sette, dal 2026-08-07, e il motivo è un cambio di motore, non una regressione.**
+    /// I sette gigabyte erano tarati su WhisperKit, che passa i pesi a Core ML e li tiene FUORI da
+    /// questo processo. whisper.cpp, che da oggi è il motore predefinito, li tiene dentro: misurato
+    /// con `/usr/bin/footprint`, 4604 MB sono i pesi del modello di pulizia sulla GPU e 1661 MB
+    /// quelli del motore vocale, mentre il recuperabile è **32 MB su 6521**. Non c'è niente da
+    /// liberare: è il costo dichiarato dei due modelli, e il tetto vecchio lo bucava per
+    /// costruzione, con un picco di vita di 7315 MB.
+    ///
+    /// Nove copre la configurazione che il primo avvio propone (Qwen 7B più whisper.cpp, 5,9 GB di
+    /// pesi più circa 600 MB di app e buffer) e lascia un margine sopra il picco misurato. Chi
+    /// sceglie a mano il modello da 14 GB esce da questa scommessa, e quella riga nel registro è
+    /// giusto che compaia.
+    static let ceilingMB = 9 * 1024
 
     /// Watch, do not narrate.
     ///

@@ -141,18 +141,22 @@ struct FootprintWatchTests {
     @Test func aNormalFootprintSaysNothing() {
         #expect(!Footprint.shouldReport(mb: 4_236, lastReported: 0))
         #expect(!Footprint.shouldReport(mb: 6_000, lastReported: 0))
+        // Il picco misurato il 2026-08-07 con whisper.cpp predefinito: 7315 MB di cui 32
+        // recuperabili, cioè i due modelli e nient'altro. Con il tetto vecchio questa riga era
+        // rossa, ed era la guardia a sbagliare, non l'app.
+        #expect(!Footprint.shouldReport(mb: 7_315, lastReported: 0))
     }
 
     /// And the regression the ceiling exists to prevent — 13 GB was the number
     /// before it — must not be silent.
     @Test func crossingTheCeilingIsReported() {
-        #expect(Footprint.shouldReport(mb: 7_200, lastReported: 0))
+        #expect(Footprint.shouldReport(mb: 9_500, lastReported: 0))
         #expect(Footprint.shouldReport(mb: 13_000, lastReported: 0))
     }
 
     /// Exactly at the ceiling counts as over it.
     @Test func theCeilingItselfIsOverTheCeiling() {
-        #expect(Footprint.shouldReport(mb: Footprint.ceilingMB, lastReported: 0))
+        #expect(Footprint.shouldReport(mb: Footprint.ceilingMB, lastReported: 0))   // 9 GB dal 2026-08-07
     }
 
     /// **Il massimo di vita si legge davvero, ed è per definizione almeno quanto l'istantaneo.**
@@ -172,7 +176,8 @@ struct FootprintWatchTests {
     /// Once said, it stays quiet until another gigabyte — a bad day writes a
     /// short series, not a thousand identical lines.
     @Test func itDoesNotRepeatItself() {
-        #expect(!Footprint.shouldReport(mb: 7_300, lastReported: 7_200))
-        #expect(Footprint.shouldReport(mb: 8_300, lastReported: 7_200))
+        // Entrambi sopra il tetto: il secondo gradino si riporta solo dopo un altro gigabyte.
+        #expect(!Footprint.shouldReport(mb: 9_400, lastReported: 9_300))
+        #expect(Footprint.shouldReport(mb: 10_400, lastReported: 9_300))
     }
 }
