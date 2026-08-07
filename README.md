@@ -1,7 +1,7 @@
 <div align="center">
+  <img src="docs/icon.png" width="180" height="180" alt="Kalamos icon: a reed pen and the ink stroke it has just left">
   <h1>Kalamos</h1>
   <p><strong>Local-only dictation for macOS that writes like you meant it, and checks the model's work against what you actually said.</strong></p>
-  <img src="docs/screenshots/menu-bar.png" width="420" alt="The Kalamos menu open in the macOS menu bar: the app name and its status, the engine and language it is listening with, and the actions you reach for while working">
 </div>
 
 <p align="center">
@@ -51,6 +51,11 @@ Removing it: `install.sh --uninstall`, or `--purge` to take the downloaded model
 and settings with it.
 
 ## What it does
+
+It lives in the menu bar. What you reach for while working is one click down: the
+dictation language, the last transcription, the words you have taught it.
+
+<img src="docs/screenshots/menu-bar.png" width="380" alt="The Kalamos menu open in the macOS menu bar: the app name and its status, the engine and language it is listening with, and the actions below">
 
 **It checks its own output.** The dangerous failure of a cleanup model is not a
 typo, it is the sentence that comes back reading better while meaning something
