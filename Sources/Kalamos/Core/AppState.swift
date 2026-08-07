@@ -224,8 +224,13 @@ final class AppState: ObservableObject {
         defaultLanguage = Language(rawValue: defaults.string(forKey: "defaultLanguage") ?? "") ?? .english
         translationEnabled = (defaults.object(forKey: "translationEnabled") as? Bool) ?? false
         translationTarget = Language(rawValue: defaults.string(forKey: "translationTarget") ?? "") ?? .english
+        // **whisper.cpp è il motore predefinito dal 2026-08-07**, per sua decisione dopo averlo
+        // usato. Il banco del 5/08 diceva già la stessa cosa con i numeri: zero trascrizioni vuote
+        // contro 160 su 160, scarto zero su duecento passate dove WhisperKit balla di 11 e di 31
+        // parole, e una frase recuperata 8 volte su 8 che ogni altro braccio perde. Chi ha già
+        // scelto un motore non viene toccato: questo vale per chi non ha ancora scelto niente.
         speechEngine = SpeechEngine(rawValue: defaults.string(forKey: "speechEngine") ?? "")
-            ?? .whisper
+            ?? .whispercpp
         whisperModel = defaults.string(forKey: "whisperModel") ?? "openai_whisper-large-v3-v20240930_turbo"
         cleanupPromptOverride = defaults.string(forKey: "cleanupPromptOverride")
 

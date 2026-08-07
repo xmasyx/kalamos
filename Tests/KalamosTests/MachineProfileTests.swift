@@ -30,7 +30,7 @@ import Testing
     /// machine that can run the cleanup model.
     @Test func justOverEightIsAlreadyEnoughForTheModel() {
         let r = Recommendation.recommended(for: Self.mac(ram: 8 * Self.gb + 1))
-        #expect(r.engine == .whisper)
+        #expect(r.engine == .whispercpp)
         #expect(r.formatterMode == .localLLM)
         #expect(r.cleanupModelID == ModelCatalog.smallCleanupID)
         #expect(r.constraint == .tightMemory)
@@ -59,7 +59,7 @@ import Testing
     /// His own machine, which is the one configuration anybody has actually used.
     @Test func hisMacGetsWhatHeIsRunning() {
         let r = Recommendation.recommended(for: Self.mac(ram: 36 * Self.gb))
-        #expect(r.engine == .whisper)
+        #expect(r.engine == .whispercpp)
         #expect(r.cleanupModelID == ModelCatalog.previousDefaultCleanupID)
         #expect(r.formatterMode == .localLLM)
         #expect(r.idleUnloadSeconds == 0)
@@ -72,7 +72,7 @@ import Testing
         let r = Recommendation.recommended(for: Self.mac(ram: 64 * Self.gb, disk: 4 * Self.gb))
         #expect(r.formatterMode == .ruleBased)
         #expect(r.constraint == .tightDisk)
-        #expect(r.engine == .whisper)      // 1.5 GB + headroom still fits in 4 GB
+        #expect(r.engine == .whispercpp)   // 1,62 GB + 2 GB di margine stanno ancora in 4 GB
     }
 
     @Test func aVeryFullDiskAlsoDropsTheEngine() {
@@ -87,7 +87,7 @@ import Testing
     /// quietly downgrade a 64 GB Mac to the smallest of everything.
     @Test func anUnreadableDiskConstrainsNothing() {
         let r = Recommendation.recommended(for: Self.mac(ram: 64 * Self.gb, disk: 0))
-        #expect(r.engine == .whisper)
+        #expect(r.engine == .whispercpp)
         #expect(r.formatterMode == .localLLM)
         #expect(r.constraint == .none)
     }

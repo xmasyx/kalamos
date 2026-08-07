@@ -47,6 +47,10 @@ extension Recommendation {
     // `SpeechEngine.note`, the two cleanup models from `ModelCatalog.cleanup`.
     static let whisperBytes: UInt64 = 1_500_000_000
     static let parakeetBytes: UInt64 = 461_000_000
+    /// I pesi GGML, presi dalla costante che il motore usa già per verificare che lo scaricamento
+    /// sia arrivato intero. Riscriverla qui a mano sarebbe stato un numero che invecchia da solo il
+    /// giorno che il modello cambia.
+    static let whispercppBytes = UInt64(WhisperCppTranscriber.modelBytes)
     static let cleanup7BBytes: UInt64 = 4_300_000_000
     static let cleanup3BBytes: UInt64 = 1_800_000_000
 
@@ -70,7 +74,7 @@ extension Recommendation {
         let ram = machine.memoryBytes
 
         // 1. What the memory allows.
-        var engine: SpeechEngine = .whisper
+        var engine: SpeechEngine = .whispercpp
         var formatter: FormatterMode = .localLLM
         let cleanupID = ModelCatalog.recommendedCleanupID(physicalMemory: ram)
         var constraint: Recommendation.Constraint = .none
@@ -99,13 +103,24 @@ extension Recommendation {
         let free = machine.freeDiskBytes
         if free > 0 {
             let cleanupBytes = cleanupID == ModelCatalog.smallCleanupID ? cleanup3BBytes : cleanup7BBytes
-            let engineBytes = engine == .whisper ? whisperBytes : parakeetBytes
+            // Un peso per ogni motore, letto dal motore proposto. Scritto come «whisper oppure
+            // parakeet» dava a whisper.cpp il peso di Parakeet, cioè 461 MB per un file da 1,6 GB:
+            // una proposta che non sta sul disco e un primo avvio che finisce in uno scaricamento
+            // fallito.
+            let engineBytes: UInt64
+            switch engine {
+            case .whisper:    engineBytes = whisperBytes
+            case .whispercpp: engineBytes = whispercppBytes
+            case .parakeet:   engineBytes = parakeetBytes
+            }
 
             if formatter == .localLLM, free < engineBytes + cleanupBytes + diskHeadroomBytes {
                 formatter = .ruleBased
                 constraint = .tightDisk
             }
-            if engine == .whisper, free < whisperBytes + diskHeadroomBytes {
+            // Il ripiego è sempre Parakeet, che è il più piccolo dei tre: su un disco che non tiene
+            // un modello grande, l'unica proposta onesta è quella che ci sta.
+            if engine != .parakeet, free < engineBytes + diskHeadroomBytes {
                 engine = .parakeet
                 constraint = .tightDisk
             }

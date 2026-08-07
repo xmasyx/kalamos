@@ -4,6 +4,42 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
+## Unreleased
+
+### Whisper.cpp is now the engine a new install starts on
+
+- **The default moved from WhisperKit to whisper.cpp**, because on the two things
+  that decide whether a dictation survives, the measurements are not close. Your
+  word list can now act *before* a word is lost: through WhisperKit the initial
+  prompt returns an empty transcription 48 times out of 48 (upstream defect,
+  WhisperKit issue #372, fixed in no released tag), while through whisper.cpp
+  terms that came out wrong 8 times out of 8 come out right 5 times out of 5. And
+  long audio stops drifting: the same file decoded eight times gave word counts
+  swinging by 11 and by 31, against 200 identical texts over 200 passes of five
+  files. The full account is in the README, *Three engines, and why you would pick
+  each*.
+- **Nothing changes for anyone who already picked an engine.** This is the value
+  for an install that has never chosen: your choice in Preferences still wins, and
+  all three engines stay selectable.
+- **What it costs:** a 1.62 GB model download the first time, against Whisper's
+  1.5 GB. On a Mac too small for either, setup still proposes Parakeet (461 MB) —
+  and it now weighs the engine it is actually proposing, instead of pricing every
+  non-Whisper engine as if it were the small one.
+
+### The menu bar opens with the app's own livery
+
+- **The two greyed-out rows at the top of the menu are now a drawn panel**: the
+  name with its glyph, the status aligned right, and one line underneath that
+  teaches the trigger key while you are learning it and then tells you which
+  engine is listening and in which language — two facts that previously required
+  opening Preferences. Everything below stays a native menu, so items, submenus
+  and the ⌃⌥ shortcuts behave exactly as macOS behaves.
+- Two things worth knowing if you build interfaces on this: a SwiftUI view's
+  height must be asked for **after** it has been given its width (asked before,
+  it answered 92 points where the content needed 61, i.e. an empty band at the
+  top of the menu), and a window with `.fullSizeContentView` declares the title
+  bar's thirty points as a safe area that SwiftUI will push your content into.
+
 ## v1.1.1
 
 ### Two of the four speech models could not be selected
