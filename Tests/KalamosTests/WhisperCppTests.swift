@@ -110,8 +110,10 @@ struct WhisperCppTests {
 
     @Test("tiene solo i termini che il grezzo sembra aver sbagliato")
     func soloISbagliati() {
-        // Il grezzo vero di whisper.cpp sulla clip r02, misurato il 5/08.
-        let grezzo = "Ho aperto Calamos dentro iTerm e ho chiesto a Claude di controllare il chiodo endomidollare che mi ha nominato Brambilla nella cartella LiveOS."
+        // Il grezzo vero di whisper.cpp sulla clip r02, misurato il 5/08. Il cognome che stava nella
+        // dettatura è sostituito con uno d'esempio: questo repo è pubblico, e il nome di una persona
+        // vera dentro una frase clinica non c'entra niente con quello che il test prova.
+        let grezzo = "Ho aperto Calamos dentro iTerm e ho chiesto a Claude di controllare il chiodo endomidollare che mi ha nominato Rossi nella cartella LiveOS."
         let scelti = VocabularyPrompt.candidates(for: grezzo, terms: suoVocabolario)
         #expect(scelti.contains("Kalamos"))   // «Calamos»
         #expect(scelti.contains("LifeOS"))    // «LiveOS»
