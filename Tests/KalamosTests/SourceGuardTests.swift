@@ -199,6 +199,16 @@ import Testing
         guard let delegate = try Self.swiftFiles().first(where: { $0.name == "AppDelegate.swift" })
         else { throw Failure.noSources }
 
+        /// L'ancora è il NOME della funzione, non la sua visibilità.
+        ///
+        /// Prima diceva `private func setupMenuBar()`, e il 2026-08-08 la guardia
+        /// è risultata morta da due commit: `setupMenuBar` aveva perso il
+        /// `private` e da lì il corpo del menu non si trovava più. Falliva chiuso,
+        /// che è la cosa giusta, ma falliva su `.noSources` — cioè diceva «non
+        /// trovo il codice», non «il menu promette una scorciatoia che nessuno
+        /// ascolta», e le due frasi mandano a cercare in due posti diversi.
+        /// Togliere il modificatore dall'ancora toglie l'intera classe di deriva:
+        /// un nome cambia perché lo cambi apposta, `private` cade per riflesso.
         func body(of function: String, upTo next: String) throws -> Substring {
             guard let start = delegate.text.range(of: function),
                   let end = delegate.text.range(of: next, range: start.upperBound..<delegate.text.endIndex)
@@ -206,8 +216,8 @@ import Testing
             return delegate.text[start.upperBound..<end.lowerBound]
         }
 
-        let statusMenu = try body(of: "private func setupMenuBar()", upTo: "private func triggerHint()")
-        let mainMenu = try body(of: "private func setupMainMenu()", upTo: "// MARK: Menu bar")
+        let statusMenu = try body(of: "func setupMenuBar()", upTo: "func triggerHint()")
+        let mainMenu = try body(of: "func setupMainMenu()", upTo: "// MARK: Menu bar")
 
         /// Every `keyEquivalent: "x"` in a chunk of source, empty ones dropped.
         func keys(in source: Substring) -> [String] {

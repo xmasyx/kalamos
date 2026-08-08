@@ -19,11 +19,15 @@ Two things the app could not do, and neither was about the app.
 **Your vocabulary could only repair, never prevent.** Whisper accepts an *initial
 prompt* — words handed to the decoder before it guesses. Through WhisperKit that
 channel returns an empty transcription: measured on 16 real recordings, 48 times
-out of 48, and it is a known upstream defect (WhisperKit issue #372, fixed in no
-released tag; the package is held at 0.14.x by a dependency wall). So the word
+out of 48, and it is a known upstream defect (WhisperKit issue #372). So the word
 list could only fix a mistake after it was made, and a word missing from the list
 had nobody to fix it. Through whisper.cpp the channel works: terms that came out
 wrong 8 times out of 8 come out right 5 times out of 5.
+
+Upstream has since fixed it: WhisperKit 1.1.0, released on 6 August 2026, lists
+`promptTokens` among its bug fixes, and Kalamos moved to that version on 8 August.
+The switch is still off on this side, because nobody has re-measured on it yet,
+and the 48-out-of-48 above was counted on 0.14.1.
 
 **And long audio drifted.** The same file, decoded eight times, gave word counts
 that swung by 11 and by 31. Whisper.cpp gave 200 identical texts over 200 passes

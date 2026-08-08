@@ -14,15 +14,19 @@ let package = Package(
         .executable(name: "Kalamos", targets: ["Kalamos"])
     ],
     dependencies: [
-        // WhisperKit and mlx-swift-examples share a transitive dependency on
-        // huggingface/swift-transformers. Their version ranges only overlap on
-        // the 0.1.x line: WhisperKit ≤0.14.x and mlx-swift-examples 2.25.4 both
-        // accept swift-transformers 0.1.21..<0.2.0. Newer mlx (2.25.9+, main)
-        // moved to 1.x with no WhisperKit overlap. To keep newest of BOTH, split
-        // MLX into a separate sidecar process (see ISA "dependency isolation").
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", "0.14.0" ..< "0.15.0"),
+        // IL MURO È CADUTO IL 2026-08-08, e vale la pena scrivere come.
+        // Fino alla 0.14.x WhisperKit e mlx-swift-examples si dividevano
+        // huggingface/swift-transformers, e i due intervalli si toccavano solo
+        // sulla linea 0.1.x: WhisperKit restava indietro per non spezzare MLX.
+        // Dalla 1.x WhisperKit è il monorepo argmax-oss-swift e swift-transformers
+        // NON è più fra le sue dipendenze (Vapor sta dietro isServerEnabled()).
+        // Restava un secondo scontro, transitivo: WhisperKit 1.1.0 vuole
+        // swift-argument-parser 1.7+, mentre swift-transformers 0.1.x lo inchioda
+        // a 1.4.x. Si scavalca portando MLX a 2.29.1, che sale a
+        // swift-transformers 1.0.0. Provato: i due risolvono insieme.
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", "1.1.0" ..< "2.0.0"),
         // ── Phase 2: on-device LLM (needs full Xcode for Metal) ───────────────
-        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.25.4"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", exact: "2.29.1"),
         // Parakeet TDT 0.6B v3 — the second speech engine (2026-08-01). Safe to
         // add next to the pair above precisely because FluidAudio declares
         // `dependencies: []`: it cannot pull swift-transformers into the

@@ -40,6 +40,26 @@ an estimate.
   top of the menu), and a window with `.fullSizeContentView` declares the title
   bar's thirty points as a safe area that SwiftUI will push your content into.
 
+### The dependency wall came down: WhisperKit 0.14.1 → 1.1.0, MLX 2.25.4 → 2.29.1
+
+- **Nothing you can see changed, and that is the point.** Both libraries moved
+  forward, no source file needed editing, and all 229 tests pass. The engine you
+  dictate through, the models on your disk and every setting stay where they were.
+- **Why it was stuck.** WhisperKit and MLX both pulled in `swift-transformers`,
+  and their ranges only overlapped on the 0.1.x line, so WhisperKit stayed on
+  0.14.1 for months. From 1.x WhisperKit no longer depends on it. A second, purely
+  transitive clash remained — WhisperKit 1.1.0 wants `swift-argument-parser` 1.7+,
+  while `swift-transformers` 0.1.x pins it to 1.4.x — and moving MLX to 2.29.1,
+  which uses `swift-transformers` 1.0.0, clears it.
+- **What it unlocks, not yet taken.** WhisperKit 1.1.0 lists `promptTokens` among
+  its fixes, the defect that made the word list useless on that engine. The switch
+  stays off until it is re-measured on real recordings: the 48-out-of-48 empty
+  transcriptions were counted on 0.14.1, and an unmeasured switch is a guess.
+- A source guard was found dead while checking this, and repaired: the test that
+  proves every shortcut printed in the menu is a shortcut something listens for
+  was anchored to `private func setupMenuBar()`, and the word `private` had gone
+  two commits earlier. It now anchors on the function name alone.
+
 ## v1.1.1
 
 ### Two of the four speech models could not be selected

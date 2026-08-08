@@ -260,9 +260,21 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         //
         // It is a known WhisperKit bug — issue #372, fixed by PR #514 on
         // 2026-07-30: the end-of-text check fires DURING the forced prompt
-        // prefill, so the segment ends before the first real token. The fix is
-        // in no released tag, and this package is held at 0.14.1 by a dependency
-        // wall, so the switch stays off until that moves.
+        // prefill, so the segment ends before the first real token.
+        //
+        // IL MURO È CADUTO IL 2026-08-08: la 1.1.0 (6 agosto) elenca fra le sue
+        // correzioni proprio `promptTokens`, e il pacchetto è salito a quella
+        // versione. Quindi la frase che stava qui — «la correzione non è in
+        // nessun tag rilasciato, e questo pacchetto è inchiodato alla 0.14.1» —
+        // oggi è falsa in tutte e due le metà.
+        //
+        // L'interruttore però resta SPENTO, perché nessuno ha ancora rimisurato
+        // su questa versione, e la misura è la sola cosa che può accenderlo: le
+        // 160 trascrizioni vuote su 160 sono state contate sulla 0.14.1. Prima di
+        // toccarlo si rifà il banco del 2026-08-02 sulle sue registrazioni vere,
+        // in lingua forzata E in automatica, guardando per prime le frasi
+        // ORDINARIE: il guasto che conta è quello che danneggia il parlato con
+        // cui il vocabolario non c'entra niente.
         //
         // And it would not be free even then: on `base` the prompt turned the
         // ordinary Italian "comandasse" into "commandasse" and emptied two
