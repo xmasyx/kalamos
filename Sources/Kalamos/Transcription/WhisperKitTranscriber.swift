@@ -47,6 +47,16 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         set { promptBox.withLock { $0 = newValue } }
     }
 
+    // Il vocabolario personale, acceso su questo motore dal 2026-08-08.
+    //
+    // È lo stesso canale di whisper.cpp e la stessa disciplina: NON si riversa
+    // la lista intera nel prompt, si decodifica una volta e si ri-decodifica con
+    // i soli termini che la prima passata sembra aver sbagliato (`VocabularyPrompt`).
+    // La lista arriva da fuori, come per gli altri motori, così un banco può
+    // tenerla ferma.
+    private let vocabBox = OSAllocatedUnfairLock<[String]>(initialState: [])
+    func setVocabulary(_ terms: [String]) { vocabBox.withLock { $0 = terms } }
+
     // Two hypotheses were tested here on 2026-08-02 and both are dead; the
     // switches are gone so nobody re-runs them by accident.
     //
@@ -291,21 +301,29 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         //
         // The cap is 200 tokens because the prompt eats the same 448-token
         // decoder window the transcription needs.
-        if let prompt = initialPrompt,
-           !prompt.trimmingCharacters(in: .whitespaces).isEmpty,
-           let tokenizer = pipe.tokenizer {
+        func promptTokens(for prompt: String) -> [Int]? {
+            guard !prompt.trimmingCharacters(in: .whitespaces).isEmpty,
+                  let tokenizer = pipe.tokenizer else { return nil }
             let encoded = tokenizer
                 .encode(text: " " + prompt.trimmingCharacters(in: .whitespaces))
                 .filter { $0 < tokenizer.specialTokens.specialTokenBegin }
-            if !encoded.isEmpty {
-                let tokens = Array(encoded.suffix(200))
-                options.promptTokens = tokens
-                // The round-trip is logged because "the tokens are wrong" was a
-                // live suspect for a month. They are not: the decode comes back
-                // byte-identical to what went in.
-                Log.write("vocab prompt: \(tokens.count) tokens"
-                          + " · round-trip=\"\(tokenizer.decode(tokens: tokens))\"")
-            }
+            guard !encoded.isEmpty else { return nil }
+            let tokens = Array(encoded.suffix(200))
+            // The round-trip is logged because "the tokens are wrong" was a
+            // live suspect for a month. They are not: the decode comes back
+            // byte-identical to what went in.
+            Log.write("vocab prompt: \(tokens.count) tokens"
+                      + " · round-trip=\"\(tokenizer.decode(tokens: tokens))\"")
+            return tokens
+        }
+
+        // Un prompt passato a mano (il banco) è un ordine: una passata sola, con
+        // quel testo. Il vocabolario invece agisce DOPO la prima decodifica, in
+        // fondo a questo metodo, perché i termini da insegnare si scelgono
+        // guardando che cosa la prima passata ha sbagliato.
+        let manualPrompt = initialPrompt
+        if let manualPrompt, let tokens = promptTokens(for: manualPrompt) {
+            options.promptTokens = tokens
         }
 
         // ISC-163 — four candidate fixes were measured here and all four lose.
@@ -420,6 +438,48 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
                 Log.write("re-decode came back empty — keeping the first pass")
             }
         }
+
+        // ── Il vocabolario, secondo giro (2026-08-08) ────────────────────────
+        //
+        // Perché QUI e non nella prima passata: `VocabularyPrompt` sceglie i
+        // termini guardando che cosa il motore ha sbagliato, quindi ha bisogno
+        // di un testo. E perché DOPO la correzione di lingua: quella può
+        // ridecodificare tutto, e insegnare parole a una passata che sta per
+        // essere buttata è lavoro sprecato.
+        //
+        // Il canale è aperto perché il difetto che lo teneva chiuso è morto:
+        // WhisperKit 1.1.0 restituisce 0 trascrizioni vuote su 160 dove la
+        // 0.14.1 ne dava 160 su 160, col polo negativo intatto (25/25, la clip
+        // 12 «comandasse» resta italiana) e il WER medio da 8,3% a 3,3%.
+        // Referto: `03-Plans/kalamos-prompttokens/REFERTO-20260808.md`.
+        let vocab = vocabBox.withLock { $0 }
+        if manualPrompt == nil, !vocab.isEmpty, !text.isEmpty,
+           let mirato = VocabularyPrompt.text(for: text, terms: vocab),
+           let tokens = promptTokens(for: mirato) {
+            var second = options
+            second.promptTokens = tokens
+            // La lingua è ormai decisa: la seconda passata non la rimette in
+            // discussione, altrimenti due decisioni diverse sullo stesso audio
+            // finirebbero nello stesso testo.
+            if let detected {
+                second.language = detected.rawValue
+                second.detectLanguage = false
+            }
+            let redone = try await pipe.transcribe(audioArray: samples, decodeOptions: second)
+            let redoneText = Self.stripHallucinations(
+                redone.map(\.text).joined(separator: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines))
+            Log.write("whisperkit: prompt mirato «\(mirato)» — «\(text)» → «\(redoneText)»")
+            // E se il secondo giro esce vuoto o degenera, si tiene il primo. Un
+            // miglioramento che può peggiorare deve avere una via di ritorno:
+            // è la stessa riga che protegge il percorso whisper.cpp.
+            if redoneText.isEmpty || RepetitionGuard.degenerated(redoneText) {
+                Log.write("whisperkit: secondo giro scartato, tengo il primo")
+            } else {
+                text = redoneText
+            }
+        }
+
         scheduleIdleUnload()
         return TranscriptionResult(text: text, detectedLanguage: detected)
     }

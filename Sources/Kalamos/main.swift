@@ -180,6 +180,10 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                         : nil
                 } ?? Vocabulary.terms
                 cpp?.setVocabulary(voci)
+                // Dal 2026-08-08 anche WhisperKit ha questo canale, quindi il
+                // banco deve poterlo esercitare: senza questa riga il confronto
+                // fra i due motori misurerebbe uno col vocabolario e uno senza.
+                whisper?.setVocabulary(voci)
                 FileHandle.standardError.write(Data("vocabolario iniettato: \(voci.count) voci\n".utf8))
             }
             if promptText != nil && engine == .parakeet {

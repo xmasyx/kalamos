@@ -27,12 +27,15 @@ protocol Transcriber: Sendable {
     /// Switch the underlying speech model at runtime (menu picker). Default no-op.
     func setModel(_ name: String) async
 
-    /// The personal vocabulary. Only `WhisperCppTranscriber` uses it, and it uses
-    /// it as prior context BEFORE the decoder guesses — but not as a whole list:
-    /// see `VocabularyPrompt`, a long prompt damages the very terms it contains. Default no-op, and the default is what almost every engine gets:
-    /// Parakeet has no such channel, and WhisperKit's returns an empty
-    /// transcription 48 times out of 48 (upstream issue #372, re-measured
-    /// 2026-08-05 on real clips). Only `WhisperCppTranscriber` answers it.
+    /// The personal vocabulary, used as prior context BEFORE the decoder
+    /// guesses — but never as a whole list: see `VocabularyPrompt`, a long prompt
+    /// damages the very terms it contains.
+    ///
+    /// Two engines answer it, `WhisperCppTranscriber` since 2026-08-05 and
+    /// `WhisperKitTranscriber` since 2026-08-08, when WhisperKit 1.1.0 was
+    /// measured to have fixed the defect that made this channel return an empty
+    /// transcription 48 times out of 48 (upstream issue #372). Parakeet has no
+    /// such channel, so the default stays a no-op.
     ///
     /// Passed in rather than read from `Vocabulary` inside the engine, so a bench
     /// can hold the text constant — a probe that reads the app's own defaults

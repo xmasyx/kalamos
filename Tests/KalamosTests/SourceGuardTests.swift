@@ -250,6 +250,34 @@ import Testing
         }
     }
 
+    // MARK: 2026-08-08 — il vocabolario è collegato anche a WhisperKit
+
+    /// I due motori che hanno un prompt lo usano nello stesso modo.
+    ///
+    /// Questa è una guardia di sorgente e non un test di comportamento, perché
+    /// il comportamento vero pretende un modello da 1,6 GB e audio: quello è
+    /// misurato al banco (`03-Plans/kalamos-whispercpp/REFERTO-20260808.md`,
+    /// dove il vocabolario porta `Kalamos` da 0/5 a 5/5 su entrambi i motori).
+    /// Quello che una guardia può fare è impedire che il collegamento sparisca
+    /// in silenzio: senza di lei nessun test diventerebbe rosso togliendolo, e
+    /// l'unica traccia sarebbe una parola che ricomincia a uscire sbagliata.
+    ///
+    /// Le tre cose che devono restare vere insieme, perché una sola non basta:
+    /// il motore accetta la lista, sceglie i termini con `VocabularyPrompt`
+    /// invece di riversarla tutta, e sa buttare via il secondo giro.
+    @Test func whisperKitUsesTheVocabularyLikeWhisperCpp() throws {
+        let files = try Self.swiftFiles()
+        for engine in ["WhisperKitTranscriber.swift", "WhisperCppTranscriber.swift"] {
+            guard let f = files.first(where: { $0.name == engine }) else { throw Failure.noSources }
+            #expect(f.text.contains("func setVocabulary"),
+                    "\(engine) non accetta più il vocabolario")
+            #expect(f.text.contains("VocabularyPrompt.text(for:"),
+                    "\(engine) non costruisce più il prompt sui soli termini sbagliati")
+            #expect(f.text.contains("RepetitionGuard.degenerated"),
+                    "\(engine) non ha più la via di ritorno se il secondo giro degenera")
+        }
+    }
+
     // MARK: ISC-107 — the buffer cache keeps its ceiling
 
     /// The cap on MLX's Metal buffer cache must not disappear in a refactor.

@@ -302,7 +302,9 @@ final class DictationController {
                 // motore non ha mai sentito non si ripara a valle se non è in
                 // lista, ed è esattamente il caso di `fork`, uscito «forco» nelle
                 // sue dettature vere. Su whisper.cpp il canale funziona e la porta
-                // a 5 su 5; sugli altri due questa chiamata non fa niente.
+                // a 5 su 5, e dal 2026-08-08 risponde anche WhisperKit, dove il
+                // difetto che lo teneva chiuso è stato misurato morto. Su Parakeet
+                // questa chiamata non fa niente: quel motore non ha un prompt.
                 transcriber.setVocabulary(Vocabulary.terms)
                 let result = try await transcriber.transcribe(
                     samples, allowedLanguages: enabledLanguages,

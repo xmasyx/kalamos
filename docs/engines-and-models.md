@@ -8,9 +8,9 @@ three machines carrying a model, and the machine turns out to matter.
 
 | Engine | What it runs | Pick it when |
 |---|---|---|
-| **Whisper** (WhisperKit, Core ML) | four model sizes you choose from a menu | you want to swap model size, or you are on a Mac where Core ML on the Neural Engine wins |
+| **Whisper** (WhisperKit, Core ML) | four model sizes you choose from a menu | you want to swap model size, or you want the fastest answer on short dictations |
 | **Parakeet** (FluidAudio) | one model, 461 MB | you want the smallest download and the fastest answer, and your vocabulary has no unusual names in it |
-| **Whisper.cpp** (C and Metal) | the same large-v3-turbo, 1.62 GB | you want the app to learn **your** words, and you want the same audio to give the same text every time |
+| **Whisper.cpp** (C and Metal) | the same large-v3-turbo, 1.62 GB | you want the same audio to give the same text every time, especially on long dictations |
 
 ### Why Whisper.cpp was added
 
@@ -26,8 +26,11 @@ wrong 8 times out of 8 come out right 5 times out of 5.
 
 Upstream has since fixed it: WhisperKit 1.1.0, released on 6 August 2026, lists
 `promptTokens` among its bug fixes, and Kalamos moved to that version on 8 August.
-The switch is still off on this side, because nobody has re-measured on it yet,
-and the 48-out-of-48 above was counted on 0.14.1.
+It was re-measured on 8 August and the channel is open on this side too: 0 empty
+transcriptions out of 160, ordinary Italian untouched, and your word list takes
+`Kalamos` from 0/5 to 5/5 exactly as it does through whisper.cpp. **Both Whisper
+engines now learn your words**, with the same discipline: decode once, then decode
+again with only the terms that came out wrong, at most five.
 
 **And long audio drifted.** The same file, decoded eight times, gave word counts
 that swung by 11 and by 31. Whisper.cpp gave 200 identical texts over 200 passes

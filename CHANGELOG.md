@@ -40,6 +40,28 @@ an estimate.
   top of the menu), and a window with `.fullSizeContentView` declares the title
   bar's thirty points as a safe area that SwiftUI will push your content into.
 
+### Your word list now works on Whisper too, not only on Whisper.cpp
+
+- **Both Whisper engines now learn your words before they guess.** Until today the initial-prompt
+  channel worked only through whisper.cpp, because through WhisperKit it returned an empty
+  transcription. WhisperKit 1.1.0 fixed that, it was re-measured here, and the channel is open on
+  both: 0 empty transcriptions out of 160, against 160 out of 160 on the old version, with ordinary
+  Italian untouched (the sentence *«se lui comandasse la squadra»* stays itself).
+- **The discipline is the same one whisper.cpp already used, and it is not "send the whole list".**
+  The engine decodes once, looks at which of your words the result seems to have got wrong, and
+  decodes again with those alone, at most five. A long prompt damages the very terms it contains,
+  which is measured; and on the six clips out of eight where nothing looks wrong, the second pass
+  never runs, so it costs nothing.
+- **Measured side by side, both engines with your list on** (8 clips, 5 passes, same model): the
+  word list takes `Kalamos` from 0/5 to 5/5 and the average word error rate from 5,8% to 4,3% on
+  both. WhisperKit is about 14% faster and is the only one that gets `Otium` right; whisper.cpp
+  writes *«Otsium»* from the same prompt. **The default stays whisper.cpp**, because a tenth of a
+  second does not outweigh the stability on long dictations that moved the default here in 1.2.0.
+  Full account: `03-Plans/kalamos-whispercpp/REFERTO-20260808.md`.
+- Known limit, written down because it is invisible from outside: a term of **four characters or
+  fewer never enters the prompt**, so `fork` is not repaired this way. The fuzzy-match floor is five
+  characters, and lowering it is a change that has to be measured, not assumed.
+
 ### The dependency wall came down: WhisperKit 0.14.1 → 1.1.0, MLX 2.25.4 → 2.29.1
 
 - **Nothing you can see changed, and that is the point.** Both libraries moved

@@ -140,9 +140,9 @@ final class SpeechEngineSwitch: Transcriber, @unchecked Sendable {
     /// the setting would show a model nobody had been told about.
     func setModel(_ name: String) async { await whisper.setModel(name) }
 
-    /// Al motore ATTIVO, non a tutti: il prompt è una funzione che solo
-    /// whisper.cpp ha, e mandarlo anche agli altri due sarebbe scrivere in un
-    /// campo che nessuno legge, cioè la premessa perfetta per credere un domani
-    /// che sia acceso quando non lo è.
+    /// Al motore ATTIVO, non a tutti. Dal 2026-08-08 i motori che rispondono
+    /// sono due, whisper.cpp e WhisperKit, e Parakeet resta senza questo canale:
+    /// mandarglielo sarebbe scrivere in un campo che nessuno legge, cioè la
+    /// premessa perfetta per credere un domani che sia acceso quando non lo è.
     func setVocabulary(_ terms: [String]) { active.setVocabulary(terms) }
 }
