@@ -23,20 +23,6 @@ an estimate.
   and it now weighs the engine it is actually proposing, instead of pricing every
   non-Whisper engine as if it were the small one.
 
-### The menu bar opens with the app's own livery
-
-- **The two greyed-out rows at the top of the menu are now a drawn panel**: the
-  name with its glyph, the status aligned right, and one line underneath that
-  teaches the trigger key while you are learning it and then tells you which
-  engine is listening and in which language — two facts that previously required
-  opening Preferences. Everything below stays a native menu, so items, submenus
-  and the ⌃⌥ shortcuts behave exactly as macOS behaves.
-- Two things worth knowing if you build interfaces on this: a SwiftUI view's
-  height must be asked for **after** it has been given its width (asked before,
-  it answered 92 points where the content needed 61, i.e. an empty band at the
-  top of the menu), and a window with `.fullSizeContentView` declares the title
-  bar's thirty points as a safe area that SwiftUI will push your content into.
-
 ### Whisper is the default engine again, and the reason it stopped being one was mis-measured
 
 - **On long dictations whisper.cpp drops whole sentences, always the same ones.** On the 82-second
@@ -101,6 +87,20 @@ an estimate.
   proves every shortcut printed in the menu is a shortcut something listens for
   was anchored to `private func setupMenuBar()`, and the word `private` had gone
   two commits earlier. It now anchors on the function name alone.
+
+### The menu bar opens with the app's own livery
+
+- **The two greyed-out rows at the top of the menu are now a drawn panel**: the
+  name with its glyph, the status aligned right, and one line underneath that
+  teaches the trigger key while you are learning it and then tells you which
+  engine is listening and in which language — two facts that previously required
+  opening Preferences. Everything below stays a native menu, so items, submenus
+  and the ⌃⌥ shortcuts behave exactly as macOS behaves.
+- Two things worth knowing if you build interfaces on this: a SwiftUI view's
+  height must be asked for **after** it has been given its width (asked before,
+  it answered 92 points where the content needed 61, i.e. an empty band at the
+  top of the menu), and a window with `.fullSizeContentView` declares the title
+  bar's thirty points as a safe area that SwiftUI will push your content into.
 
 ## v1.1.1
 
