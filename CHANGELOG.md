@@ -6,18 +6,15 @@ an estimate.
 
 ## v1.2.0
 
-### Whisper.cpp is now the engine a new install starts on
+### Whisper.cpp is a third engine you can choose
 
-- **The default moved from WhisperKit to whisper.cpp**, because on the two things
-  that decide whether a dictation survives, the measurements are not close. Your
-  word list can now act *before* a word is lost: through WhisperKit the initial
-  prompt returns an empty transcription 48 times out of 48 (upstream defect,
-  WhisperKit issue #372, fixed in no released tag), while through whisper.cpp
-  terms that came out wrong 8 times out of 8 come out right 5 times out of 5. And
-  long audio stops drifting: the same file decoded eight times gave word counts
-  swinging by 11 and by 31, against 200 identical texts over 200 passes of five
-  files. The full account is in the README, *Three engines, and why you would pick
-  each*.
+- **A third way to hear you**, next to WhisperKit and Parakeet, running the same
+  large-v3-turbo weights through C and Metal instead of Core ML. It briefly became
+  the default during this release, on two measurements that were true and, as it
+  turned out, incomplete: your word list could act *before* a word was lost only
+  through this engine, and the same file decoded eight times gave 200 identical
+  texts where WhisperKit's word count swung by 11 and by 31. Both of those reasons
+  have since been overtaken, and the entry below says how.
 - **Nothing changes for anyone who already picked an engine.** This is the value
   for an install that has never chosen: your choice in Preferences still wins, and
   all three engines stay selectable.
@@ -40,6 +37,30 @@ an estimate.
   top of the menu), and a window with `.fullSizeContentView` declares the title
   bar's thirty points as a safe area that SwiftUI will push your content into.
 
+### Whisper is the default engine again, and the reason it stopped being one was mis-measured
+
+- **On long dictations whisper.cpp drops whole sentences, always the same ones.** On the 82-second
+  reference file it fails to write one scripted sentence in **16 decodes out of 16**, and on a real
+  34-second dictation it loses eight words and leaves a sentence that does not stand up. WhisperKit
+  writes that sentence 16 times out of 16, and its word error rate on the same file is 6,5% against
+  16,1%.
+- **The old measurement was not wrong, it was incomplete.** It compared the two engines on
+  *dispersion* — how much the word count wobbles between passes — and whisper.cpp won clearly. It
+  never asked whether the text was *complete*. The stability was real, and it was the stability of
+  being wrong the same way every time.
+- **The cause is found and it is ours, not the library's.** Through the `whisper-cli` binary the
+  same file keeps the sentence under every setting tried. Remove the first three seconds of audio
+  and the command line loses it too, landing on 109 words — exactly what the app produced. Kalamos
+  trims leading silence before decoding, which shifts the audio against whisper.cpp's 30-second
+  windows, and a sentence sitting on a seam is dropped. WhisperKit is handed the same trimmed audio
+  and keeps it.
+- WhisperKit's own long-audio wobble (ISC-163) has not disappeared: bare, it swings by 12 and 10
+  words on the two longest files. But even its worst pass carries more words than whisper.cpp's
+  best, and with your word list on — now the normal path — the swing falls to 2 and 0, because the
+  second decode's prompt gives the decoder an anchor.
+- **If you already picked an engine, nothing moved.** This changes what a fresh install starts on.
+  Full account: `03-Plans/kalamos-whispercpp/REFERTO-LUNGO-20260808.md`.
+
 ### Your word list now works on Whisper too, not only on Whisper.cpp
 
 - **Both Whisper engines now learn your words before they guess.** Until today the initial-prompt
@@ -55,9 +76,9 @@ an estimate.
 - **Measured side by side, both engines with your list on** (8 clips, 5 passes, same model): the
   word list takes `Kalamos` from 0/5 to 5/5 and the average word error rate from 5,8% to 4,3% on
   both. WhisperKit is about 14% faster and is the only one that gets `Otium` right; whisper.cpp
-  writes *«Otsium»* from the same prompt. **The default stays whisper.cpp**, because a tenth of a
-  second does not outweigh the stability on long dictations that moved the default here in 1.2.0.
-  Full account: `03-Plans/kalamos-whispercpp/REFERTO-20260808.md`.
+  writes *«Otsium»* from the same prompt. Full account:
+  `03-Plans/kalamos-whispercpp/REFERTO-20260808.md`. (Written before the long-audio test that then
+  moved the default back to WhisperKit — see the entry above.)
 - Known limit, written down because it is invisible from outside: a term of **four characters or
   fewer never enters the prompt**, so `fork` is not repaired this way. The fuzzy-match floor is five
   characters, and lowering it is a change that has to be measured, not assumed.
@@ -73,10 +94,9 @@ an estimate.
   transitive clash remained — WhisperKit 1.1.0 wants `swift-argument-parser` 1.7+,
   while `swift-transformers` 0.1.x pins it to 1.4.x — and moving MLX to 2.29.1,
   which uses `swift-transformers` 1.0.0, clears it.
-- **What it unlocks, not yet taken.** WhisperKit 1.1.0 lists `promptTokens` among
-  its fixes, the defect that made the word list useless on that engine. The switch
-  stays off until it is re-measured on real recordings: the 48-out-of-48 empty
-  transcriptions were counted on 0.14.1, and an unmeasured switch is a guess.
+- **What it unlocked.** WhisperKit 1.1.0 lists `promptTokens` among its fixes, the
+  defect that made the word list useless on that engine. It was re-measured the same
+  day rather than assumed, and then switched on — see the word-list entry above.
 - A source guard was found dead while checking this, and repaired: the test that
   proves every shortcut printed in the menu is a shortcut something listens for
   was anchored to `private func setupMenuBar()`, and the word `private` had gone

@@ -74,7 +74,11 @@ extension Recommendation {
         let ram = machine.memoryBytes
 
         // 1. What the memory allows.
-        var engine: SpeechEngine = .whispercpp
+        //
+        // WhisperKit dall'8/08: la proposta del primo avvio segue il predefinito, e la ragione
+        // sta in `AppState` — sul parlato lungo whisper.cpp perde frasi intere, sempre le stesse.
+        // I due pesano quasi uguale sul disco (1,6 GB), quindi il conto più sotto non cambia.
+        var engine: SpeechEngine = .whisper
         var formatter: FormatterMode = .localLLM
         let cleanupID = ModelCatalog.recommendedCleanupID(physicalMemory: ram)
         var constraint: Recommendation.Constraint = .none

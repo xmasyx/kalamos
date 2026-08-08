@@ -45,14 +45,23 @@ looks at what came back, and re-decodes with only the words that look wrong, at
 most five. The second pass costs about a third of a second, and only on the
 dictations that need it.
 
-### Why you might switch back to Whisper
+### Why Whisper is the default again
 
-Whisper.cpp became the default in 1.2.0, and WhisperKit is still worth choosing for
-three reasons. It has the **model picker**: whisper.cpp ships one size, turbo, and
-ignores that menu the way Parakeet does, so a Mac that wants a smaller download has
-somewhere to go. On short scripted clips, measured against the script, WhisperKit
-came out slightly closer: 5.8% word error rate against 7.6%. And it is the engine
-with the most hours behind it in this app.
+Whisper.cpp took the default in 1.2.0 and lost it a day later, because the long-audio
+measurement that had won it the job was incomplete. It compared how much the two
+engines *wobble* between passes and never asked whether the text was *complete*. On
+the 82-second reference file whisper.cpp fails to write one whole scripted sentence
+in sixteen decodes out of sixteen; WhisperKit writes it sixteen times out of sixteen.
+Stable, and stably missing a sentence.
+
+The cause is ours rather than the library's: Kalamos trims leading silence before
+decoding, that shifts the audio against whisper.cpp's 30-second windows, and a
+sentence sitting on a seam disappears. Feed the same file to `whisper-cli` untrimmed
+and it comes back whole.
+
+Whisper.cpp is still worth choosing when you want the same audio to give byte-identical
+text every time, and it remains the engine that never drifts. WhisperKit also has the
+**model picker**, which whisper.cpp ignores because it ships one size.
 
 Nothing is locked in: the choice is one row in **Preferences ▸ Dictation**, and
 switching takes effect on your next dictation.

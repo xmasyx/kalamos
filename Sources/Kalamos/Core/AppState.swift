@@ -224,13 +224,30 @@ final class AppState: ObservableObject {
         defaultLanguage = Language(rawValue: defaults.string(forKey: "defaultLanguage") ?? "") ?? .english
         translationEnabled = (defaults.object(forKey: "translationEnabled") as? Bool) ?? false
         translationTarget = Language(rawValue: defaults.string(forKey: "translationTarget") ?? "") ?? .english
-        // **whisper.cpp è il motore predefinito dal 2026-08-07**, per sua decisione dopo averlo
-        // usato. Il banco del 5/08 diceva già la stessa cosa con i numeri: zero trascrizioni vuote
-        // contro 160 su 160, scarto zero su duecento passate dove WhisperKit balla di 11 e di 31
-        // parole, e una frase recuperata 8 volte su 8 che ogni altro braccio perde. Chi ha già
-        // scelto un motore non viene toccato: questo vale per chi non ha ancora scelto niente.
+        // **WhisperKit è tornato il motore predefinito il 2026-08-08**, e la ragione per cui
+        // era stato tolto il 7 si è rivelata mal misurata.
+        //
+        // Il banco del 5/08 aveva confrontato i due motori sulla DISPERSIONE, cioè su quanto il
+        // conteggio parole balla fra una passata e l'altra, e whisper.cpp vinceva netto. Il banco
+        // dell'8/08 sul parlato lungo ha aggiunto la domanda che mancava, cioè se il testo è
+        // COMPLETO, e la risposta rovescia il verdetto: su `lungo-noto` whisper.cpp non scrive una
+        // frase intera del copione in **16 decodifiche su 16**, e su una dettatura vera di 34
+        // secondi ne perde otto parole lasciando una frase sgrammaticata. WhisperKit scrive quella
+        // frase 16 volte su 16, e il WER senza numeri è 6,5% contro 16,1%.
+        //
+        // La stabilità di whisper.cpp era reale ed era la stabilità di chi sbaglia sempre allo
+        // stesso modo. Una misura di sola dispersione non poteva vederlo, ed è la lezione che
+        // questo commento esiste per non far ripetere.
+        //
+        // Il difetto ISC-163 di WhisperKit non è sparito: nudo, sui due file più lunghi, oscilla
+        // di 12 e di 10 parole. Ma anche la sua passata peggiore contiene più parole della
+        // migliore di whisper.cpp, e col vocabolario acceso — che dall'8/08 è il percorso normale
+        // — l'oscillazione scende a Δ2 e Δ0, perché il prefill del secondo giro fa da ancoraggio.
+        //
+        // Chi ha già scelto un motore non viene toccato: questo vale per chi non ha scelto niente.
+        // Referto: `03-Plans/kalamos-whispercpp/REFERTO-LUNGO-20260808.md`.
         speechEngine = SpeechEngine(rawValue: defaults.string(forKey: "speechEngine") ?? "")
-            ?? .whispercpp
+            ?? .whisper
         whisperModel = defaults.string(forKey: "whisperModel") ?? "openai_whisper-large-v3-v20240930_turbo"
         cleanupPromptOverride = defaults.string(forKey: "cleanupPromptOverride")
 
