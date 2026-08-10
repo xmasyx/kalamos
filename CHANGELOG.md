@@ -4,6 +4,41 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
+## Unreleased
+
+### In a terminal, "no scusami" now takes back what you took back
+
+- **Dictating a correction into a terminal used to leave both versions in.** Say
+  "il 29 settembre, no scusami, il 29 agosto" and the command arrived carrying two
+  contradictory dates. That was deliberate: text dictated into a terminal is an
+  instruction, so the cleanup was forbidden from removing anything. It was the
+  wrong call — a command with two dates is not the safe outcome, it is the one you
+  have to fix by hand.
+- **The permission is narrow and gated on evidence, in two places at once.** The
+  prompt allows exactly one deletion, and only after a spoken marker ("no scusami",
+  "no aspetta", "anzi", "volevo dire", "mi correggo", "no wait"); the fidelity
+  guard independently refuses any answer that lost words unless the marker was
+  among them, inside a budget of a third of the text, with invented words still at
+  zero. A model that decides on its own that a clause was superfluous still gets
+  its answer thrown away.
+- **Measured on 275 real dictations**, 25 of them containing a marker. The pole
+  that decided it is the other 250, which ask for no correction at all and must
+  come back word for word: rows losing at least one word went 10 → 7, words lost
+  13 → 10, words invented 6 → 4. The door did not widen. It is also deliberately
+  shy — of roughly eight genuine retractions in that corpus it resolves one, and it
+  leaves alone every marker that continues a thought instead of undoing it ("anzi
+  sono peggiori in questo tipo di task" keeps both halves).
+- **Outside a terminal nothing changed, and that was measured too.** The general
+  prompt already resolved self-corrections, with an example and with the warning
+  about false markers. Naming the extra markers there made it worse, with
+  retractions resolved going 4 → 3, so the change was reverted.
+- **The marker list is now the one you actually speak.** `scusami` was missing and
+  `scusa` did not cover it, because matching is by whole word; `sorry` and `I mean`
+  came out, since they are ordinary speech long before they are retractions. That
+  list is shared, so both fixes apply in every app, not only in terminals. Cost of
+  the removals, measured: zero. Across 275 dictations neither word was ever among
+  those the cleanup dropped.
+
 ## v1.2.0
 
 ### Whisper.cpp is a third engine you can choose

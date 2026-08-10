@@ -95,8 +95,8 @@ import Testing
         #expect(MLXFormatter.changedTooMuch(from: said, to: rewritten))
     }
 
-    /// In a terminal the budget is zero. Filler may go; a word the speaker said
-    /// may not, however sensible the replacement looks.
+    /// In a terminal the budget is filler, punctuation and nothing the speaker
+    /// chose — unless he audibly took it back, which the next test covers.
     @Test func strictModeAllowsNothingButFillerAndPunctuation() {
         let said = "allora vediamo se questa cosa funziona come dovrebbe funzionare"
         #expect(!MLXFormatter.changedTooMuch(
@@ -112,6 +112,75 @@ import Testing
         #expect(MLXFormatter.changedTooMuch(
             from: said,
             to: "Vediamo se questa cosa funziona come dovrebbe.",
+            strict: true))
+    }
+
+    /// The one deletion a terminal allows: the speaker said a thing, said "no
+    /// scusami", and said it differently. Both poles, because the permission is
+    /// only worth having if the door it opens is narrow.
+    ///
+    /// Reported 2026-08-10 — a dictated command carrying two contradictory dates
+    /// is not the safe outcome, it is the one that has to be fixed by hand.
+    @Test func strictModeResolvesASpokenRetractionAndNothingElse() {
+        let said = "quindi il 29 settembre no scusami il 29 agosto ti ricorderai tu quali video scaricare e trascrivere"
+
+        // ① The retraction resolved: the fragment AND the marker are gone.
+        #expect(!MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Quindi il 29 agosto, ti ricorderai tu quali video scaricare e trascrivere?",
+            strict: true))
+
+        // ② `scusami` is what he actually says. Before 2026-08-10 the marker list
+        //    held only `scusa`, and whole-word matching made this case fail — the
+        //    negative pole that proves the list entry is load-bearing.
+        #expect(!MLXFormatter.changedTooMuch(
+            from: "il preventivo è di trentamila euro scusami quarantamila euro e la consegna resta quella",
+            to: "Il preventivo è di quarantamila euro, e la consegna resta quella.",
+            strict: true))
+
+        // ③ The marker SURVIVED into the output, so nothing was retracted: the
+        //    words that vanished vanished for the model's own reasons.
+        #expect(MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Quindi, no scusami, ti ricorderai tu quali video scaricare e trascrivere?",
+            strict: true))
+
+        // ④ No marker anywhere, a clause dropped: the ordinary failure, still caught.
+        #expect(MLXFormatter.changedTooMuch(
+            from: "quindi il 29 agosto ti ricorderai tu quali video scaricare e trascrivere",
+            to: "Quindi il 29 agosto?",
+            strict: true))
+
+        // ⑤ A marker is not a licence: past the budget it is a rewrite either way.
+        #expect(MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Anzi, scaricali.",
+            strict: true))
+
+        // ⑥ Inventing stays at zero even with a legitimate retraction in hand.
+        #expect(MLXFormatter.changedTooMuch(
+            from: said,
+            to: "Quindi il 29 agosto, ti ricorderai tu quali video scaricare, trascrivere e pubblicare?",
+            strict: true))
+    }
+
+    /// `sorry` and `I mean` are ordinary English speech long before they are
+    /// retractions, so on 2026-08-10 they left the marker list. Each of these
+    /// loses exactly ONE word, which is inside the widened budget and outside the
+    /// narrow one: the only shape that can tell the two lists apart.
+    @Test func apologiesAndFillerAreNotRetractions() {
+        #expect(MLXFormatter.changedTooMuch(
+            from: "sorry the meeting is at ten in the morning not at nine",
+            to: "The meeting is at ten in the morning, not at nine.",
+            strict: true))
+        #expect(MLXFormatter.changedTooMuch(
+            from: "i mean the file is already in the shared folder with the others",
+            to: "The file is already in the shared folder with the others.",
+            strict: true))
+        // The positive pole of the same shape: a marker that IS one still passes.
+        #expect(!MLXFormatter.changedTooMuch(
+            from: "il file è nella cartella condivisa scusami nella cartella pubblica",
+            to: "Il file è nella cartella pubblica.",
             strict: true))
     }
 

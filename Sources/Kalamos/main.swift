@@ -619,6 +619,79 @@ if CommandLine.arguments.contains("--selftest-archive") {
     exit(ok ? 0 : 1)
 }
 
+// `Kalamos --selftest-terminale <corpus.json> --out <results.json>`
+//
+// The terminal cleanup path, run over a corpus of REAL dictations with the
+// frontmost app forced to iTerm. It exists because the question it answers has
+// two poles and only one of them is interesting to look at: a handful of spoken
+// self-corrections must be resolved, and every other dictation must come back
+// word-identical. Measuring the first pole alone would call a prompt that
+// rewrites everything a success.
+//
+// Nothing here re-implements the cleanup: it calls `MLXFormatter.format` on the
+// real context, so the guard, the fallback and the prompt under test are the
+// ones the app runs.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-terminale") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-terminale <corpus.json> [--out results.json] [--solo-marcatori] [--generale]")
+        exit(2)
+    }
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        #if canImport(MLXLLM)
+        struct CorpusRow: Codable { let id: String, lang: String, raw: String; let marker: Bool }
+        struct ResultRow: Codable {
+            let id: String, lang: String, raw: String, out: String
+            let marker: Bool, seconds: Double
+        }
+        do {
+            var corpus = try JSONDecoder().decode(
+                [CorpusRow].self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+            if args.contains("--solo-marcatori") { corpus = corpus.filter { $0.marker } }
+            let f = MLXFormatter(engine: .shared)
+            FileHandle.standardError.write(Data("corpus: \(corpus.count) dettature\n".utf8))
+            var rows: [ResultRow] = []
+            // `--generale` swaps the terminal for no app at all, which is how the
+            // ordinary path is reached: not a terminal, not a code editor, neutral
+            // tone. The same corpus can then be run through both prompts and the
+            // difference is the prompt, not the material.
+            let bundle: String? = args.contains("--generale") ? nil : "com.googlecode.iterm2"
+            FileHandle.standardError.write(Data(
+                "percorso: \(bundle == nil ? "generale" : "terminale")\n".utf8))
+            for (i, c) in corpus.enumerated() {
+                let ctx = FormattingContext(
+                    language: Language(rawValue: c.lang) ?? .italian,
+                    frontmostBundleID: bundle)
+                let t0 = Date()
+                let out = await f.format(c.raw, context: ctx)
+                rows.append(ResultRow(id: c.id, lang: c.lang, raw: c.raw, out: out,
+                                      marker: c.marker,
+                                      seconds: Date().timeIntervalSince(t0)))
+                if i % 25 == 0 {
+                    FileHandle.standardError.write(Data("… \(i)/\(corpus.count)\n".utf8))
+                }
+            }
+            if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                try encoder.encode(rows).write(to: URL(fileURLWithPath: args[i + 1]))
+                print("scritto \(args[i + 1]) — \(rows.count) righe")
+            }
+        } catch {
+            FileHandle.standardError.write(Data("selftest-terminale: \(error)\n".utf8))
+            exit(1)
+        }
+        #else
+        print("MLX not compiled in")
+        #endif
+        sem.signal()
+    }
+    waitServicingMainActor(sem)
+    exit(0)
+}
+
 // Headless diagnostic for the cleanup prompt (#1 corrections, #3 lists, no-reply).
 if CommandLine.arguments.contains("--selftest-cleanup") {
     let sem = DispatchSemaphore(value: 0)

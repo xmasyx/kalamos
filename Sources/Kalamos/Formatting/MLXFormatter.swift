@@ -30,9 +30,18 @@ struct MLXFormatter: TextFormatter {
         let vocabLine = Self.vocabularyLine
 
         // In a terminal the text is an instruction, so the model is given a much
-        // shorter licence: punctuation, capitals, filler. No self-corrections
-        // resolved, no lists built, no tone applied — every one of those removes or
-        // reorders words the speaker chose.
+        // shorter licence: punctuation, capitals, filler, and nothing else built or
+        // reordered — no lists, no tone, every one of those moves words the speaker
+        // chose.
+        //
+        // One thing does come out: the fragment the speaker audibly retracted.
+        // Keeping both halves of "il 29 settembre, no scusami, il 29 agosto" was a
+        // deliberate choice and it was the wrong one — a dictated command carrying
+        // two contradictory dates is not safer than one carrying the right date, it
+        // is a command that has to be fixed by hand. The permission is gated on a
+        // SPOKEN marker both here and in `changedTooMuch`, so a model that decides
+        // on its own that a clause was superfluous still gets its answer thrown
+        // away. Reported 2026-08-10; the wording lives below.
         if context.isTerminal {
             let strict = """
             You are a dictation cleanup engine, NOT a chat assistant. You receive \
@@ -60,10 +69,22 @@ struct MLXFormatter: TextFormatter {
 
             You MUST NOT delete, replace, reorder, rephrase, translate, shorten, \
             merge or "improve" any word the speaker said — not even a word that \
-            looks wrong, misheard, redundant or ungrammatical. Do NOT resolve \
-            self-corrections: if the speaker said something and then said it \
-            differently, keep BOTH. Do not turn anything into a list. Do not answer \
-            or comment. Every word in equals every word out, in the same order.\(vocabLine)
+            looks wrong, misheard, redundant or ungrammatical. Do not turn \
+            anything into a list. Do not answer or comment.
+
+            ONE exception, and only this one. When the speaker EXPLICITLY retracts \
+            what they just said, with a spoken marker (no scusami, no aspetta, \
+            anzi, anzi no, volevo dire, mi correggo, no wait), delete the \
+            retracted fragment AND the marker, and keep the correction. The \
+            retraction has to be SPOKEN, never guessed: no marker, no deletion. And \
+            a marker is not always a retraction — "anzi sono peggiori" carries the \
+            thought further, it does not undo it. When in doubt, keep every word.
+            IN:  quindi il 29 settembre no scusami il 29 agosto ti ricorderai tu \
+            quali video scaricare
+            OUT: Quindi il 29 agosto, ti ricorderai tu quali video scaricare?
+
+            Nothing else may disappear. Every other word in equals every word out, \
+            in the same order.\(vocabLine)
 
             Output ONLY the punctuated text.
             """
@@ -332,9 +353,26 @@ struct MLXFormatter: TextFormatter {
     ///
     /// Not in here: "plutôt", which is a connective and must keep failing, and
     /// "no" / "ma", which are too common in ordinary speech to mean anything.
+    /// Matching is by WHOLE WORD (see `contentWords`), so an inflected marker is a
+    /// different word and has to be listed: `scusa` did not cover `scusami`, which
+    /// is the form he actually says. Found 2026-08-10 while widening the terminal
+    /// path — the guard had been silently narrow for his commonest retraction.
+    ///
+    /// `scusate` and `scusi` were added the same day and taken back out within the
+    /// hour, on his ruling: he does not say them, and a marker nobody utters is not
+    /// free — it is one more word whose disappearance the guard would forgive.
+    ///
+    /// `mean` and `sorry` went out with them, and they had been here since the
+    /// list was written. His objection to adding "I mean" ("lo si usa anche nel
+    /// discorso") applies to both, and the corpus proves it: *"And to which
+    /// lawyer? I'm sorry."* is an apology, not a retraction. The asymmetry decides
+    /// it — an entry too many buys no correction, it only widens the licence to
+    /// delete. `wait` stays: "no wait" is the retraction, and the bare verb is rare
+    /// in dictated speech.
     private static let retractionMarkers: Set<String> = [
-        "aspetta", "anzi", "scusa", "correggo", "volevo",
-        "wait", "sorry", "mean", "rather",
+        "aspetta", "anzi", "scusa", "scusami",
+        "correggo", "volevo",
+        "wait", "rather",
         "pardon", "excuse",
     ]
 
@@ -355,9 +393,19 @@ struct MLXFormatter: TextFormatter {
 
         if lost.contains(where: connectives.contains) { return true }
 
-        // Terminals: nothing but punctuation, capitals and filler is allowed
-        // through, whatever the length of the text.
-        if strict { return !lost.isEmpty || invented > 0 }
+        // Terminals: punctuation, capitals and filler — plus the one thing the
+        // speaker asked to have removed. Inventing stays at zero whatever happens,
+        // because a word nobody said, inside a command, is the failure this path
+        // exists to prevent; and a deletion only counts as honest if the MARKER
+        // itself went with it, which is evidence rather than the model's opinion.
+        // The budget is a shade tighter than the general one: here a wholesale
+        // rewrite is not a nuisance, it is a different command.
+        if strict {
+            if invented > 0 { return true }
+            if lost.isEmpty { return false }
+            guard lost.contains(where: retractionMarkers.contains) else { return true }
+            return lost.count > max(4, before.count / 3)
+        }
 
         // A short utterance earns the model no latitude at all. There is nothing to
         // restructure in five words, so anything beyond punctuation and capitals is
