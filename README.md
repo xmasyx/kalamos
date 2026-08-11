@@ -71,7 +71,10 @@ survives. Works the same in Italian and French.
 **It learns your words, two ways.** A word misheard the same way every time is a
 correction, applied to the raw transcript before anything else. A term mangled
 differently every time is vocabulary, weighed in context by the model. Select a
-word anywhere on your Mac and press ⌃⌥L to teach it without opening a window.
+word anywhere on your Mac and press ⌃⌥L to teach it without opening a window: the
+dictionary grows while you work, and the transcription gets more precise as it
+does. A few other ⌃⌥ shortcuts do the same for the rest of the daily loop, and the
+menu bar lists them with their keys.
 
 ![Preferences, Words and corrections: a list of terms Kalamos should always get right, and a list of what it hears mapped to what it should type](docs/screenshots/preferences-words.png)
 
@@ -102,12 +105,14 @@ Three speech engines, switchable in Preferences, all on device.
 
 | Engine | What it runs | Pick it when |
 |---|---|---|
-| **Whisper.cpp** (default) | large-v3-turbo, 1.62 GB | you want the app to learn your words, and the same audio to give the same text every time |
-| **Whisper** (WhisperKit, Core ML) | four model sizes from a menu | you want to change model size, or a smaller download |
+| **Whisper** (WhisperKit, Core ML) — default | four model sizes from a menu | the default since 1.3.0: it keeps the most words on a long dictation, and it learns your words like the others do |
+| **Whisper.cpp** | large-v3-turbo, 1.62 GB | you want the same audio to give the same text every pass. Worth knowing: on long audio it can drop a whole sentence, always the same one |
 | **Parakeet** (FluidAudio) | one model, 461 MB | you want the smallest download and the fastest answer |
 
-Which cleanup model your Mac can hold, why whisper.cpp became the default, and the
-measurements behind both: [engines and models](docs/engines-and-models.md).
+Both Whisper engines learn your words before they guess; until 1.3.0 only whisper.cpp
+could. Which cleanup model your Mac can hold, why whisper.cpp took the default in
+1.2.0 and lost it a day later, and the measurements behind both:
+[engines and models](docs/engines-and-models.md).
 
 ## Documentation
 
