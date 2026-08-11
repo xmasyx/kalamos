@@ -4,59 +4,8 @@ Every entry says what changed and, where it matters, what was measured to decide
 it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
-## Unreleased
 
-### In a terminal, "no scusami" now takes back what you took back
-
-- **Dictating a correction into a terminal used to leave both versions in.** Say
-  "il 29 settembre, no scusami, il 29 agosto" and the command arrived carrying two
-  contradictory dates. That was deliberate: text dictated into a terminal is an
-  instruction, so the cleanup was forbidden from removing anything. It was the
-  wrong call — a command with two dates is not the safe outcome, it is the one you
-  have to fix by hand.
-- **The permission is narrow and gated on evidence, in two places at once.** The
-  prompt allows exactly one deletion, and only after a spoken marker ("no scusami",
-  "no aspetta", "anzi", "volevo dire", "mi correggo", "no wait"); the fidelity
-  guard independently refuses any answer that lost words unless the marker was
-  among them, inside a budget of a third of the text, with invented words still at
-  zero. A model that decides on its own that a clause was superfluous still gets
-  its answer thrown away.
-- **Measured on 275 real dictations**, 25 of them containing a marker. The pole
-  that decided it is the other 250, which ask for no correction at all and must
-  come back word for word: rows losing at least one word went 10 → 7, words lost
-  13 → 10, words invented 6 → 4. The door did not widen. It is also deliberately
-  shy — of roughly eight genuine retractions in that corpus it resolves one, and it
-  leaves alone every marker that continues a thought instead of undoing it ("anzi
-  sono peggiori in questo tipo di task" keeps both halves).
-- **Outside a terminal nothing changed, and that was measured too.** The general
-  prompt already resolved self-corrections, with an example and with the warning
-  about false markers. Naming the extra markers there made it worse, with
-  retractions resolved going 4 → 3, so the change was reverted.
-- **The marker list is now the one you actually speak.** `scusami` was missing and
-  `scusa` did not cover it, because matching is by whole word; `sorry` and `I mean`
-  came out, since they are ordinary speech long before they are retractions. That
-  list is shared, so both fixes apply in every app, not only in terminals. Cost of
-  the removals, measured: zero. Across 275 dictations neither word was ever among
-  those the cleanup dropped.
-
-## v1.2.0
-
-### Whisper.cpp is a third engine you can choose
-
-- **A third way to hear you**, next to WhisperKit and Parakeet, running the same
-  large-v3-turbo weights through C and Metal instead of Core ML. It briefly became
-  the default during this release, on two measurements that were true and, as it
-  turned out, incomplete: your word list could act *before* a word was lost only
-  through this engine, and the same file decoded eight times gave 200 identical
-  texts where WhisperKit's word count swung by 11 and by 31. Both of those reasons
-  have since been overtaken, and the entry below says how.
-- **Nothing changes for anyone who already picked an engine.** This is the value
-  for an install that has never chosen: your choice in Preferences still wins, and
-  all three engines stay selectable.
-- **What it costs:** a 1.62 GB model download the first time, against Whisper's
-  1.5 GB. On a Mac too small for either, setup still proposes Parakeet (461 MB) —
-  and it now weighs the engine it is actually proposing, instead of pricing every
-  non-Whisper engine as if it were the small one.
+## v1.3.0
 
 ### Whisper is the default engine again, and the reason it stopped being one was mis-measured
 
@@ -122,6 +71,60 @@ an estimate.
   proves every shortcut printed in the menu is a shortcut something listens for
   was anchored to `private func setupMenuBar()`, and the word `private` had gone
   two commits earlier. It now anchors on the function name alone.
+
+### In a terminal, "no scusami" now takes back what you took back
+
+- **Dictating a correction into a terminal used to leave both versions in.** Say
+  "il 29 settembre, no scusami, il 29 agosto" and the command arrived carrying two
+  contradictory dates. That was deliberate: text dictated into a terminal is an
+  instruction, so the cleanup was forbidden from removing anything. It was the
+  wrong call — a command with two dates is not the safe outcome, it is the one you
+  have to fix by hand.
+- **The permission is narrow and gated on evidence, in two places at once.** The
+  prompt allows exactly one deletion, and only after a spoken marker ("no scusami",
+  "no aspetta", "anzi", "volevo dire", "mi correggo", "no wait"); the fidelity
+  guard independently refuses any answer that lost words unless the marker was
+  among them, inside a budget of a third of the text, with invented words still at
+  zero. A model that decides on its own that a clause was superfluous still gets
+  its answer thrown away.
+- **Measured on 275 real dictations**, 25 of them containing a marker. The pole
+  that decided it is the other 250, which ask for no correction at all and must
+  come back word for word: rows losing at least one word went 10 → 7, words lost
+  13 → 10, words invented 6 → 4. The door did not widen. It is also deliberately
+  shy — of roughly eight genuine retractions in that corpus it resolves one, and it
+  leaves alone every marker that continues a thought instead of undoing it ("anzi
+  sono peggiori in questo tipo di task" keeps both halves).
+- **Outside a terminal nothing changed, and that was measured too.** The general
+  prompt already resolved self-corrections, with an example and with the warning
+  about false markers. Naming the extra markers there made it worse, with
+  retractions resolved going 4 → 3, so the change was reverted.
+- **The marker list is now the one you actually speak.** `scusami` was missing and
+  `scusa` did not cover it, because matching is by whole word; `sorry` and `I mean`
+  came out, since they are ordinary speech long before they are retractions. That
+  list is shared, so both fixes apply in every app, not only in terminals. Cost of
+  the removals, measured: zero. Across 275 dictations neither word was ever among
+  those the cleanup dropped.
+
+## v1.2.0
+
+### Whisper.cpp is now the engine a new install starts on
+
+- **The default moved from WhisperKit to whisper.cpp**, because on the two things
+  that decide whether a dictation survives, the measurements are not close. Your
+  word list can now act *before* a word is lost: through WhisperKit the initial
+  prompt returns an empty transcription 48 times out of 48 (upstream defect,
+  WhisperKit issue #372, fixed in no released tag), while through whisper.cpp
+  terms that came out wrong 8 times out of 8 come out right 5 times out of 5. And
+  long audio stops drifting: the same file decoded eight times gave word counts
+  swinging by 11 and by 31, against 200 identical texts over 200 passes of five
+  files. The full account is in the README, *Three engines, and why you would pick
+  each*.
+- **Nothing changes for anyone who already picked an engine.** This is the value
+  for an install that has never chosen: your choice in Preferences still wins, and
+  all three engines stay selectable.
+- **What it costs:** a 1.62 GB model download the first time, against Whisper's
+  1.5 GB. On a Mac too small for either, setup still proposes Parakeet (461 MB) —
+  and it now weighs the engine it is actually proposing, instead of pricing every
 
 ### The menu bar opens with the app's own livery
 

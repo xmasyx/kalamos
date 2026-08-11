@@ -8,10 +8,15 @@
     <string>Kalamos</string>
     <key>CFBundleIdentifier</key>
     <string>com.kalamos.app</string>
+    <!-- 0.0.0 = build locale. In CI il tag È la versione: `build-app.sh` la
+         sovrascrive solo se KALAMOS_VERSION è impostata, e una build a mano non
+         la imposta. Un numero vero scritto qui resta indietro in silenzio: la
+         v1.2.0 è uscita il 7/08 e le build locali hanno continuato a dire 1.1.1
+         per quattro giorni, col codice dell'8/08 già dentro. -->
     <key>CFBundleVersion</key>
-    <string>1.1.1</string>
+    <string>0.0.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.1</string>
+    <string>0.0.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
