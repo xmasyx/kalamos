@@ -82,6 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onSummarize = { [weak self] in
             Task { @MainActor in self?.summarizeLast() }
         }
+        hotkey.onFixLast = { [weak self] in
+            Task { @MainActor in self?.correctLastDictation() }
+        }
 
         // Pin the on-device cleanup model to the saved choice and apply the saved
         // push-to-talk preference before the tap goes live.
@@ -280,6 +283,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     action: #selector(addCorrection), keyEquivalent: "k")
         correction.keyEquivalentModifierMask = [.control, .option]
         menu.addItem(correction)
+        // The third of the family, and the only one that teaches the ear instead
+        // of the spelling: ⌃⌥L and ⌃⌥K fix a word from now on, ⌃⌥V writes down
+        // what was said, so the sound and the truth end up in the same folder.
+        let truth = NSMenuItem(title: L.t("Correggi l’ultima dettatura…",
+                                          "Fix the Last Dictation…",
+                                          "Corriger la dernière dictée…"),
+                               action: #selector(correctLastDictation), keyEquivalent: "v")
+        truth.keyEquivalentModifierMask = [.control, .option]
+        menu.addItem(truth)
 
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: L.t("Preferenze…", "Preferences…", "Préférences…"),
@@ -526,7 +538,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         Vocabulary.add(s)
         Log.write("learn ⌃⌥L: added \"\(s)\" via \(source)")
+        Self.markLastDictation(teaching: s)
         NSSound(named: "Glass")?.play()
+    }
+
+    /// Teaching it a word seconds after a dictation IS a report that the
+    /// dictation was wrong, so it is worth recording as one. Free evidence: he
+    /// made the gesture for his own reasons and this costs him nothing extra.
+    ///
+    /// The window is deliberately short. Teaching a word an hour later is
+    /// housekeeping, not a reaction, and marking a stale recording would put
+    /// noise into the one place that is supposed to be signal.
+    private static func markLastDictation(teaching term: String) {
+        guard let recent = LastDictation.shared.recent(within: 60) else { return }
+        DictationArchive.mark(recent.wav, reason: L.t(
+            "gli hai insegnato «\(term)» subito dopo",
+            "you taught it “\(term)” right afterwards",
+            "vous lui avez appris « \(term) » juste après"))
     }
 
     /// Add a replacement rule (⌃⌥K) — the two-valued sibling of ⌃⌥L.
@@ -544,8 +572,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         CorrectionWindow.shared.show(heard: heard) { [weak self] wrong, correct in
             Corrections.add(wrong: wrong, correct: correct)
             Log.write("correction ⌃⌥K: added \"\(wrong)\" → \"\(correct)\"")
+            Self.markLastDictation(teaching: correct)
             NSSound(named: "Glass")?.play()
             _ = self
+        }
+    }
+
+    /// Write down what the last dictation should have said (⌃⌥V).
+    ///
+    /// The archive keeps the sound and what came out of it; neither of those is
+    /// the truth when the transcription is the thing that went wrong. This is the
+    /// only path by which a correct verbatim ever reaches the disk, which is why
+    /// the panel opens already filled with the raw text: correcting three words
+    /// is a gesture, retyping a paragraph is a chore nobody does twice.
+    ///
+    /// It reads the raw text from memory when the dictation happened in this run,
+    /// and from the sidecar otherwise, so it still works the morning after.
+    @objc private func correctLastDictation() {
+        guard let wav = LastDictation.shared.snapshot?.wav ?? DictationArchive.latest else {
+            Log.write("verbatim ⌃⌥V: no dictation archived — nothing to correct")
+            NSSound(named: "Funk")?.play()
+            return
+        }
+        let raw = LastDictation.shared.snapshot?.raw.isEmpty == false
+            ? LastDictation.shared.snapshot!.raw
+            : (DictationArchive.section("GREZZO", in: wav) ?? "")
+        Log.write("verbatim ⌃⌥V: opened for \(wav.lastPathComponent)")
+        TruthWindow.shared.show(raw: raw) { verbatim in
+            DictationArchive.recordTruth(wav, verbatim: verbatim)
+            NSSound(named: "Glass")?.play()
         }
     }
 

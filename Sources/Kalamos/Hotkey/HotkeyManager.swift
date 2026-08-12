@@ -32,6 +32,9 @@ final class HotkeyManager {
     /// Fired on ⌃⌥S — summarize the last dictation.
     var onSummarize: (() -> Void)?
 
+    /// Fired on ⌃⌥V — write down what the last dictation should have said.
+    var onFixLast: (() -> Void)?
+
     init(keyCode: UInt16, recognizer: GestureRecognizer = GestureRecognizer()) {
         self.keyCode = keyCode
         self.recognizer = recognizer
@@ -85,6 +88,7 @@ final class HotkeyManager {
         0x28: "k",   // kVK_ANSI_K — add a correction for the selected word
         0x08: "c",   // kVK_ANSI_C — copy the last transcription
         0x01: "s",   // kVK_ANSI_S — summarize the last dictation
+        0x09: "v",   // kVK_ANSI_V — correct what the last dictation should have said
     ]
 
     @discardableResult
@@ -185,6 +189,7 @@ final class HotkeyManager {
             case "k": onAddCorrection?()
             case "c": onCopyLast?()
             case "s": onSummarize?()
+            case "v": onFixLast?()
             default: return Unmanaged.passUnretained(event)
             }
             return nil   // consume

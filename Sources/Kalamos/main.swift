@@ -853,6 +853,25 @@ if CommandLine.arguments.contains("--selftest-format") {
             ("ho finito il lavoro punto", "lavoro.", "punto"),    // real full stop
             ("prendi il latte punto poi torna", "latte. poi", "punto poi"), // mid full stop
             ("al punto in cui siamo", "al punto", nil),           // determiner → word kept
+            // "virgola" has the same two lives, and it cost real dictations on
+            // 2026-08-11: talking ABOUT commas, the word was eaten twice in one
+            // minute. Both of these are his verbatim transcripts.
+            ("arriva senza una sola virgola Ma in realtà", "sola virgola", nil),
+            ("è uscito senza virgola l'audio di prima", "senza virgola", nil),
+            ("questa è una virgola mobile", "virgola mobile", nil),  // fixed phrase kept
+            // The positive pole: the command still has to work, or the "fix"
+            // is just a deletion wearing a guard's clothes.
+            ("questo è un test virgola poi vediamo", "test, poi", "virgola"),
+        ]
+        let en = FormattingContext(language: .english, frontmostBundleID: nil)
+        let fr = FormattingContext(language: .french, frontmostBundleID: nil)
+        // Same defect, other languages — enumerated because a class does not
+        // stop at the language you happened to hit it in.
+        let siblings: [(FormattingContext, String, String, String?)] = [
+            (en, "there is not a single comma here", "single comma", nil),
+            (en, "add milk comma bread and eggs", "milk, bread", "comma"),
+            (fr, "il arrive sans une seule virgule ici", "seule virgule", nil),
+            (fr, "prends le lait virgule puis reviens", "lait, puis", "virgule"),
         ]
         var fails = 0
         for (input, must, forbidden) in cases {
@@ -862,6 +881,14 @@ if CommandLine.arguments.contains("--selftest-format") {
                 && (forbidden == nil || !lower.contains(forbidden!.lowercased()))
             if !ok { fails += 1 }
             print("\(ok ? "✅" : "❌") IN:  \(input)\n    OUT: \(out)")
+        }
+        for (ctx, input, must, forbidden) in siblings {
+            let out = await f.format(input, context: ctx)
+            let lower = out.lowercased()
+            let ok = lower.contains(must.lowercased())
+                && (forbidden == nil || !lower.contains(forbidden!.lowercased()))
+            if !ok { fails += 1 }
+            print("\(ok ? "✅" : "❌") [\(ctx.language.rawValue)] IN:  \(input)\n    OUT: \(out)")
         }
         print(fails == 0 ? "\nALL PASS" : "\n\(fails) FAILED")
         sem.signal()
@@ -1021,6 +1048,17 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
         let halves = value.split(separator: ">", maxSplits: 1).map(String.init)
         CorrectionWindow.shared.show(heard: halves.first ?? "",
                                      written: halves.count > 1 ? halves[1] : "") { _, _ in }
+    } else if let flag = CommandLine.arguments.first(where: { $0 == "--verita" || $0.hasPrefix("--verita=") }) {
+        // `--verita[=testo]` — the ⌃⌥V panel, prefilled with a transcript.
+        //
+        // A panel for correcting a paragraph has to be photographed with a
+        // paragraph in it: what is being judged is whether the text is
+        // comfortable to read and to edit in place, and a two-word placeholder
+        // answers a different question. The default carries a wrong number on
+        // purpose, because the number is the thing this panel exists to fix and
+        // the eye should land on it.
+        let value = flag.split(separator: "=", maxSplits: 1).dropFirst().first.map(String.init)
+        TruthWindow.shared.show(raw: value ?? "Prima di pubblicare l'applicazione vorrei capire se conviene metterla sullo store, e se in futuro possiamo farla funzionare anche sul telefono e sull'orologio. Se decidiamo di sì paghiamo la licenza per un anno, quindi paghiamo 200 euro, altrimenti la lasciamo dov'è e vediamo se qualcuno la usa.") { _ in }
     } else if CommandLine.arguments.contains("--onboarding") {
         // The one screen that has no second chance: whoever installs the app sees it
         // once. Its actions are all no-ops here — nothing asks for a permission and

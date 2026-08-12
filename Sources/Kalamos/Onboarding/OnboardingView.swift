@@ -60,7 +60,7 @@ enum OnboardingFlow {
 /// and is missing here, so the next mode added cannot repeat this.
 enum OnboardingChoices {
     static let triggerModes: [TriggerMode] = [.hold, .singleTap, .doubleTap, .both]
-    static let formatterModes: [FormatterMode] = [.localLLM, .ruleBased, .off]
+    static let formatterModes: [FormatterMode] = [.adaptive, .localLLM, .ruleBased, .off]
     /// The keys offered for the trigger — **by setup AND by Preferences**, which
     /// each had their own copy until 2026-08-02. Right Shift was in one and not
     /// the other: the same drift that lost the fourth trigger mode, found the
@@ -929,6 +929,7 @@ struct OnboardingView: View {
 
     static func formatterTitle(_ mode: FormatterMode, _ ui: Language) -> String {
         switch mode {
+        case .adaptive:  return L.t("Solo quando serve", "Only when needed", "Seulement si besoin")
         case .localLLM:  return L.t("Sì, con il modello", "Yes, use the model", "Oui, avec le modèle")
         case .ruleBased: return L.t("Solo punteggiatura", "Punctuation only", "Ponctuation seule")
         case .off:       return L.t("Niente", "Nothing", "Rien")
@@ -938,6 +939,10 @@ struct OnboardingView: View {
     private static func formatterNote(_ mode: FormatterMode, _ ui: Language,
                                       size: String) -> String {
         switch mode {
+        case .adaptive:
+            return L.t("istantaneo, tranne sui discorsi lunghi",
+                       "instant, except on long speech",
+                       "instantané, sauf sur les longs passages")
         case .localLLM:
             return L.t("\(size), una volta sola", "\(size), once", "\(size), une seule fois")
         case .ruleBased:

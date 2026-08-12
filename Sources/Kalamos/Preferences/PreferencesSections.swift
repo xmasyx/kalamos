@@ -166,12 +166,14 @@ struct CleanupSection: View {
         Group {
             PrefRow(title: L.t("Cosa fa al testo", "What it does to the text",
                                "Ce qu’il fait au texte"),
-                    note: L.t("Il modello locale mette la punteggiatura, toglie gli intercalari e chiude le frasi lasciate a metà.",
-                              "The local model punctuates, drops filler and resolves half-finished sentences.",
-                              "Le modèle local ponctue, retire les hésitations et termine les phrases.")) {
+                    note: L.t("Whisper punteggia già da solo quasi sempre. Il modello locale serve sui discorsi lunghi detti di filato, dove la punteggiatura non arriva e le frasi restano a metà.",
+                              "Whisper already punctuates most of the time. The local model earns its seconds on long unbroken speech, where the punctuation never arrives and sentences stay half-finished.",
+                              "Whisper ponctue déjà la plupart du temps. Le modèle local sert sur les longs passages dits d’une traite, où la ponctuation n’arrive pas.")) {
                 ChipRow(options: [
+                    (FormatterMode.adaptive, L.t("Solo quando serve", "Only when needed", "Seulement si besoin"),
+                     L.t("consigliato", "recommended", "recommandé")),
                     (FormatterMode.localLLM, L.t("Modello locale", "Local model", "Modèle local"),
-                     L.t("il migliore", "the best one", "le meilleur")),
+                     L.t("sempre", "always", "toujours")),
                     (FormatterMode.ruleBased, L.t("Solo punteggiatura", "Punctuation only", "Ponctuation seule"),
                      L.t("istantaneo", "instant", "instantané")),
                     (FormatterMode.off, L.t("Niente", "Nothing", "Rien"),

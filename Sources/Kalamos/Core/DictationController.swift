@@ -59,7 +59,11 @@ final class DictationController {
         // Edit Mode runs on the same engine, so it is the same reason to have it
         // ready — it was missing from this test, and someone who uses the model
         // ONLY to rewrite selections got the cold load they had asked to avoid.
+        // `adaptive` belongs here too: it reaches for the model only on long
+        // unpunctuated speech, but when it does the wait must not also include a
+        // cold load. Leaving it out was the whole point of the caveat.
         let usesCleanupModel = state.formatterMode == .localLLM
+            || state.formatterMode == .adaptive
             || state.translationEnabled
             || state.editModeEnabled
         guard keepResident, usesCleanupModel else { return }
@@ -364,7 +368,7 @@ final class DictationController {
                     outputLang = translationTarget
                 } else {
                     outputLang = sourceLang
-                    text = await makeFormatter().format(
+                    text = await makeFormatter(for: text).format(
                         text, context: FormattingContext(
                             language: outputLang, frontmostBundleID: bundleID,
                             promptOverride: promptOverride))
@@ -385,6 +389,22 @@ final class DictationController {
                     "CONSEGNATO:",
                     text,
                 ])
+
+                // Did he just say the same thing again? Then the one before it
+                // came out wrong, and the app can know that without being told.
+                //
+                // The previous snapshot is read BEFORE the new one replaces it,
+                // and the mark goes on the OLDER file: the redo is the evidence,
+                // and the dictation it replaced is the defect worth keeping.
+                if let previous = LastDictation.shared.snapshot,
+                   DictationTruth.isRedo(previous: previous.raw, current: rawText,
+                                         gap: Date().timeIntervalSince(previous.finishedAt)) {
+                    DictationArchive.mark(previous.wav, reason: L.t(
+                        "ridetta subito dopo, quindi probabilmente sbagliata",
+                        "said again right afterwards, so probably wrong",
+                        "redite juste après, donc probablement fausse"))
+                }
+                LastDictation.shared.record(wav: archived, raw: rawText)
 
                 // Say it out loud when the model's version was refused. Not a
                 // system notification — that would mean asking for one more
@@ -440,10 +460,21 @@ final class DictationController {
         if state.status != .listening { state.status = .idle }
     }
 
-    private func makeFormatter() -> TextFormatter {
+    /// The raw transcript is a parameter because one mode decides per dictation:
+    /// `adaptive` looks at what Whisper actually produced and only pays for the
+    /// model when the punctuation is missing. See `CleanupNeed`.
+    private func makeFormatter(for raw: String) -> TextFormatter {
         switch state.formatterMode {
         case .off:       return IdentityFormatter()
         case .ruleBased: return RuleBasedFormatter()
+        case .adaptive:
+            #if canImport(MLXLLM)
+            let needed = CleanupNeed.needsModel(raw)
+            Log.write("adaptive: \(needed ? "al modello" : "regole, già punteggiato")")
+            return needed ? MLXFormatter(engine: .shared) : RuleBasedFormatter()
+            #else
+            return RuleBasedFormatter()
+            #endif
         case .localLLM:
             #if canImport(MLXLLM)
             return MLXFormatter(engine: .shared)

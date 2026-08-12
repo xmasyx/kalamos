@@ -21,6 +21,12 @@ enum FormatterMode: String, CaseIterable, Codable {
     case off          // raw transcript
     case ruleBased    // free, instant, no model
     case localLLM     // MLX on-device model (Phase 2)
+    /// Rules by default, the model only on the text that needs it — the call is
+    /// made per dictation by `CleanupNeed`, from the raw transcript. Added
+    /// 2026-08-11 because the two existing choices were both wrong most of the
+    /// time: `ruleBased` leaves a 60-word run-on unpunctuated, `localLLM` pays
+    /// seconds for the 88% of dictations that are short and already fine.
+    case adaptive
 }
 
 /// How the finished text is put into the app you are writing in.

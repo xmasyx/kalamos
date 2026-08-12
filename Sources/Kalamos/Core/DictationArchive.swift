@@ -57,6 +57,88 @@ enum DictationArchive {
             to: sidecar, atomically: true, encoding: .utf8)
     }
 
+    /// The sidecar that belongs to a recording.
+    static func sidecar(of wav: URL) -> URL {
+        wav.deletingPathExtension().appendingPathExtension("txt")
+    }
+
+    /// Add lines to a sidecar that already exists, leaving what is there alone.
+    ///
+    /// Append and never rewrite: everything added after the fact — a suspicion,
+    /// a verbatim typed by hand — is worth more than what the machine wrote, and
+    /// a rewrite is one bug away from replacing the second with the first.
+    static func append(_ wav: URL, lines: [String]) {
+        let file = sidecar(of: wav)
+        let block = "\n" + lines.joined(separator: "\n") + "\n"
+        guard let data = block.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: file) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? block.write(to: file, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Flag a recording as one that probably went wrong, with the reason that
+    /// made it look that way. Written into the sidecar rather than a database
+    /// because the sidecar is what survives being copied somewhere else.
+    static func mark(_ wav: URL, reason: String) {
+        append(wav, lines: ["SOSPETTA: \(reason)"])
+        Log.write("archive: marked \(wav.lastPathComponent) — \(reason)")
+    }
+
+    /// Write down what was actually said. The one line in the whole file that is
+    /// not a guess.
+    static func recordTruth(_ wav: URL, verbatim: String) {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        append(wav, lines: ["", "VERITÀ (\(f.string(from: Date()))):", verbatim])
+        Log.write("archive: verbatim recorded for \(wav.lastPathComponent)")
+    }
+
+    /// Read back one labelled block of a sidecar — "GREZZO", "CONSEGNATO".
+    ///
+    /// A block runs from its own heading to the next heading or the end of the
+    /// file. Headings are the lines this type writes, all-caps and colon-ended,
+    /// so a transcript that happens to contain a colon cannot end its own block.
+    static func section(_ name: String, in wav: URL) -> String? {
+        guard let text = try? String(contentsOf: sidecar(of: wav), encoding: .utf8)
+        else { return nil }
+        var collecting = false
+        var out: [String] = []
+        for line in text.components(separatedBy: .newlines) {
+            if isHeading(line) {
+                if collecting { break }
+                collecting = line.hasPrefix(name)
+                continue
+            }
+            if collecting { out.append(line) }
+        }
+        guard collecting else { return nil }
+        let body = out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : body
+    }
+
+    /// A heading is a whole line of capitals ending in a colon, optionally with a
+    /// parenthesised note — "GREZZO:", "VERITÀ (2026-08-12 15:40):".
+    private static func isHeading(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasSuffix(":"), let first = t.first, first.isUppercase else { return false }
+        return !t.dropLast().contains { $0.isLowercase }
+    }
+
+    /// The most recent recording still on disk, by name rather than by file date
+    /// for the same reason pruning sorts by name.
+    static var latest: URL? {
+        let fm = FileManager.default
+        guard let all = try? fm.contentsOfDirectory(at: directory,
+                                                    includingPropertiesForKeys: nil) else { return nil }
+        return all.filter { $0.pathExtension == "wav" }
+            .max { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
     /// Sortable and human-readable, and the same string a person would type when
     /// looking for "the one from just after one o'clock".
     private static func stamp(_ date: Date) -> String {

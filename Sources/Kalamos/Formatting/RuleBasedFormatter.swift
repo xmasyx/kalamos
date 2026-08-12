@@ -17,54 +17,94 @@ struct RuleBasedFormatter: TextFormatter {
         .english: [
             ("new paragraph", "\n\n"), ("new line", "\n"),
             ("question mark", "?"), ("exclamation mark", "!"), ("exclamation point", "!"),
-            ("full stop", "."), ("period", "."), ("comma", ","),
+            ("full stop", "."),
             ("colon", ":"), ("semicolon", ";"), ("open quote", "\""), ("close quote", "\""),
         ],
-        // NOTE: bare "punto"/"point" are NOT here — they are common nouns as
-        // well as the full-stop command, so they go through `applyPeriodWord`
-        // (context-aware). Multi-word phrases that CONTAIN them stay here and
-        // run first (longest-first), so "punto e virgola" → ";" wins.
+        // NOTE: the bare punctuation NAMES are not here — "punto"/"point"/"period"
+        // and "virgola"/"virgule"/"comma" are common nouns as well as commands, so
+        // they go through `applyPunctuationWord` (context-aware). Multi-word
+        // phrases that CONTAIN them stay here and run first (longest-first), so
+        // "punto e virgola" → ";" wins.
         .italian: [
             ("nuovo paragrafo", "\n\n"), ("a capo", "\n"), ("nuova riga", "\n"),
             ("punto interrogativo", "?"), ("punto esclamativo", "!"),
             ("punto e virgola", ";"), ("due punti", ":"),
-            ("virgola", ","),
         ],
         .french: [
             ("nouveau paragraphe", "\n\n"), ("à la ligne", "\n"), ("nouvelle ligne", "\n"),
             ("point d'interrogation", "?"), ("point d'exclamation", "!"),
             ("point virgule", ";"), ("deux points", ":"),
-            ("virgule", ","),
         ],
     ]
 
-    /// Full-stop words that double as common nouns ("il punto 4", "punto di
-    /// vista", "le point fort"). Converted to "." ONLY when acting as
-    /// punctuation — skipped when preceded by a determiner/ordinal or followed
-    /// by a digit or a known noun continuation.
-    private struct PeriodWord {
+    /// Punctuation names that double as common nouns ("il punto 4", "punto di
+    /// vista", "una virgola mobile", "not a single comma"). Converted to the
+    /// mark ONLY when acting as punctuation, skipped when preceded by a
+    /// determiner or quantifier, or followed by a digit or a known noun
+    /// continuation.
+    ///
+    /// `virgola` was a plain blunt replacement until 2026-08-11, when two real
+    /// dictations ABOUT commas came back with the word eaten both times
+    /// ("arriva senza una sola virgola" → "arriva senza una sola,"). `punto` had
+    /// been given this guard long before; its twin never was, and the same hole
+    /// was open in all three languages. Hence one table instead of two: a guard
+    /// that covers one member of a class is a guard someone has to remember to
+    /// copy.
+    private struct PunctuationWord {
         let word: String
+        let replacement: String
         let determiners: [String]   // a preceding one → it's the noun
         let followNouns: [String]   // a following one → it's the noun
     }
-    private static let periodWords: [Language: PeriodWord] = [
-        .italian: PeriodWord(
-            word: "punto",
-            determiners: ["il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
-                          "del", "dello", "della", "dei", "degli", "delle",
-                          "al", "allo", "alla", "ai", "agli", "alle",
-                          "nel", "nello", "nella", "dal", "dalla", "sul", "sulla",
-                          "questo", "questa", "quel", "quello", "quella",
-                          "ogni", "tal", "mio", "suo", "loro", "altro", "qualche",
-                          "primo", "secondo", "terzo", "quarto", "quinto", "stesso", "certo"],
-            followNouns: ["di", "debole", "chiave", "forte", "fermo", "nave", "vendita",
-                          "vista", "focale", "cardine", "nascita", "morto", "cruciale", "critico"]),
-        .french: PeriodWord(
-            word: "point",
-            determiners: ["le", "la", "les", "un", "une", "du", "des", "au", "aux",
-                          "ce", "cet", "cette", "mon", "son", "leur", "chaque", "tout",
-                          "premier", "deuxième", "troisième"],
-            followNouns: ["de", "faible", "fort", "final", "mort", "cardinal", "chaud"]),
+    private static let punctuationWords: [Language: [PunctuationWord]] = [
+        .italian: [
+            PunctuationWord(
+                word: "punto", replacement: ".",
+                determiners: ["il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+                              "del", "dello", "della", "dei", "degli", "delle",
+                              "al", "allo", "alla", "ai", "agli", "alle",
+                              "nel", "nello", "nella", "dal", "dalla", "sul", "sulla",
+                              "questo", "questa", "quel", "quello", "quella",
+                              "ogni", "tal", "mio", "suo", "loro", "altro", "qualche",
+                              "primo", "secondo", "terzo", "quarto", "quinto", "stesso", "certo"],
+                followNouns: ["di", "debole", "chiave", "forte", "fermo", "nave", "vendita",
+                              "vista", "focale", "cardine", "nascita", "morto", "cruciale", "critico"]),
+            PunctuationWord(
+                word: "virgola", replacement: ",",
+                determiners: ["la", "le", "una", "un", "senza", "sola", "sole", "singola",
+                              "nessuna", "qualche", "ogni", "questa", "quella", "altra",
+                              "stessa", "ultima", "prima", "della", "delle", "alla", "alle",
+                              "dalla", "sulla", "con", "di", "doppia", "mia", "sua"],
+                followNouns: ["mobile", "decimale", "fissa"]),
+        ],
+        .french: [
+            PunctuationWord(
+                word: "point", replacement: ".",
+                determiners: ["le", "la", "les", "un", "une", "du", "des", "au", "aux",
+                              "ce", "cet", "cette", "mon", "son", "leur", "chaque", "tout",
+                              "premier", "deuxième", "troisième"],
+                followNouns: ["de", "faible", "fort", "final", "mort", "cardinal", "chaud"]),
+            PunctuationWord(
+                word: "virgule", replacement: ",",
+                determiners: ["la", "les", "une", "un", "sans", "seule", "seules", "aucune",
+                              "chaque", "cette", "autre", "dernière", "première", "même",
+                              "de", "avec", "double", "ma", "sa", "leur"],
+                followNouns: ["flottante", "décimale", "fixe"]),
+        ],
+        .english: [
+            PunctuationWord(
+                word: "period", replacement: ".",
+                determiners: ["a", "the", "this", "that", "one", "each", "every", "any",
+                              "long", "short", "same", "grace", "trial", "time", "no",
+                              "another", "first", "second", "third", "whole", "entire"],
+                followNouns: ["of", "piece", "drama", "costume", "furniture", "when", "in"]),
+            PunctuationWord(
+                word: "comma", replacement: ",",
+                determiners: ["a", "the", "no", "one", "single", "without", "any", "each",
+                              "every", "this", "that", "another", "final", "first", "last",
+                              "oxford", "serial", "extra", "missing"],
+                followNouns: ["splice", "separated", "delimited"]),
+        ],
     ]
 
     func format(_ raw: String, context: FormattingContext) async -> String {
@@ -73,7 +113,7 @@ struct RuleBasedFormatter: TextFormatter {
         guard !text.isEmpty else { return "" }
 
         text = applyCommands(to: text, lang: lang)
-        text = applyPeriodWord(to: text, lang: lang)
+        text = applyPunctuationWord(to: text, lang: lang)
         // Don't strip filler / re-capitalize inside code — preserve verbatim.
         if !context.isCodeEditor {
             text = removeFillers(from: text, lang: lang)
@@ -97,17 +137,21 @@ struct RuleBasedFormatter: TextFormatter {
         return out
     }
 
-    /// Context-aware full-stop word ("punto"/"point"): turn it into "." only
-    /// when it's punctuation, keep it as a word when it's the noun.
-    private func applyPeriodWord(to input: String, lang: Language) -> String {
-        guard let pw = Self.periodWords[lang] else { return input }
-        let det = pw.determiners.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
-        let fol = pw.followNouns.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
-        // Not preceded by a determiner/ordinal, and not followed by a digit or
-        // a known noun continuation → it's a spoken full stop.
-        let pattern = "(?<!\\b(?:\(det))\\s)\\b\(pw.word)\\b(?!\\s+(?:\\d|(?:\(fol))\\b))"
-        return input.replacingOccurrences(of: pattern, with: ".",
-                                          options: [.regularExpression, .caseInsensitive])
+    /// Context-aware punctuation names ("punto"/"virgola" and their siblings):
+    /// turn one into its mark only when it's punctuation, keep it as a word when
+    /// it's the noun.
+    private func applyPunctuationWord(to input: String, lang: Language) -> String {
+        var out = input
+        for pw in Self.punctuationWords[lang] ?? [] {
+            let det = pw.determiners.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+            let fol = pw.followNouns.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+            // Not preceded by a determiner/quantifier, and not followed by a
+            // digit or a known noun continuation → it's the spoken mark.
+            let pattern = "(?<!\\b(?:\(det))\\s)\\b\(pw.word)\\b(?!\\s+(?:\\d|(?:\(fol))\\b))"
+            out = out.replacingOccurrences(of: pattern, with: pw.replacement,
+                                           options: [.regularExpression, .caseInsensitive])
+        }
+        return out
     }
 
     private func removeFillers(from input: String, lang: Language) -> String {
