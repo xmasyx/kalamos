@@ -5,7 +5,7 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
-## Unreleased
+## v1.4.0
 
 ### Wired headphones no longer crash the app — or leave it deaf
 
