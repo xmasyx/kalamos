@@ -346,16 +346,29 @@ struct WordsSection: View {
                             reload()
                         }
                     }
-                    list(rules, empty: L.t("Nessuna correzione.", "No corrections.",
-                                           "Aucune correction.")) { rule in
-                        Text("\(rule.wrong)  →  \(rule.correct)")
-                            .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
-                    } remove: { rule in
-                        undoably(L.t("Togli la correzione", "Remove correction",
-                                     "Retirer la correction")) {
-                            Corrections.remove(wrong: rule.wrong)
+                    PrefList(
+                        items: rules,
+                        empty: L.t("Nessuna correzione.", "No corrections.",
+                                   "Aucune correction."),
+                        row: { rule in
+                            Text("\(rule.wrong)  →  \(rule.correct)")
+                                .font(Theme.font(12.5)).foregroundStyle(Theme.ink)
+                        },
+                        remove: { rule in
+                            undoably(L.t("Togli la correzione", "Remove correction",
+                                         "Retirer la correction")) {
+                                Corrections.remove(wrong: rule.wrong)
+                            }
+                        },
+                        editText: Corrections.line,
+                        commitEdit: { rule, edited in
+                            guard let nuova = Corrections.parse(edited), nuova != rule else { return }
+                            undoably(L.t("Modifica la correzione", "Edit correction",
+                                         "Modifier la correction")) {
+                                Corrections.replace(rule, with: nuova)
+                            }
                         }
-                    }
+                    )
                 }
             }
         }
@@ -438,11 +451,14 @@ private struct PrefList<Item: Hashable, Row: View>: View {
     let empty: String
     @ViewBuilder let row: (Item) -> Row
     let remove: (Item) -> Void
-    /// Modifica in linea, quando la voce è una stringa sola.
+    /// Modifica in linea, quando la voce si sa scrivere su una riga.
     ///
-    /// `nil` per le liste dove non ha senso — le Correzioni sono una coppia, e
-    /// un campo solo non saprebbe quale metà sta cambiando. Sceglierne una a caso
-    /// sarebbe peggio che non avere il bottone.
+    /// Restava `nil` sulle Correzioni perché sono una coppia e un campo solo non
+    /// saprebbe quale metà sta cambiando. **Sbagliato, e lui l'ha fatto notare il
+    /// 2026-08-12**: la riga già si legge `sente → scrive`, quindi il campo unico
+    /// sa benissimo quale metà è quale, e si torna alla coppia con `Corrections.parse`.
+    /// Il vero difetto era che una correzione sbagliata si poteva solo cancellare
+    /// e riscrivere per intero.
     var editText: ((Item) -> String)? = nil
     var commitEdit: ((Item, String) -> Void)? = nil
     /// Riga da aprire già in modifica al primo disegno.

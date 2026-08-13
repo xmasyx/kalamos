@@ -55,6 +55,45 @@ enum Corrections {
 
     static func clear() { UserDefaults.standard.removeObject(forKey: key) }
 
+    /// Change an existing rule, on either side of the arrow.
+    ///
+    /// Asked for on 2026-08-12: a word in "Parole tue" could be edited in place
+    /// and a correction could not, so fixing a typo in one meant deleting it and
+    /// typing both halves again. Removing the old heard-side first matters —
+    /// editing what it hears means the rule moves to a different key, and adding
+    /// without removing would leave the wrong one behind, still firing.
+    static func replace(_ old: CorrectionRule, with new: CorrectionRule) {
+        let w = new.wrong.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let c = new.correct.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !w.isEmpty, !c.isEmpty else { return }
+        var m = map()
+        m[old.wrong.lowercased()] = nil
+        m[w] = c
+        UserDefaults.standard.set(m, forKey: key)
+    }
+
+    /// Read a rule back from the single line the list shows it on.
+    ///
+    /// One field, not two, because the row already reads `sente → scrive` and a
+    /// second box would make the list jump about while being edited. The arrow
+    /// is accepted in the shapes a keyboard can actually produce; a line without
+    /// one, or with an empty half, is not a rule and changes nothing.
+    static func parse(_ line: String) -> CorrectionRule? {
+        for arrow in ["→", "->", "=>", "»"] {
+            guard let r = line.range(of: arrow) else { continue }
+            let wrong = line[..<r.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            let correct = line[r.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wrong.isEmpty, !correct.isEmpty else { return nil }
+            return CorrectionRule(wrong: wrong.lowercased(), correct: correct)
+        }
+        return nil
+    }
+
+    /// The line the list shows, and the one `parse` reads back.
+    static func line(for rule: CorrectionRule) -> String {
+        "\(rule.wrong) → \(rule.correct)"
+    }
+
     /// Apply every rule to `text` (whole-word, case-insensitive). Longest heard
     /// phrase first so multi-word rules win over single-word ones.
     static func apply(to text: String) -> String {

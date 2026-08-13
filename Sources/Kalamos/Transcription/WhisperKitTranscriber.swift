@@ -355,9 +355,14 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // So the seam is not the cause and the knobs are not the cure. The next
         // idea needs the real audio of a failure, which is what the archive
         // (ISC-161) now keeps.
-        var results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
-        var raw = results.map(\.text).joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // ISC-174, 2026-08-12: the decode now has to account for the whole
+        // recording. `decodeCovering` is the same single decode as before plus
+        // a re-listen of anything the seek loop skipped — see `CoverageGap` for
+        // the failure, and note that the four knobs listed above were all aimed
+        // at making the skip less likely, while this notices it and goes back.
+        var decoded = try await decodeCovering(
+            samples, options: options, pipe: pipe, allowed: allowedLanguages)
+        var raw = decoded.raw
         var text = Self.stripHallucinations(raw)
         // Diagnostic: distinguishes "Whisper produced nothing" from "Whisper
         // produced a phrase we stripped as a hallucination".
@@ -386,9 +391,9 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
             unload()
             try await prepare()
             if let fresh = pipeBox.withLock({ $0 }) {
-                results = try await fresh.transcribe(audioArray: samples, decodeOptions: options)
-                raw = results.map(\.text).joined(separator: " ")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                decoded = try await decodeCovering(
+                    samples, options: options, pipe: fresh, allowed: allowedLanguages)
+                raw = decoded.raw
                 text = Self.stripHallucinations(raw)
                 Log.write(raw.isEmpty ? "still empty after reloading — giving up"
                                       : "recovered after reloading: \"\(text)\"")
@@ -398,7 +403,7 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // If the caller forced a language, that IS the source language (we told
         // Whisper to decode in it). Otherwise map the detected code/name and
         // validate to the enabled set (ISC-28).
-        var detected = forced ?? Self.mapLanguage(results.first?.language, allowed: allowedLanguages)
+        var detected = forced ?? Self.mapLanguage(decoded.language, allowed: allowedLanguages)
 
         // ISC-111 — when the words contradict the label, decode again in the
         // language the words are actually in.
@@ -424,10 +429,9 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
             var second = options
             second.language = corrected.rawValue
             second.detectLanguage = false
-            let redone = try await pipe.transcribe(audioArray: samples, decodeOptions: second)
-            let redoneRaw = redone.map(\.text).joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let redoneText = Self.stripHallucinations(redoneRaw)
+            let redone = try await decodeCovering(
+                samples, options: second, pipe: pipe, allowed: allowedLanguages)
+            let redoneText = Self.stripHallucinations(redone.raw)
             // Keep the first pass if the second one came back with nothing:
             // a worse transcription is still better than none.
             if !redoneText.isEmpty {
@@ -465,16 +469,22 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
                 second.language = detected.rawValue
                 second.detectLanguage = false
             }
-            let redone = try await pipe.transcribe(audioArray: samples, decodeOptions: second)
-            let redoneText = Self.stripHallucinations(
-                redone.map(\.text).joined(separator: " ")
-                    .trimmingCharacters(in: .whitespacesAndNewlines))
+            let redone = try await decodeCovering(
+                samples, options: second, pipe: pipe, allowed: allowedLanguages)
+            let redoneText = Self.stripHallucinations(redone.raw)
             Log.write("whisperkit: prompt mirato «\(mirato)» — «\(text)» → «\(redoneText)»")
-            // E se il secondo giro esce vuoto o degenera, si tiene il primo. Un
-            // miglioramento che può peggiorare deve avere una via di ritorno:
-            // è la stessa riga che protegge il percorso whisper.cpp.
+            // E se il secondo giro esce vuoto, degenera o PORTA VIA PAROLE, si
+            // tiene il primo. Un miglioramento che può peggiorare deve avere una
+            // via di ritorno: è la stessa riga che protegge il percorso
+            // whisper.cpp. La terza condizione è arrivata dal campo il 13 agosto
+            // — vedi `ContentLoss` per il caso e per il conto.
+            let termini = mirato.split(separator: ",").count
             if redoneText.isEmpty || RepetitionGuard.degenerated(redoneText) {
                 Log.write("whisperkit: secondo giro scartato, tengo il primo")
+            } else if ContentLoss.lostContent(first: text, second: redoneText, terms: termini) {
+                Log.write("whisperkit: secondo giro scartato, ha perso "
+                          + "\(ContentLoss.words(in: text) - ContentLoss.words(in: redoneText))"
+                          + " parole — tengo il primo")
             } else {
                 text = redoneText
             }
@@ -482,6 +492,194 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
 
         scheduleIdleUnload()
         return TranscriptionResult(text: text, detectedLanguage: detected)
+    }
+
+    /// One whole-audio decode, plus whatever the seek loop skipped.
+    ///
+    /// ISC-174. Everything about the failure this repairs is in `CoverageGap`;
+    /// what matters here is the shape of the answer. Four properties, in the
+    /// order they matter:
+    ///
+    /// **A sound dictation is untouched, byte for byte.** With no hole the
+    /// function returns exactly the string the old single line returned, and
+    /// nothing extra is decoded, so the common case pays nothing at all. That is
+    /// the first property because a repair that costs the healthy path is a
+    /// worse trade than the bug.
+    ///
+    /// **A silent stretch stays silent.** A hole is checked against the audio
+    /// before the decoder is asked, and a genuinely mute pause never reaches the
+    /// model. This is the negative pole (ISC-175): the app has invented words on
+    /// silence before, and a repair that hands empty audio to a model famous for
+    /// filling it would be a regression dressed as a fix.
+    ///
+    /// **The re-decode cannot hit the same bug.** Each hole is cut into pieces
+    /// that fit inside one encoder window, so the seek loop never runs.
+    ///
+    /// **Order comes from the clock, not from the order things were decoded.**
+    /// Recovered text carries the timestamp of the hole it came from, and the
+    /// final string is assembled by time.
+    private func decodeCovering(
+        _ samples: [Float],
+        options: DecodingOptions,
+        pipe: WhisperKit,
+        allowed: Set<Language>
+    ) async throws -> (raw: String, language: String?) {
+        let sampleRate: Float = 16_000
+        let minimumGap: Float = 3
+        let maximumRepairs = 4
+        var engine = pipe
+
+        let results = try await engine.transcribe(audioArray: samples, decodeOptions: options)
+        let language = results.first?.language
+        let base = results.map(\.text).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // An empty decode is ISC-108's business (the pipeline is stuck and gets
+        // replaced), not this function's. Repairing a hole in nothing would only
+        // hide the condition that reload exists to clear.
+        guard !base.isEmpty else { return (base, language) }
+
+        let duration = Float(samples.count) / sampleRate
+        let segments = results.flatMap(\.segments)
+        // The map of the decode, and the only way this class of failure is ever
+        // diagnosable after the fact: which stretch of audio produced which
+        // words. Costs one line per dictation and answered in one minute a
+        // question that took an hour of bisecting the recording by hand.
+        Log.write("whisperkit: mappa " + segments.map {
+            String(format: "%.1f-%.1f(%d)", $0.start, $0.end,
+                   Self.withoutSpecialTokens($0.text).count)
+        }.joined(separator: " "))
+        // Two ways a stretch of audio goes unheard, and the timeline is only the
+        // rarer one: time nobody claimed, and time claimed by a segment that
+        // produced almost no words. The second is what the 12 August recording
+        // does — see `CoverageGap.isThin`.
+        // A segment's `text` is the RAW decode: it still carries
+        // `<|startoftranscript|>`, the language tag and the timestamp tokens,
+        // which the joined `result.text` has already had stripped. Building the
+        // repaired transcription out of segments therefore means stripping them
+        // here, and it is not cosmetic — those tokens are characters, so leaving
+        // them in also inflates the density that decides what looks collapsed.
+        var pieces: [(start: Float, end: Float, text: String)] =
+            segments.map { (start: $0.start, end: $0.end, text: Self.withoutSpecialTokens($0.text)) }
+        for hole in CoverageGap.gaps(
+            covered: segments.map { CoverageGap.Span(start: $0.start, end: $0.end) },
+            duration: duration,
+            minimum: minimumGap)
+        {
+            pieces.append((start: hole.start, end: hole.end, text: ""))
+        }
+        pieces.sort { $0.start < $1.start }
+
+        func trimmed(_ s: String) -> String {
+            s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let suspects = pieces.indices.filter {
+            CoverageGap.isThin(duration: pieces[$0].end - pieces[$0].start,
+                               characters: trimmed(pieces[$0].text).count,
+                               minimumDuration: minimumGap)
+        }
+        guard !suspects.isEmpty else { return (base, language) }
+
+        Log.write(String(format: "whisperkit: %d segmenti su %.1fs, %d tratto/i da riascoltare",
+                         segments.count, duration, suspects.count))
+
+        // The language is settled by the pass that just ran; the repair decodes
+        // in it rather than detecting again, so one recording cannot come back
+        // in two languages.
+        var again = options
+        if let code = options.language ?? Self.mapLanguage(language, allowed: allowed)?.rawValue {
+            again.language = code
+            again.detectLanguage = false
+        }
+
+        /// Decode one stretch, in pieces that each fit inside an encoder window.
+        ///
+        /// A piece that comes back empty is asked again, up to three times, and
+        /// the reason is that on this audio the decoder is a coin toss rather
+        /// than a function. Measured 2026-08-12 on the same recording, cutting
+        /// at 25.4 s and varying only the length: 12 s decoded, 16 s empty, 20 s
+        /// empty, 22 s empty, 24 s decoded, 26 s decoded, 28 s empty, 30 s
+        /// decoded. Nothing about the audio changes between those calls, so no
+        /// single chunk size can be the right one; asking again is what works.
+        func listenAgain(to clip: CoverageGap.Span) async throws -> String {
+            var recovered: [String] = []
+            for chunk in CoverageGap.chunks(of: clip, maximum: 30) {
+                guard let r = CoverageGap.range(of: chunk, sampleRate: sampleRate, count: samples.count)
+                else { continue }
+                let audio = Array(samples[r])
+                for attempt in 1 ... 3 {
+                    let piece = try await engine.transcribe(audioArray: audio, decodeOptions: again)
+                    let t = trimmed(piece.map(\.text).joined(separator: " "))
+                    if !t.isEmpty { recovered.append(t); break }
+                    Log.write(String(format: "whisperkit: pezzo %.1f-%.1fs vuoto al tentativo %d",
+                                     chunk.start, chunk.end, attempt))
+                }
+            }
+            return Self.stripHallucinations(TextSeam.join(recovered))
+        }
+
+        var repaired = 0
+        var reloaded = false
+        for index in suspects {
+            guard repaired < maximumRepairs else { break }
+            let span = CoverageGap.Span(start: pieces[index].start, end: pieces[index].end)
+            let clip = CoverageGap.padded(span, by: 0.3, within: duration, notLongerThan: 30)
+            // The silence question is asked of the hole ITSELF, never of the
+            // padded clip: the padding deliberately reaches into the speech on
+            // either side, so a genuinely mute pause looks voiced through it.
+            // Measured 2026-08-12 on a fifteen-second silence spliced between
+            // two real sentences — asked through the padding it came back
+            // "voiced", and the repair spent a decode and a model reload to
+            // arrive where it started.
+            guard let heart = CoverageGap.range(of: span, sampleRate: sampleRate, count: samples.count),
+                  !Self.isSilent(Array(samples[heart])) else {
+                Log.write(String(format: "whisperkit: tratto %.1f-%.1fs muto, lasciato com'è",
+                                 span.start, span.end))
+                continue
+            }
+
+            var clean = try await listenAgain(to: clip)
+            let had = trimmed(pieces[index].text).count
+
+            // ISC-108's remedy, applied to a stretch instead of a whole
+            // recording. Measured on this same clip, 2026-08-12: cut at 25.4 s
+            // and asked for 24 and for 26 seconds, the first decode came back
+            // EMPTY both times and the reload then produced the full sentence;
+            // asked for 16, 20, 22 and 28 seconds it came back empty and stayed
+            // empty. So the pipeline reaching the bad state is what is actually
+            // eating the words, and reloading it is the only thing that has ever
+            // cleared it. Once per recording: it costs seconds, and a second
+            // reload has never bought anything.
+            if !reloaded, CoverageGap.isThin(duration: span.duration, characters: clean.count) {
+                reloaded = true
+                Log.write(String(format: "whisperkit: tratto %.1f-%.1fs ancora magro, ricarico il modello",
+                                 span.start, span.end))
+                unload()
+                try await prepare()
+                if let fresh = pipeBox.withLock({ $0 }) {
+                    engine = fresh
+                    clean = try await listenAgain(to: clip)
+                }
+            }
+
+            // Adopt only what says materially more than what was already there.
+            // This is what makes the density threshold safe to be approximate: a
+            // stretch flagged by mistake re-decodes to roughly what it already
+            // said, fails this test, and leaves the transcription untouched.
+            guard !clean.isEmpty, !RepetitionGuard.degenerated(clean),
+                  clean.count > max(12, had * 3 / 2) else {
+                Log.write(String(format: "whisperkit: tratto %.1f-%.1fs non ha reso di più (%d → %d): «%@»",
+                                 span.start, span.end, had, clean.count, clean))
+                continue
+            }
+            Log.write(String(format: "whisperkit: tratto %.1f-%.1fs recuperato (%d → %d): «%@»",
+                             span.start, span.end, had, clean.count, clean))
+            pieces[index].text = clean
+            repaired += 1
+        }
+
+        guard repaired > 0 else { return (base, language) }
+        return (TextSeam.join(pieces.map { trimmed($0.text) }), language)
     }
 
     /// True when a recording holds no speech worth transcribing.
@@ -537,6 +735,14 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         guard start < end else { return s }   // all silence → leave as-is
         let pad = 1_600                        // 0.1 s at 16 kHz
         return Array(s[max(0, start - pad) ..< min(s.count, end + pad)])
+    }
+
+    /// Drop Whisper's own control tokens (`<|it|>`, `<|3.42|>`, …) from a raw
+    /// segment, leaving the words.
+    static func withoutSpecialTokens(_ text: String) -> String {
+        text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: " +", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Known Whisper trailing-silence hallucinations (IT/EN/FR).

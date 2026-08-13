@@ -600,6 +600,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Log.write("verbatim ⌃⌥V: opened for \(wav.lastPathComponent)")
         TruthWindow.shared.show(raw: raw) { verbatim in
             DictationArchive.recordTruth(wav, verbatim: verbatim)
+            // ISC-178, sua richiesta del 2026-08-12: la correzione non serve solo
+            // a fare da materiale d'allenamento, deve valere anche in avanti. Le
+            // parole che ha rimesso a posto diventano regole, e la stessa parola
+            // esce giusta dalla prossima dettatura invece che dalla prossima
+            // versione dell'app.
+            //
+            // Quello che NON diventa una regola sta in `LearnedCorrections`, ed è
+            // la parte che conta: una regola è globale, permanente e silenziosa.
+            let known = Set(Corrections.rules.map(\.wrong))
+            for rule in LearnedCorrections.rules(heard: raw, meant: verbatim, known: known) {
+                Corrections.add(wrong: rule.wrong, correct: rule.correct)
+                Log.write("verbatim ⌃⌥V: imparata la correzione «\(rule.wrong)» → «\(rule.correct)»")
+            }
             NSSound(named: "Glass")?.play()
         }
     }
@@ -871,6 +884,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// aggiunta di uno stato, lasciando un'icona che contraddice la frase accanto.
     private func updateIcon(for status: DictationStatus) {
         statusItem.button?.image = StatusGlyph.image(for: status)
+        // **No explicit width here, and that is a measured decision.** Asked on 2026-08-12 to make
+        // the bar items narrower, the obvious move was `statusItem.length = size + small padding`.
+        // macOS raises it back in silence: measured in Otium, a request for 35 points came back as
+        // 51, and here the icon did not move by a single pixel. A width you ask for and never read
+        // back is a hope, so the request is gone and the finding stays written down.
     }
 
     // MARK: Permissions → start hot key (auto-detects Accessibility grant; no restart)

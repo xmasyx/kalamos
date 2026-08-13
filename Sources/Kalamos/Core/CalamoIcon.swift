@@ -18,7 +18,21 @@ import AppKit
 /// one icon on the bar that ignores the theme.
 enum CalamoIcon {
     /// The menu bar gives about 18 points of height; the glyph sits inside it.
+    ///
+    /// Briefly 24 on 2026-08-12, to match the height of the sibling apps' glyphs — the pen measures
+    /// 9 points tall against NoSleep's 14 and Otium's 12 — and put back the same day: the person
+    /// who looks at this bar every day asked for the old heights. The measurement stays written
+    /// down so nobody re-derives it; the size does not change.
     static let size: CGFloat = 18
+
+    /// How much air macOS keeps on each side of a third-party bar item: **about eight points, and
+    /// you cannot take it back.**
+    ///
+    /// Not a setting — a finding, kept here because this is where the next person will look. Asked
+    /// on 2026-08-12 to make the bar items narrower, we set an explicit `statusItem.length`. The
+    /// system raised it again without saying so: in the sibling app a request for 35 points came
+    /// back as 51, and this icon did not move at all. The width is the system's to give.
+    static let systemSidePadding: CGFloat = 8
 
     /// At rest: the outline. Recording: the same shape filled in, which is the
     /// difference you can see from across the room without reading anything.

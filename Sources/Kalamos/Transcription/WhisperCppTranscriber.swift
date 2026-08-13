@@ -249,11 +249,22 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
                                                prompt: mirato, threads: threads)
                     Log.write("whisper.cpp: prompt mirato «\(mirato)» — "
                               + "«\(primo.text)» → «\(secondo.text)»")
-                    // E se il secondo giro esce vuoto o degenera, si tiene il
-                    // primo. Un miglioramento che può peggiorare deve avere una
-                    // via di ritorno, e qui costa una riga.
+                    // E se il secondo giro esce vuoto, degenera o PORTA VIA
+                    // PAROLE, si tiene il primo. Un miglioramento che può
+                    // peggiorare deve avere una via di ritorno, e qui costa una
+                    // riga. La terza condizione sta qui anche se il caso del 13
+                    // agosto è arrivato dall'altro motore: è lo stesso schema,
+                    // quindi lo stesso buco. Vedi `ContentLoss`.
                     if secondo.text.isEmpty || RepetitionGuard.degenerated(secondo.text) {
                         Log.write("whisper.cpp: secondo giro scartato, tengo il primo")
+                        continuation.resume(returning: primo); return
+                    }
+                    let termini = mirato.split(separator: ",").count
+                    if ContentLoss.lostContent(first: primo.text, second: secondo.text,
+                                               terms: termini) {
+                        Log.write("whisper.cpp: secondo giro scartato, ha perso "
+                                  + "\(ContentLoss.words(in: primo.text) - ContentLoss.words(in: secondo.text))"
+                                  + " parole — tengo il primo")
                         continuation.resume(returning: primo); return
                     }
                     continuation.resume(returning: secondo)
