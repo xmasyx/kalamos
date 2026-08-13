@@ -5,6 +5,52 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
+## Unreleased
+
+### Wired headphones no longer crash the app — or leave it deaf
+
+- **Plugging or unplugging a wired microphone could kill Kalamos while it sat idle.** Two crash
+  reports half a minute apart, the same garbage pointer in both, fired at the exact moments a pair
+  of wired EarPods went in and out — with no recording running. The audio graph lived as long as
+  the app: built once, stopped after every dictation, never released. A stopped engine is still a
+  CoreAudio client configured against the device it last saw (wired EarPods run at 44.1 kHz, the
+  built-in microphone at 48), and the device change called back into a client whose world was gone.
+  The graph is now **built when a dictation starts and torn down completely when it ends**: between
+  dictations there is nothing left to call into, and every start reads the CURRENT default input —
+  which also fixes the quieter half of the bug, a microphone plugged in after launch recording the
+  old device's silence.
+- **A dictation now survives the microphone changing under it.** The graph listens for the
+  configuration change, rebuilds on the new device and keeps the samples already heard; if there is
+  nothing to reattach to, the dictation ends with what it heard instead of hanging. Measured with
+  the new probe: on the old code the capture froze forever at the first device switch (2.6 s
+  captured out of 12); on the new one it keeps growing across two switches (10.9 s out of 12), at
+  the cost of ~0.5 s per swap — the time the rebuild takes.
+- **A buffer in the wrong format is dropped, never converted.** That is what a device change looks
+  like from inside the audio tap, and handing it to a converter built for the other rate asks it to
+  misread memory. Three two-pole tests hold the door on the exact 44.1↔48 kHz transition.
+- New diagnostic: `Kalamos --selftest-mic [seconds]` watches the capture counter once a second
+  while you plug and unplug, and exits non-zero if it ever stops growing.
+
+### The language model now punctuates only where Whisper didn't
+
+- Cleanup no longer runs on every dictation: only when the raw text is long and unpunctuated
+  (over 25 words and more than 20 words per punctuation mark) — 15% of a 957-dictation register.
+  A duration trigger was rejected by measurement: 58% of long dictations arrive already punctuated,
+  because Whisper punctuates from prosody.
+- Saying *virgola* as a word (not a command) no longer eats it; the same hole was open on *comma*
+  and *virgule* and is closed on both.
+
+### The archive can now say what was actually said
+
+- Re-dictations mark themselves: raw-text similarity above 0.35 within five minutes, a threshold
+  read off 813 consecutive pairs from the register and then checked by hand. ⌃⌥L / ⌃⌥K within a
+  minute mark too, and ⌃⌥V opens a panel pre-filled with the raw text where you type what you
+  really said — the verbatim lands next to the audio.
+- No dictation comes out shorter than what the engine heard: unheard stretches are re-listened in
+  window-sized pieces, the stitch never doubles a word, and the vocabulary's second decode is
+  floored by a word-count guard (it once paid twenty-five words for one properly spelled name).
+
+
 ## v1.3.0
 
 ### Whisper is the default engine again, and the reason it stopped being one was mis-measured

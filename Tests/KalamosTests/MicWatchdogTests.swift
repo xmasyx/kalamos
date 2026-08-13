@@ -1,3 +1,4 @@
+import AVFoundation
 import Testing
 @testable import Kalamos
 
@@ -124,6 +125,42 @@ struct MicStartupProbeTests {
         var w = MicWatchdog()
         w.demandRebuild()
         #expect(w.needsRebuild)
+    }
+}
+
+/// ISC-181 — a buffer in the wrong format never reaches the converter.
+///
+/// The 2026-08-14 case: wired EarPods run at 44.1 kHz, the built-in microphone
+/// at 48 kHz. Pulling the headphones mid-recording swaps the device under a
+/// converter built for the other rate; feeding it a mismatched buffer asks it
+/// to misread memory. The decision is pure, so both poles can be held here —
+/// the crash itself needs a physical unplug and cannot be staged in a test.
+struct MismatchedBufferTests {
+
+    private func format(rate: Double, channels: AVAudioChannelCount) -> AVAudioFormat {
+        AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels)!
+    }
+
+    /// The positive pole: the ordinary buffer must keep flowing, or the guard
+    /// would silence every dictation ever recorded.
+    @Test func aBufferInTheConverterFormatBelongs() {
+        let f = format(rate: 44_100, channels: 1)
+        #expect(AudioRecorder.formatMatches(f, converterInput: f))
+    }
+
+    /// The negative pole, and the exact 2026-08-14 transition: EarPods rate
+    /// against a built-in-microphone converter.
+    @Test func theEarPodsTransitionIsRejected() {
+        #expect(!AudioRecorder.formatMatches(format(rate: 48_000, channels: 1),
+                                             converterInput: format(rate: 44_100, channels: 1)))
+        #expect(!AudioRecorder.formatMatches(format(rate: 44_100, channels: 1),
+                                             converterInput: format(rate: 48_000, channels: 1)))
+    }
+
+    /// A channel-count change is the same swap wearing a different coat.
+    @Test func aChannelCountChangeIsRejected() {
+        #expect(!AudioRecorder.formatMatches(format(rate: 48_000, channels: 2),
+                                             converterInput: format(rate: 48_000, channels: 1)))
     }
 }
 

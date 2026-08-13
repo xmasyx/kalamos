@@ -4,10 +4,33 @@ import CoreAudio
 /// Captures microphone audio with AVAudioEngine and resamples it to the
 /// 16 kHz mono Float32 format WhisperKit expects. Accumulates samples for
 /// the duration of a gesture; `stop()` returns the full clip.
-final class AudioRecorder {
-    /// Not a `let`. ISC-109: the graph has to be throwable away and rebuilt.
-    private var engine = AVAudioEngine()
+///
+/// `@unchecked Sendable` states the discipline the class already lives by
+/// rather than adding one: `samples`/`_heardSpeech`/`mismatchLogged` are
+/// lock-protected because the tap writes them from the audio thread, and
+/// everything else (engine, converter, observer, flags) is touched from the
+/// main thread only — `start()`/`stop()` by the controller, the route-change
+/// handler because it hops to main before doing anything.
+final class AudioRecorder: @unchecked Sendable {
+    /// Nil between recordings, and that is a fix, not a style choice.
+    ///
+    /// The engine used to live as long as the app: built once, stopped after
+    /// each dictation, never released. A stopped `AVAudioEngine` is still a
+    /// CoreAudio client, configured against the device it last prepared on.
+    /// Both crash reports of 2026-08-14 (SIGSEGV on the main thread, the same
+    /// garbage pointer `0xc2000000` twice) fired while the app was IDLE, at the
+    /// exact moment wired EarPods were plugged in or pulled out — the device
+    /// change calling back into a client whose device was gone. With no engine
+    /// alive between recordings there is nothing for the change to call into.
+    ///
+    /// The same decision fixes the quieter half of the bug: a fresh engine per
+    /// `start()` binds to the CURRENT default input, so a microphone plugged in
+    /// after launch records instead of delivering the old device's silence.
+    private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
+    /// Watches `.AVAudioEngineConfigurationChange` for the LIVE engine only —
+    /// registered in `activate()`, removed in `teardown()`.
+    private var configObserver: NSObjectProtocol?
     private var samples: [Float] = []
     private let lock = NSLock()
     private(set) var isRecording = false
@@ -21,6 +44,9 @@ final class AudioRecorder {
     /// scanning ten minutes of audio once a second.
     private var _heardSpeech = false
     var heardSpeech: Bool { lock.lock(); defer { lock.unlock() }; return _heardSpeech }
+    /// One log line per recording for dropped buffers, not one per buffer —
+    /// the tap fires ~16 times a second and the log is a file.
+    private var mismatchLogged = false
 
     /// WhisperKit input format.
     static let targetSampleRate: Double = 16_000
@@ -40,22 +66,33 @@ final class AudioRecorder {
     /// Start capturing. Throws if the audio graph can't be configured.
     func start() throws {
         guard !isRecording else { return }
-        lock.lock(); samples.removeAll(keepingCapacity: true); lock.unlock()
+        lock.lock()
+        samples.removeAll(keepingCapacity: true)
+        _heardSpeech = false
+        mismatchLogged = false
+        lock.unlock()
         hitCeiling = false
-        lock.lock(); _heardSpeech = false; lock.unlock()
 
-        // A graph that has had its input stolen never re-attaches on its own: it
-        // keeps running and keeps delivering zeros, which is indistinguishable
-        // from a very quiet room until you look at the samples. The only thing
-        // that brought it back by hand was toggling the permission, i.e. a new
-        // graph — so after two dead recordings we build one.
+        // The two-dead-recordings ledger predates the fresh-graph-per-start
+        // rule and stays as the record of WHY a graph was suspect; the remedy
+        // it used to trigger now happens on every start by construction.
         if watchdog.needsRebuild {
-            Log.write("mic: rebuilding the audio graph after \(MicWatchdog.deadLimit) dead recordings")
-            engine.stop()
-            engine = AVAudioEngine()
+            Log.write("mic: fresh graph after \(MicWatchdog.deadLimit) dead recordings")
             watchdog.rebuilt()
         }
 
+        try activate()
+        isRecording = true
+    }
+
+    /// Build the whole capture graph — engine, converter, tap, route watch —
+    /// against the CURRENT default input device. Called by `start()` and again
+    /// mid-recording when the device changes under us; accumulated samples are
+    /// deliberately untouched, so a dictation survives the swap.
+    private func activate() throws {
+        teardown()
+
+        let engine = AVAudioEngine()
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0 else { throw RecorderError.formatUnavailable }
@@ -70,23 +107,106 @@ final class AudioRecorder {
         guard let conv = AVAudioConverter(from: inputFormat, to: target) else {
             throw RecorderError.converterUnavailable
         }
-        converter = conv
 
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            // A buffer in a format the converter was not built for is what a
+            // device change in mid-teardown looks like from inside the tap.
+            // Feeding it through anyway asks the converter to misread memory;
+            // dropping it costs at most 64 ms of a transition that is already
+            // being rebuilt.
+            guard Self.formatMatches(buffer.format, converterInput: conv.inputFormat) else {
+                self?.noteMismatchedBuffer(buffer.format, expected: conv.inputFormat)
+                return
+            }
             self?.append(buffer, using: conv, target: target)
         }
 
+        // The unplug case, 2026-08-14: "avvio la dettatura, tolgo le cuffie, va
+        // in crash". When the input device changes AVAudioEngine stops and posts
+        // this; a client that does not rebuild is left with a dead graph (the
+        // silent half of the bug) or worse. We rebuild against the new default
+        // device and the dictation carries on across the swap.
+        // The engine itself is not Sendable, so the closure carries its
+        // identity instead — enough to tell a live engine's notification from
+        // a torn-down one's.
+        let engineID = ObjectIdentifier(engine)
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+        ) { [weak self] _ in
+            // Posted on an internal thread; policy runs on main, like the rest
+            // of this class's callers.
+            DispatchQueue.main.async { self?.handleRouteChange(of: engineID) }
+        }
+
         engine.prepare()
-        try engine.start()
-        isRecording = true
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            if let o = configObserver { NotificationCenter.default.removeObserver(o); configObserver = nil }
+            throw error
+        }
+        self.engine = engine
+        self.converter = conv
+    }
+
+    /// Tear the capture graph down completely — tap, engine, observer, converter.
+    /// After this the app holds no live audio client, which is the idle state
+    /// a device can be plugged into or pulled from without anyone to crash.
+    private func teardown() {
+        if let o = configObserver {
+            NotificationCenter.default.removeObserver(o)
+            configObserver = nil
+        }
+        if let e = engine {
+            e.inputNode.removeTap(onBus: 0)
+            e.stop()
+            engine = nil
+        }
+        converter = nil
+    }
+
+    /// The input device changed while we were listening. Rebuild on the new one.
+    private func handleRouteChange(of changedID: ObjectIdentifier) {
+        // Notifications from an engine we already tore down describe the past.
+        guard isRecording, let live = engine, ObjectIdentifier(live) == changedID else { return }
+        Log.write("mic: input device changed mid-recording — rebuilding on the new device")
+        do {
+            try activate()
+            Log.write("mic: reattached, the dictation continues")
+        } catch {
+            // No device to reattach to (or a transient failure): keep what was
+            // heard and let the gesture end the dictation normally. Samples
+            // stop growing, which the hands-free silence guard also understands.
+            teardown()
+            Log.write("mic: could not reattach (\(error)) — the dictation will end with what was heard")
+        }
+    }
+
+    /// Does a tap buffer belong to this converter? Pure, so the two-pole test
+    /// can hold the door: 44.1 kHz EarPods against a 48 kHz built-in graph is
+    /// exactly the 2026-08-14 transition.
+    static func formatMatches(_ buffer: AVAudioFormat, converterInput: AVAudioFormat) -> Bool {
+        buffer.sampleRate == converterInput.sampleRate
+            && buffer.channelCount == converterInput.channelCount
+    }
+
+    private func noteMismatchedBuffer(_ got: AVAudioFormat, expected: AVAudioFormat) {
+        lock.lock()
+        let first = !mismatchLogged
+        mismatchLogged = true
+        lock.unlock()
+        guard first else { return }
+        Log.write("mic: dropped buffer(s) in the wrong format — got \(Int(got.sampleRate)) Hz/"
+                  + "\(got.channelCount)ch, converter expects \(Int(expected.sampleRate)) Hz/"
+                  + "\(expected.channelCount)ch")
     }
 
     /// Stop capturing and return the recorded 16 kHz mono samples.
     @discardableResult
     func stop() -> [Float] {
         guard isRecording else { return [] }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        teardown()
         isRecording = false
         lock.lock(); let out = samples; samples.removeAll(); lock.unlock()
         watchdog.record(dead: Self.isDead(out))
@@ -178,12 +298,11 @@ final class AudioRecorder {
         return running != 0
     }
 
-    /// Throw the graph away before the next `start()`.
+    /// Note that the last start was dead so the ledger stays honest.
     ///
-    /// One dead start is enough to ask for this — unlike the two-in-a-row rule
-    /// below, which judges a whole recording and so has to be more careful. Here
-    /// we have just watched the tap deliver literal zeros, half a second after
-    /// being told to listen.
+    /// Historically this demanded a graph rebuild; since 2026-08-14 every
+    /// `start()` builds a fresh graph anyway, so what survives is the record —
+    /// the log line in `start()` that says how many dead recordings preceded it.
     func markForRebuild() { watchdog.demandRebuild() }
 
     /// Digital silence — not "quiet", zero.
@@ -262,6 +381,10 @@ final class AudioRecorder {
 /// the rule "two dead ones in a row, then rebuild" is four lines of arithmetic
 /// and is exactly what was missing. The app already KNEW the recording was
 /// silent — it wrote it in the log, four times — and did nothing with it.
+///
+/// Since 2026-08-14 every `start()` builds a fresh graph, so the watchdog no
+/// longer decides WHETHER to rebuild — it remains the honest count of dead
+/// recordings, surfaced in the log when a run of them ends.
 struct MicWatchdog {
     /// One dead recording is a fumbled gesture; two in a row is the microphone.
     static let deadLimit = 2

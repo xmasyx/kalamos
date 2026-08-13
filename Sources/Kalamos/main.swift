@@ -52,6 +52,43 @@ if CommandLine.arguments.contains("--version") {
     exit(0)
 }
 
+// `Kalamos --selftest-mic [seconds]` — watch the capture graph live, once a second.
+//
+// Built for the 2026-08-14 EarPods case: start it, then plug or unplug the
+// headphones (or flip the default input device) and read what happens. On the
+// broken build samples stopped growing after the swap — or the app died; on the
+// fixed one the log says the graph was rebuilt and the counter keeps climbing.
+// The run loop is pumped between reads because the route-change handler lands
+// on the main queue — a sleeping main thread would be the deadlock this file
+// already documents at the top.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-mic") {
+    let args = CommandLine.arguments
+    let seconds = flagIndex + 1 < args.count ? Int(args[flagIndex + 1]) ?? 10 : 10
+    let recorder = AudioRecorder()
+    do { try recorder.start() } catch {
+        print("✗ start: \(error)")
+        exit(1)
+    }
+    print("in ascolto per \(seconds)s — stacca/attacca le cuffie adesso")
+    var last = 0
+    var everFroze = false
+    for i in 1...seconds {
+        RunLoop.main.run(until: Date().addingTimeInterval(1))
+        let n = recorder.currentSamples().count
+        let grew = n > last
+        if !grew { everFroze = true }
+        print(String(format: "%3ds  campioni=%9d  %@", i, n, grew ? "cresce" : "FERMO"))
+        last = n
+    }
+    let out = recorder.stop()
+    let dur = Double(out.count) / AudioRecorder.targetSampleRate
+    print(String(format: "totale: %d campioni (%.1fs) · dead=%@ · heardSpeech=%@",
+                 out.count, dur,
+                 AudioRecorder.isDead(out) ? "sì" : "no",
+                 recorder.heardSpeech ? "sì" : "no"))
+    exit(everFroze ? 1 : 0)
+}
+
 // `Kalamos --clean "text" [--lang it|en|fr]` runs the cleanup pass on one piece
 // of text and prints the result. Two reasons it exists: every example in the
 // README can be reproduced by the reader with one command, and you can judge the
