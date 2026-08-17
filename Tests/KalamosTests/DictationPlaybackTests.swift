@@ -214,6 +214,11 @@ struct DictationPlaybackTests {
     }
 
     @Test func laMancanzaDiUscitaNonCarica() throws {
+        // Stampata PRIMA di aprire il file: se una macchina nuova riuscisse
+        // ancora ad abbattere il processo qui sotto, il registro della corsa
+        // direbbe comunque che cosa aveva risposto la sonda. Una diagnosi che
+        // arriva solo quando il test sopravvive manca proprio quando serve.
+        print("sonda uscita audio: \(DictationPlayer.uscitaDisponibile)")
         let url = try wavDiUnSecondo()
         defer { try? FileManager.default.removeItem(at: url) }
 

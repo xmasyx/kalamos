@@ -312,6 +312,13 @@ final class DictationPlayer: NSObject, ObservableObject {
     /// proprietà calcolata chiamata da un thread qualunque; la tabella dei
     /// dispositivi invece si interroga da ovunque ed è lo stesso idioma che
     /// `AudioRecorder` usa già per l'ingresso.
+    ///
+    /// **E non basta che un dispositivo ESISTA: deve avere canali.** Seconda
+    /// correzione, pagata con una corsa intera (32072036346): sul runner
+    /// CoreAudio risponde con un dispositivo d'uscita predefinito, la sonda
+    /// diceva sì, e il motore si è schiantato lo stesso. Un dispositivo può
+    /// essere registrato e non avere un solo canale utilizzabile. La domanda
+    /// giusta è quanti canali escono, non se una riga esiste in tabella.
     nonisolated static var uscitaDisponibile: Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -319,9 +326,27 @@ final class DictationPlayer: NSObject, ObservableObject {
             mElement: kAudioObjectPropertyElementMain)
         var device = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject),
-                                                &address, 0, nil, &size, &device)
-        return status == noErr && device != kAudioObjectUnknown
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject),
+                                         &address, 0, nil, &size, &device) == noErr,
+              device != kAudioObjectUnknown else { return false }
+
+        address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        var listSize = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &listSize) == noErr,
+              listSize > 0 else { return false }
+
+        let grezzo = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(listSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { grezzo.deallocate() }
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &listSize, grezzo) == noErr
+        else { return false }
+
+        let lista = UnsafeMutableAudioBufferListPointer(
+            grezzo.assumingMemoryBound(to: AudioBufferList.self))
+        return lista.reduce(0) { $0 + Int($1.mNumberChannels) } > 0
     }
 
     /// Il numero della programmazione corrente. `AVAudioPlayerNode.stop()` fa
