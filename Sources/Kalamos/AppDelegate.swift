@@ -61,6 +61,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controller = DictationController(state: state, transcriber: transcriber, translator: translator)
         controller.warmUp()   // preload models in the background → instant first dictation
 
+        // Sleep evicts what "never free the memory" promised to keep. Re-warming
+        // on wake is what makes that setting true for the whole day rather than
+        // until the first time he closes the lid.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.controller.warmUpAfterWake() }
+        }
+
         hotkey = HotkeyManager(keyCode: state.hotKeyCode)
         hotkey.onAction = { [weak self] action in
             // `isHandsFree` is read at emit time, when the recogniser has already
@@ -94,6 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ISC-107 is closed; this is the guard that keeps it closed. Silent
         // unless the footprint climbs back over the ceiling.
         Footprint.startWatching()
+
+        // Le registrazioni senza testo non sono dettature: si buttano all'avvio,
+        // così il pannello non gliele mette davanti da correggere.
+        Task.detached(priority: .utility) { DictationArchive.discardOrphans() }
 
         // A fresh install goes through setup instead of the silent permission
         // prompts: the flow asks for the same two permissions, but with the reason
@@ -491,7 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func learnSelectedWord() {
         guard let picked = Self.selectedWord() else {
             Log.write("learn ⌃⌥L: nothing to learn (AX empty, clipboard empty)")
-            NSSound(named: "Funk")?.play()
+            Sounds.no()
             return
         }
         commitLearnedWord(picked.text, source: picked.source)
@@ -533,13 +546,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func commitLearnedWord(_ s: String, source: String) {
         guard Self.isWordShaped(s) else {
             Log.write("learn ⌃⌥L: ignored via \(source) (\"\(s)\" — empty/too long/multiline)")
-            NSSound(named: "Funk")?.play()
+            Sounds.no()
             return
         }
         Vocabulary.add(s)
         Log.write("learn ⌃⌥L: added \"\(s)\" via \(source)")
         Self.markLastDictation(teaching: s)
-        NSSound(named: "Glass")?.play()
+        Sounds.ok()
     }
 
     /// Teaching it a word seconds after a dictation IS a report that the
@@ -573,7 +586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Corrections.add(wrong: wrong, correct: correct)
             Log.write("correction ⌃⌥K: added \"\(wrong)\" → \"\(correct)\"")
             Self.markLastDictation(teaching: correct)
-            NSSound(named: "Glass")?.play()
+            Sounds.ok()
             _ = self
         }
     }
@@ -589,17 +602,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// It reads the raw text from memory when the dictation happened in this run,
     /// and from the sidecar otherwise, so it still works the morning after.
     @objc private func correctLastDictation() {
-        guard let wav = LastDictation.shared.snapshot?.wav ?? DictationArchive.latest else {
+        guard let opening = LastDictation.shared.snapshot?.wav ?? DictationArchive.latest else {
             Log.write("verbatim ⌃⌥V: no dictation archived — nothing to correct")
-            NSSound(named: "Funk")?.play()
+            Sounds.no()
             return
         }
-        let raw = LastDictation.shared.snapshot?.raw.isEmpty == false
-            ? LastDictation.shared.snapshot!.raw
-            : (DictationArchive.section("GREZZO", in: wav) ?? "")
-        Log.write("verbatim ⌃⌥V: opened for \(wav.lastPathComponent)")
-        TruthWindow.shared.show(raw: raw) { verbatim in
-            DictationArchive.recordTruth(wav, verbatim: verbatim)
+        Log.write("verbatim ⌃⌥V: opened for \(opening.lastPathComponent)")
+        // The recording arrives with the correction, because in a list the
+        // selection moves: a verbatim written against whichever dictation
+        // happened to be last would teach the app somebody else's sentence.
+        TruthWindow.shared.show(initial: opening) { wav, verbatim, how in
+            let raw = DictationArchive.section("GREZZO", in: wav) ?? ""
+            DictationArchive.recordTruth(wav, verbatim: verbatim, how: how)
             // ISC-178, sua richiesta del 2026-08-12: la correzione non serve solo
             // a fare da materiale d'allenamento, deve valere anche in avanti. Le
             // parole che ha rimesso a posto diventano regole, e la stessa parola
@@ -608,12 +622,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             //
             // Quello che NON diventa una regola sta in `LearnedCorrections`, ed è
             // la parte che conta: una regola è globale, permanente e silenziosa.
+            // Only a correction teaches a rule. A confirmation says the words
+            // were already right, so there is no wrong-to-right pair in it, and
+            // running the learner on one would mine a difference that is not
+            // there.
             let known = Set(Corrections.rules.map(\.wrong))
-            for rule in LearnedCorrections.rules(heard: raw, meant: verbatim, known: known) {
+            let lang = DictationIndex.details(of: wav).language ?? "it"
+            for rule in how == .corrected
+                ? LearnedCorrections.rules(heard: raw, meant: verbatim, known: known,
+                                           knowsWord: { SystemDictionary.knows($0, language: lang) })
+                : [] {
                 Corrections.add(wrong: rule.wrong, correct: rule.correct)
                 Log.write("verbatim ⌃⌥V: imparata la correzione «\(rule.wrong)» → «\(rule.correct)»")
             }
-            NSSound(named: "Glass")?.play()
+            // Sua richiesta del 2026-08-15: le coppie corrette servono a un
+            // fine-tuning, e l'archivio è potato per progetto. Ogni tanto, in
+            // blocco, escono di lì e vanno in una cartella che nessuna potatura
+            // tocca.
+            TrainingCorpus.exportIfBatchFull()
+            // Niente suono qui (sua richiesta, 2026-08-16): il bottone si
+            // disabilita e compare «Salvata.», la conferma è già negli occhi.
+            // Il suono resta su ⌃⌥L e ⌃⌥K, gesti senza finestra dove è l'unico
+            // segnale che qualcosa è successo.
         }
     }
 
@@ -862,9 +892,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 MainActor.assumeIsolated {
                     self?.updateIcon(for: s)
                     DownloadPanel.shared.update(for: s)
+                    self?.updateWave(for: s)
                 }
             }
             .store(in: &cancellables)
+    }
+
+    /// The wave is on screen for exactly as long as the microphone is open.
+    ///
+    /// `.listening` is the one status that means the microphone is open — set when
+    /// the recorder starts, replaced by `.transcribing` the instant the recording
+    /// ends — so hanging the island off it needs no second piece of state that
+    /// could fall out of step with the first. Everything else, the seconds of
+    /// cleanup after a dictation included, is not listening and shows nothing.
+    private func updateWave(for status: DictationStatus) {
+        if status == .listening {
+            WaveIsland.shared.show(sampling: { [weak self] in
+                self?.controller?.microphoneLevel() ?? 0
+            })
+        } else {
+            WaveIsland.shared.hide()
+        }
     }
 
     /// One icon per thing that is actually happening.

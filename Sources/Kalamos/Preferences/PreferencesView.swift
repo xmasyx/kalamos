@@ -56,12 +56,13 @@ struct PreferencesView: View {
     }
 
     enum Section: String, CaseIterable, Identifiable {
-        case dictation, cleanup, words, advanced
+        case dictation, wave, cleanup, words, advanced
         var id: String { rawValue }
 
         @MainActor var title: String {
             switch self {
             case .dictation: return L.t("Dettatura", "Dictation", "Dictée")
+            case .wave:      return L.t("Onda", "Wave", "Onde")
             case .cleanup:   return L.t("Pulizia", "Cleanup", "Nettoyage")
             case .words:     return L.t("Vocabolario e correzioni", "Words & corrections",
                                         "Vocabulaire et corrections")
@@ -72,6 +73,7 @@ struct PreferencesView: View {
         var symbol: String {
             switch self {
             case .dictation: return "mic"
+            case .wave:      return "waveform"
             case .cleanup:   return "wand.and.sparkles"
             case .words:     return "character.book.closed"
             case .advanced:  return "gearshape"
@@ -88,6 +90,7 @@ struct PreferencesView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         switch section {
                         case .dictation: DictationSection(draft: $draft)
+                        case .wave:      WaveSection(state: state)
                         case .cleanup:   CleanupSection(draft: $draft, state: state)
                         case .words:     WordsSection()
                         case .advanced:  AdvancedSection(draft: $draft, actions: actions)
@@ -451,6 +454,13 @@ struct PrefButton: View {
             Text(title)
                 .font(Theme.font(12.5, .medium))
                 .foregroundStyle(filled ? Theme.paper : Theme.pen)
+                // **Indivisibile** (MacAppRules §7): senza queste due righe, in una
+                // riga stretta «25%» esce come «25» a capo «%». Successo il
+                // 2026-08-17 sulle pastiglie del volume, e vale per ogni bottone
+                // di questa finestra, non solo per quelle — per questo sta qui e
+                // non sulla riga che l'ha scoperto.
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5.5)
                 .background(RoundedRectangle(cornerRadius: 7)

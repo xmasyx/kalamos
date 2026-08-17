@@ -207,6 +207,14 @@ final class WhisperCppTranscriber: Transcriber, @unchecked Sendable {
     func transcribe(_ samples: [Float],
                     allowedLanguages: Set<Language>,
                     forced: Language?) async throws -> TranscriptionResult {
+        try await SegmentedDecode.run(samples, allowedLanguages: allowedLanguages,
+                                      forced: forced, engine: "whisper.cpp",
+                                      decode: transcribeOne)
+    }
+
+    private func transcribeOne(_ samples: [Float],
+                               allowedLanguages: Set<Language>,
+                               forced: Language?) async throws -> TranscriptionResult {
         try await prepare()
         Self.report(.transcribing)
         guard let ctx = ctxBox.withLock({ $0 }) else {

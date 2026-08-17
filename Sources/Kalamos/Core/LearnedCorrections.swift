@@ -29,16 +29,27 @@ enum LearnedCorrections {
     static let leastSimilarity = 0.5
 
     /// What the app should learn from "it heard this, he meant that".
+    ///
+    /// `knowsWord` is the language's own dictionary, and it deliberately has no
+    /// default: a caller that forgot it would silently get the version of this
+    /// function that shipped on 2026-08-12 and learned `stanno → stavamo`.
     static func rules(heard: String, meant: String,
-                      known: Set<String> = []) -> [CorrectionRule] {
+                      known: Set<String> = [],
+                      knowsWord: (String) -> Bool) -> [CorrectionRule] {
         guard !heard.isEmpty, !meant.isEmpty,
               DictationTruth.similarity(heard, meant) >= leastSimilarity else { return [] }
 
         var found: [CorrectionRule] = []
         for (was, now) in substitutions(words(heard), words(meant)) {
+            let wrong = bare(was).lowercased()
             guard found.count < cap, learnable(was: was, now: now),
-                  !known.contains(bare(was).lowercased()) else { continue }
-            found.append(CorrectionRule(wrong: bare(was).lowercased(), correct: bare(now)))
+                  !known.contains(wrong) else { continue }
+            // A word the language already has is not a mishearing waiting to be
+            // undone, it is a word he will say again on purpose. `stanno` is the
+            // case that bought this line: a rule keyed on it rewrites ordinary
+            // Italian for ever, in text nobody re-reads.
+            guard !knowsWord(wrong) else { continue }
+            found.append(CorrectionRule(wrong: wrong, correct: bare(now)))
         }
         return found
     }

@@ -173,10 +173,21 @@ struct RuleBasedFormatter: TextFormatter {
                 chars[i] = Character(String(c).uppercased())
                 capitalizeNext = false
             } else if ".!?\n".contains(c) {
+                // A dot BETWEEN TWO DIGITS is a decimal or thousands separator,
+                // not the end of a sentence: "2.5 gigabyte" was coming back as
+                // "2. 5 Gigabyte" because this branch armed the capital and
+                // `tidySpacing` then split the number in two.
+                if c == ".", Self.isBetweenDigits(chars, i) { continue }
                 capitalizeNext = true
             }
         }
         return String(chars)
+    }
+
+    /// True when `chars[i]` has a digit immediately on both sides — the shape of
+    /// "1,73", "2.5", "1.250,40".
+    private static func isBetweenDigits(_ chars: [Character], _ i: Int) -> Bool {
+        i > 0 && i + 1 < chars.count && chars[i - 1].isNumber && chars[i + 1].isNumber
     }
 
     private func ensureTerminalPunctuation(_ input: String) -> String {
@@ -189,7 +200,13 @@ struct RuleBasedFormatter: TextFormatter {
         var out = input
         out = out.replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
         out = out.replacingOccurrences(of: " +([,.;:!?])", with: "$1", options: .regularExpression)
-        out = out.replacingOccurrences(of: "([,.;:!?])(?=[^ \\n])", with: "$1 ", options: .regularExpression)
+        // Space after a mark that runs straight into the next word — EXCEPT a
+        // `.` or `,` sitting between two digits, which is part of the number
+        // ("1,73 ore", "2.5 gigabyte", "1.250,40 euro"). The leading lookahead
+        // is the exclusion: it fails the match only when the previous char is a
+        // digit, the mark is a separator, and a digit follows.
+        out = out.replacingOccurrences(of: "(?!(?<=\\d)[.,](?=\\d))([,.;:!?])(?=[^ \\n])",
+                                       with: "$1 ", options: .regularExpression)
         out = out.replacingOccurrences(of: " *\\n *", with: "\n", options: .regularExpression)
         return out.trimmingCharacters(in: .whitespaces)
     }

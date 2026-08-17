@@ -27,6 +27,33 @@ final class DictationController {
         self.history = history
     }
 
+    /// Load the models again after the Mac has slept.
+    ///
+    /// "Never free the memory" is a promise about availability, and sleep breaks
+    /// it without telling anybody: the model is still resident as far as the app
+    /// is concerned, while its pages are gone. On 2026-08-15 the first long
+    /// dictation after a 94-minute clamshell sleep waited **2 minutes and 15
+    /// seconds**, of which the inference itself was 3.4 — the rest was 4 GB
+    /// coming back off the disk. Every other run that day took between 2 and 6
+    /// seconds.
+    ///
+    /// So the reload happens while he is opening the lid instead of while he is
+    /// waiting for his text. It costs a disk read after each wake, which is the
+    /// price of the setting he chose, and `warmUp` itself does nothing at all
+    /// unless he chose it.
+    ///
+    /// Not while a dictation is in flight: a wake can land in the middle of one,
+    /// and a preload competing with the decode it was supposed to make faster is
+    /// the wrong trade in the one moment that matters.
+    func warmUpAfterWake() {
+        guard !recorder.isRecording, state.status == .idle else {
+            Log.write("wake: dettatura in corso, riscaldamento rimandato")
+            return
+        }
+        Log.write("wake: riscaldo i modelli")
+        warmUp()
+    }
+
     /// Preload at launch (in the background) so the first dictation is instant.
     ///
     /// The speech model always. The cleanup model only when the setting says
@@ -110,6 +137,13 @@ final class DictationController {
             endAndProcess()
         }
     }
+
+    /// How loud the microphone is right now, for the wave.
+    ///
+    /// A pass-through and not a stored value: the controller owns the recorder, so
+    /// whoever draws the wave asks the controller instead of being handed the
+    /// recorder — nothing outside this class gets to start or stop a microphone.
+    func microphoneLevel() -> Double { recorder.takeLevelPeak() }
 
     /// Menu picker → swap the speech model (loads on next dictation).
     func setSpeechModel(_ name: String) {
@@ -374,6 +408,25 @@ final class DictationController {
                             promptOverride: promptOverride))
                 }
                 Log.write("output=\"\(text)\"")
+
+                // Un microfono aperto per sbaglio non è una dettatura, e non va
+                // archiviato (sua richiesta, 2026-08-16: nel pannello comparivano
+                // fra le righe da guardare, e non c'è niente da guardare).
+                //
+                // **Ma solo quando davvero non ha parlato.** Una registrazione in
+                // cui la voce c'era e il motore è tornato vuoto è l'unica prova
+                // che esiste di ISC-108, aperta da agosto e vista 7 volte su 305:
+                // cancellarla insieme ai tocchi a vuoto distruggerebbe il caso nel
+                // momento esatto in cui capita. Quella resta, marcata.
+                if rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if recorder.heardSpeech, let archived {
+                        DictationArchive.mark(archived, reason: "vuota con voce dentro (ISC-108)")
+                        Log.write("archivio: trascrizione vuota MA c'era voce, tenuta come prova")
+                    } else {
+                        DictationArchive.discard(archived)
+                    }
+                    return
+                }
 
                 // The words, beside the sound they came from. This is the whole
                 // point of the archive: a dictation that lost something is only

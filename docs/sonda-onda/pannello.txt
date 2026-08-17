@@ -1,0 +1,9 @@
+— il pannello com'è —
+comportamento: [canJoinAllSpaces, fullScreenAuxiliary, stationary] (grezzo 273)
+livello: 25 (statusBar è 25)
+hidesOnDeactivate: false
+
+✓ l'isola sta su tutte le scrivanie, sopra il pieno schermo, e non scivola
+
+— polo negativo, tolto stationary —
+✓ rossa, e per il motivo giusto: mancante stationary

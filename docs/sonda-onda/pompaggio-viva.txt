@@ -1,0 +1,8 @@
+fotogrammi 330 · scartati 0 (non è la carta della sonda) · isola dal secondo 1.07
+carta rgb(250,247,239) · guscio rgb(88,96,104)
+banda: muta 2.0 px · parlata 48.0 px (da 46 a 51) · coda 2.0 px
+
+  ✓ 1 · non collassa nel parlato       min/max 0.90 (serve ≥ 0.60)
+  ✓ 2 · in silenzio è una linea        muto/parlato 0.04 (serve ≤ 0.25)
+  ✓ 3 · l'attacco è morbido            4 fotogrammi (serve > 3)
+  ✓ 4 · le creste viaggiano            +4 px per fotogramma, avanti nel 100% delle coppie (serve ≥ 80%)

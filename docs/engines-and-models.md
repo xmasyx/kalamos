@@ -50,14 +50,20 @@ dictations that need it.
 Whisper.cpp took the default in 1.2.0 and lost it a day later, because the long-audio
 measurement that had won it the job was incomplete. It compared how much the two
 engines *wobble* between passes and never asked whether the text was *complete*. On
-the 82-second reference file whisper.cpp fails to write one whole scripted sentence
-in sixteen decodes out of sixteen; WhisperKit writes it sixteen times out of sixteen.
+the 82-second reference file whisper.cpp failed to write one whole scripted sentence
+in sixteen decodes out of sixteen; WhisperKit wrote it sixteen times out of sixteen.
 Stable, and stably missing a sentence.
 
-The cause is ours rather than the library's: Kalamos trims leading silence before
-decoding, that shifts the audio against whisper.cpp's 30-second windows, and a
-sentence sitting on a seam disappears. Feed the same file to `whisper-cli` untrimmed
-and it comes back whole.
+The cause was ours rather than the library's: Kalamos trimmed the silence at the
+*start* of a recording before decoding, which shifts everything said afterwards
+against whisper.cpp's 30-second windows — by however long you waited before
+speaking, so a different amount every time — and a sentence landing on a seam
+disappears. Feed the same file to `whisper-cli` untrimmed and it comes back whole.
+
+**Fixed on 16 August 2026:** only the silence at the *end* is trimmed now, which is
+the half that had a reason (Whisper invents captions on it). On that same reference
+file whisper.cpp went from writing the sentence 0 times out of 8 to 7 out of 8, and
+its best passes now match `whisper-cli` on the untouched file word for word.
 
 Whisper.cpp is still worth choosing when you want the same audio to give byte-identical
 text every time, and it remains the engine that never drifts. WhisperKit also has the

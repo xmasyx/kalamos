@@ -97,7 +97,36 @@ import Testing
 
         // Properties that are deliberately not settings: live state, the flag
         // that remembers setup ran, and a language set the app never exposed.
-        let notSettings: Set<String> = ["status", "didCompleteOnboarding", "enabledLanguages"]
+        // And `waveCenter`, added 2026-08-16: the record of where the wave island
+        // was last dropped. A gesture is finished the moment you let go of it, so
+        // there is nothing for a control to decide — the same reason a window frame
+        // is not a setting.
+        let notSettings: Set<String> = ["status", "didCompleteOnboarding", "enabledLanguages",
+                                        "waveCenter"]
+
+        // **Impostazioni il cui comando NON sta in Preferenze, e dove sta invece.**
+        //
+        // Aggiunta il 2026-08-17 con `playbackGainQuota`, la spinta del riascolto
+        // oltre l'originale. Il comando c'è, ma vive nella striscia di «Le tue
+        // dettature», accanto al suono che regola — che è l'unico posto dove
+        // significa qualcosa, perché lo si muove ascoltando; in Preferenze sarebbe
+        // un numero senza il suo audio.
+        //
+        // **Dichiarare il file invece di mettere la proprietà fra le esclusioni**,
+        // e la differenza è tutta qui: l'esclusione avrebbe smesso di controllare
+        // qualunque cosa, mentre così la guardia continua a pretendere un comando
+        // vero e cambia solo il posto dove lo cerca. Una guardia si allarga, non si
+        // spegne.
+        // Tre nomi e non uno, perché la catena ha tre anelli e la guardia serve a
+        // impedire che se ne rompa uno in silenzio: chi SCRIVE l'impostazione, chi
+        // ne disegna il COMANDO, e come si chiama la manopola che i due si passano.
+        // La manopola era `guadagnoDB` finché la striscia portava anche slider e
+        // numero in dB; dal pomeriggio del 2026-08-17 (sua parola: «togli lo 0%
+        // e la barra coi più e meno») la vista legge solo `quotaAccesa`, e la
+        // guardia segue la catena vera invece del suo ricordo.
+        let comandoAltrove: [String: (scrive: String, comando: String, manopola: String)] = [
+            "playbackGainQuota": ("DictationPlayback.swift", "TruthWindow.swift", "quotaAccesa"),
+        ]
 
         var properties: Set<String> = []
         for line in appState.split(separator: "\n") where line.contains("@Published var") {
@@ -130,16 +159,56 @@ import Testing
         let aliases = ["cleanupPromptOverride": "cleanupPrompt"]
 
         for property in properties.subtracting(notSettings) {
+            // Il comando dichiarato fuori da Preferenze: si controlla che ci sia
+            // DAVVERO, e che sia scritto e non solo letto — gli stessi due
+            // requisiti che valgono per gli altri, cercati in un altro file.
+            if let dove = comandoAltrove[property] {
+                // Codice e non commenti, come per Preferenze: un nome citato in un
+                // commento che spiega perché il comando è stato tolto soddisferebbe
+                // la guardia mentre il comando non c'è più (audit Gemini, 31/07).
+                func codice(_ nome: String) -> String? {
+                    files.first { $0.name == nome }?.text
+                        .split(separator: "\n", omittingEmptySubsequences: false)
+                        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                        .joined(separator: "\n")
+                }
+                guard let scrive = codice(dove.scrive), let comando = codice(dove.comando) else {
+                    Issue.record("\(property) dichiara \(dove.scrive)/\(dove.comando), che non esistono")
+                    continue
+                }
+                #expect(scrive.contains("\(property) ="),
+                        "\(property) dice di essere scritta da \(dove.scrive), e lì non le si assegna niente")
+                #expect(scrive.contains("var \(dove.manopola)"),
+                        "\(dove.manopola) non esiste in \(dove.scrive): la catena è rotta in mezzo")
+                #expect(comando.contains(dove.manopola),
+                        "\(property) dice di avere il comando in \(dove.comando), e lì non si tocca \(dove.manopola)")
+                #expect(appState.contains("persist(\"\(property)\""),
+                        "\(property) ha il comando ma non si salva: la scelta si perde alla chiusura")
+                continue
+            }
             let inDraft = aliases[property] ?? property
             // Either spelling counts: the window edits `draft.x`, and a couple of
             // read-only bits still come straight from `state.x`.
             #expect(preferences.contains("draft.\(inDraft)")
                     || preferences.contains("state.\(property)"),
                     "\(property) is saved to disk but has no control in Preferences")
-            // And it must be part of what Apply hands over, or the control edits
-            // something nobody ever writes back.
-            #expect(draftSource.contains("var \(inDraft)"),
-                    "\(property) has a control but is not in SettingsDraft")
+
+            // Two legitimate shapes, and a setting has to be one of them.
+            //
+            // The old rule was "it must be in `SettingsDraft`", which was the same
+            // thing as long as every pane waited for **Applica**. The wave pane
+            // (2026-08-16) does not: a colour has no cost to apply and a colour you
+            // cannot see land is a colour you cannot choose, so it writes
+            // `AppState` as you touch it. That pane's settings are legitimately
+            // absent from the draft — but only because they are WRITTEN somewhere,
+            // and that is what the second half checks. A `$state.x` binding or a
+            // `state.x =` assignment is the pane taking responsibility; a setting
+            // that is merely READ as `state.x` satisfies neither branch, which is
+            // the hole this test exists to keep shut.
+            let appliedAtOnce = preferences.contains("$state.\(property)")
+                || preferences.contains("state.\(property) =")
+            #expect(draftSource.contains("var \(inDraft)") || appliedAtOnce,
+                    "\(property) has a control but is neither in SettingsDraft nor written directly by the window — nothing applies it")
         }
 
         // The idle timeout: in the draft, and written on apply.

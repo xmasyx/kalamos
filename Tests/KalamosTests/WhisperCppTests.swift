@@ -102,6 +102,31 @@ struct WhisperCppTests {
         #expect(RepetitionGuard.longestRun(in: "   ").count == 0)
     }
 
+    @Test("una parola sola ripetuta a virgole è un loop che la guardia a frasi non vede")
+    func loopDiParole() {
+        // Il testo vero del 2026-08-16: whisper.cpp, ricevuto come pezzo a sé il
+        // rumore di fondo in coda a una dettatura, ha risposto così.
+        let loop = Array(repeating: "no", count: 110).joined(separator: ", ")
+        // La guardia a FRASI non lo vede, e non è un suo difetto: senza punto
+        // fermo quella è una frase sola. È il motivo per cui ne serviva una seconda.
+        #expect(RepetitionGuard.longestRun(in: loop).count == 1)
+        #expect(RepetitionGuard.longestWordRun(in: loop).count == 110)
+        #expect(RepetitionGuard.degenerated(loop))
+    }
+
+    @Test("il polo negativo della guardia a parole: la sua ripetizione vera sopravvive")
+    func ripetizioneSuaSopravvive() {
+        // Verbatim da una sua dettatura, la stessa che TextSeam è costruito per
+        // non modificare.
+        let suo = "tutto tutto tutto, lì mettiamo proprio tutto"
+        #expect(RepetitionGuard.longestWordRun(in: suo).count == 3)
+        #expect(!RepetitionGuard.degenerated(suo))
+
+        // E il confine si tocca: sette di fila passano, otto no.
+        #expect(!RepetitionGuard.degenerated(Array(repeating: "no", count: 7).joined(separator: ", ")))
+        #expect(RepetitionGuard.degenerated(Array(repeating: "no", count: 8).joined(separator: ", ")))
+    }
+
     // MARK: - Il prompt mirato
 
     private let suoVocabolario = ["Claude", "ChatGPT", "limb-lengthening", "zaya", "QWEN",

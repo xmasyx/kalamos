@@ -57,6 +57,18 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     private let vocabBox = OSAllocatedUnfairLock<[String]>(initialState: [])
     func setVocabulary(_ terms: [String]) { vocabBox.withLock { $0 = terms } }
 
+    /// Whether `decodeCovering` goes back for stretches that produced no words
+    /// (ISC-174). ON always, except under a bench that is measuring what it
+    /// costs — see the note where it is read. Settable rather than read from
+    /// settings for the reason every other knob in this class is: a probe that
+    /// reads the app's own defaults measures whichever domain the probe happens
+    /// to run in, and that has cost this project three wrong answers.
+    private let coverageBox = OSAllocatedUnfairLock<Bool>(initialState: true)
+    var repairsCoverage: Bool {
+        get { coverageBox.withLock { $0 } }
+        set { coverageBox.withLock { $0 = newValue } }
+    }
+
     // Two hypotheses were tested here on 2026-08-02 and both are dead; the
     // switches are gone so nobody re-runs them by accident.
     //
@@ -196,6 +208,14 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     func transcribe(_ samples: [Float],
                     allowedLanguages: Set<Language>,
                     forced: Language?) async throws -> TranscriptionResult {
+        try await SegmentedDecode.run(samples, allowedLanguages: allowedLanguages,
+                                      forced: forced, engine: "whisperkit",
+                                      decode: transcribeOne)
+    }
+
+    private func transcribeOne(_ samples: [Float],
+                               allowedLanguages: Set<Language>,
+                               forced: Language?) async throws -> TranscriptionResult {
         try await prepare()
         // `prepare` may have put "opening the speech model" on screen. The model
         // is open now and the app is back to what the user asked for.
@@ -204,9 +224,34 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
             return TranscriptionResult(text: "", detectedLanguage: nil)
         }
 
-        // Trim leading/trailing silence — Whisper hallucinates phrases like
-        // "thank you"/"grazie" on trailing silence (trained on YouTube captions).
+        // Trim TRAILING silence — Whisper hallucinates phrases like
+        // "thank you"/"grazie" on it (trained on YouTube captions). The silence
+        // at the start is left alone on purpose: see `trimSilence`.
+        let grezzi = samples
         let samples = Self.trimSilence(samples)
+        // Quanto è stato tolto, scritto nel registro.
+        //
+        // Non è rumore di log: il 2026-08-16 la domanda «il taglio si è mangiato
+        // le ultime parole?» ha richiesto di ricostruire il taglio a mano, fuori
+        // dall'app, perché l'app non diceva da nessuna parte quanti campioni
+        // avesse consegnato al decoder. Una riga qui e quella domanda si legge
+        // dal registro invece di essere rifatta.
+        //
+        // **E oltre `trimSospetto` la riga lo DICE** (2026-08-17). Il taglio da
+        // 2,22 s che ha mangiato «di diverso» stava nel registro dal primo minuto,
+        // scritto identico a un taglio da tre decimi: chi scorreva il file non
+        // aveva modo di distinguerli, e il difetto è arrivato in faccia a lui
+        // invece che a noi. Un marcatore non ferma niente e non deve: rende
+        // cercabile la classe di righe che merita un'occhiata.
+        if samples.count != grezzi.count {
+            let tolto = Double(grezzi.count - samples.count) / 16_000
+            Log.write(String(format: "whisperkit: taglio coda %.2fs → %.2fs (−%.2fs)%@",
+                             Float(grezzi.count) / 16_000,
+                             Float(samples.count) / 16_000,
+                             Float(tolto),
+                             tolto >= Self.trimSospetto
+                                ? String(format: " ⚠︎ SOSPETTO (oltre %.1fs)", Self.trimSospetto) : ""))
+        }
 
         // And if there is no speech in there at all, do not ask.
         //
@@ -214,7 +259,7 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // which is pattern-matching: feed it pure silence and it will invent
         // something, and anything not on the list gets through. Until now
         // `trimSilence` explicitly handed all-silence audio over untouched
-        // (`guard start < end else { return s }`), so the one case that
+        // (`guard end > 0 else { return s }`), so the one case that
         // guarantees an invention was the one case with no defence. Deciding
         // this from the AUDIO instead of from the words is the only structural
         // answer. Reported on 2026-07-31, watching a competitor do
@@ -539,6 +584,18 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // hide the condition that reload exists to clear.
         guard !base.isEmpty else { return (base, language) }
 
+        // The bench's way of asking what the repair costs, and it is a knob for
+        // a MEASUREMENT, not a behaviour anybody ships: the default is on, and
+        // nothing in the app turns it off.
+        //
+        // It exists because of a confound the principal found in the 2026-08-16
+        // report, after delivery. With the audio cut into pieces, this repair
+        // re-arms inside every piece — on `d-lungo-48s` it turned 1.6 s into
+        // 8.7 s for a text two words different — so the WhisperKit columns of
+        // that bench measured the cut PLUS this repair, and were read as if they
+        // measured the cut. Separating the two needs a run with this off.
+        guard repairsCoverage else { return (base, language) }
+
         let duration = Float(samples.count) / sampleRate
         let segments = results.flatMap(\.segments)
         // The map of the decode, and the only way this class of failure is ever
@@ -592,27 +649,40 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
             again.detectLanguage = false
         }
 
-        /// Decode one stretch, in pieces that each fit inside an encoder window.
+        /// Decode one stretch, cut the way the scissors cut: at the pauses.
         ///
-        /// A piece that comes back empty is asked again, up to three times, and
-        /// the reason is that on this audio the decoder is a coin toss rather
-        /// than a function. Measured 2026-08-12 on the same recording, cutting
-        /// at 25.4 s and varying only the length: 12 s decoded, 16 s empty, 20 s
-        /// empty, 22 s empty, 24 s decoded, 26 s decoded, 28 s empty, 30 s
-        /// decoded. Nothing about the audio changes between those calls, so no
-        /// single chunk size can be the right one; asking again is what works.
+        /// Riscritta il 2026-08-17, e il cambiamento è DOVE si taglia, non
+        /// quanto. Prima il tratto si riascoltava dai confini dichiarati dal
+        /// ciclo di ricerca — cioè da metà parlato — con tagli interni a passo
+        /// fisso, e sulla clip del crollo tornava vuoto 6 volte su 8 a
+        /// QUALUNQUE lunghezza (30 s: 3 piene su 9; 28 e 26 s: zero — quindi la
+        /// lunghezza non era la manopola, e ritentare identico non la muoveva).
+        /// Gli stessi secondi con gli estremi nel punto più quieto: zero vuoti
+        /// su 8, a tre lunghezze diverse, compresa una sopra la finestra
+        /// dell'encoder. Referto forbici §⑪. Perciò: estremi agganciati al
+        /// quieto dal chiamante, e qui dentro il tratto passa da
+        /// `AudioSplit.pieces` — il tagliaforbici già provato — così anche i
+        /// tagli interni di un tratto lungo cadono nelle pause.
+        ///
+        /// A piece that comes back empty is asked again, up to three times:
+        /// on this audio the decoder is a coin toss rather than a function
+        /// (measured 2026-08-12; the retries saved 5 of 12 empties in the
+        /// 2026-08-17 log), so asking again still earns its keep.
         func listenAgain(to clip: CoverageGap.Span) async throws -> String {
+            guard let r = CoverageGap.range(of: clip, sampleRate: sampleRate, count: samples.count)
+            else { return "" }
+            let audio = Array(samples[r])
             var recovered: [String] = []
-            for chunk in CoverageGap.chunks(of: clip, maximum: 30) {
-                guard let r = CoverageGap.range(of: chunk, sampleRate: sampleRate, count: samples.count)
-                else { continue }
-                let audio = Array(samples[r])
+            for piece in AudioSplit.pieces(of: audio) {
+                let sub = Array(audio[piece.range])
+                let da = clip.start + Float(piece.range.lowerBound) / sampleRate
+                let a = clip.start + Float(piece.range.upperBound) / sampleRate
                 for attempt in 1 ... 3 {
-                    let piece = try await engine.transcribe(audioArray: audio, decodeOptions: again)
-                    let t = trimmed(piece.map(\.text).joined(separator: " "))
+                    let out = try await engine.transcribe(audioArray: sub, decodeOptions: again)
+                    let t = trimmed(out.map(\.text).joined(separator: " "))
                     if !t.isEmpty { recovered.append(t); break }
                     Log.write(String(format: "whisperkit: pezzo %.1f-%.1fs vuoto al tentativo %d",
-                                     chunk.start, chunk.end, attempt))
+                                     da, a, attempt))
                 }
             }
             return Self.stripHallucinations(TextSeam.join(recovered))
@@ -623,7 +693,23 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         for index in suspects {
             guard repaired < maximumRepairs else { break }
             let span = CoverageGap.Span(start: pieces[index].start, end: pieces[index].end)
-            let clip = CoverageGap.padded(span, by: 0.3, within: duration, notLongerThan: 30)
+            let padded = CoverageGap.padded(span, by: 0.3, within: duration, notLongerThan: 30)
+            // Gli estremi del riascolto si AGGANCIANO AL QUIETO, cercando solo
+            // verso l'ESTERNO del tratto (2026-08-17). Verso l'esterno perché
+            // spostare un estremo dentro il buco significherebbe non
+            // riascoltare un pezzo di audio che nessuno ha sentito; allargare
+            // invece ripete al massimo due secondi già trascritti, e il
+            // doppione lo toglie `TextSeam.join` come per ogni altra cucitura.
+            // I numeri che impongono questa riga sono nel commento di
+            // `listenAgain` qui sotto; il caso misurato è 25,7 → 24,05 s sulla
+            // clip del crollo.
+            let clip = CoverageGap.Span(
+                start: AudioSplit.quietestPoint(in: samples,
+                                                betweenSeconds: padded.start - 2,
+                                                and: padded.start) ?? padded.start,
+                end: AudioSplit.quietestPoint(in: samples,
+                                              betweenSeconds: padded.end,
+                                              and: padded.end + 2) ?? padded.end)
             // The silence question is asked of the hole ITSELF, never of the
             // padded clip: the padding deliberately reaches into the speech on
             // either side, so a genuinely mute pause looks voiced through it.
@@ -705,8 +791,8 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // 2026-08-04: real speech at a normal level, surrounded by enough
         // thinking-time, averages below this floor, and the whole dictation was
         // discarded in 82 ms without the decoder ever running. `trimSilence`
-        // hides it whenever the quiet sits at the ENDS, which is why this
-        // survived until a recording turned up with the quiet in the middle.
+        // hides it whenever the quiet sits at the END — and since 2026-08-16 it
+        // no longer hides the case where the quiet sits at the start either.
         let window = max(1, Int(minimumVoicedSeconds * sampleRate))
         let hop = max(1, window / 2)   // overlapped, so a short word cannot fall in a seam
         let floorEnergy = rmsFloor * rmsFloor * Float(window)
@@ -721,20 +807,322 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         return true
     }
 
-    /// Drop near-silent leading/trailing samples (keeps a small pad).
+    /// Drop near-silent TRAILING samples (keeps a small pad). The head is left
+    /// exactly where the recorder put it, and that is deliberate.
+    //
     // `internal`, not `private`, since 2026-08-05: `WhisperCppTranscriber` calls it.
     // Copying the body into the new engine would have been the worse move — the
     // trim and the silence gate are the two places where this project has
     // already been wrong twice, and two copies drift apart without a test noticing.
-    static func trimSilence(_ s: [Float], threshold: Float = 0.008) -> [Float] {
-        guard !s.isEmpty else { return s }
-        var end = s.count
-        while end > 0 && abs(s[end - 1]) < threshold { end -= 1 }
+    //
+    // The LEADING half was here from the first commit and was removed on
+    // 2026-08-16, because it was eating a whole sentence out of long dictations.
+    // Only the trailing half ever had a reason: Whisper invents "thank you" /
+    // "grazie" on silence at the END, trained as it is on video captions. Nothing
+    // was ever wrong with silence at the START, and cutting it bought about a
+    // tenth of a second of decode on a recording lasting a minute.
+    //
+    // What it cost instead: both Whisper engines chop the audio into 30-second
+    // windows, and a sentence landing across a seam can be dropped with no error
+    // and no log line. Cutting the head SHIFTS every later sentence against that
+    // grid — by however long the user waited before speaking, so a different
+    // amount on every recording. Measured 2026-08-08 on an 82-second file:
+    // whisper.cpp lost the same sentence 16 decodes out of 16 in the app, while
+    // the same model on the same file through the command line kept it every
+    // time; removing the first three seconds by hand made the command line lose
+    // it too, with the app's exact word count. The head trim here was doing 0.33 s
+    // of that same shift. Re-measured 2026-08-16 with this function trimming the
+    // tail only: the sentence comes back, 8 decodes out of 8.
+    //
+    // Both engines, not just whisper.cpp: WhisperKit has its own documented
+    // window-seam fragility (see `chunkingStrategy` above), a random offset is no
+    // safer there, and it was measured on the same bench in the same hour — 5
+    // long files, 8 passes, no sentence lost and no word count down.
+    // ─────────────────────────────────────────────────────────────────────────
+    // RISCRITTO IL 2026-08-16, e la riscrittura viene da una dettatura sua che
+    // ha perso le ultime due parole. Vale la pena scrivere per intero perché la
+    // diagnosi di partenza era ROVESCIATA rispetto a quello che è successo.
+    //
+    // Il caso: `20260816-145026.wav`, 3,99 s, «…sta ancora andando avanti, vedo
+    // di là». L'app ha consegnato tutto tranne «vedo di là»; `whisper-cli` sullo
+    // stesso file lo sente per intero. Il sospetto era che questo taglio si
+    // fosse mangiato il parlato finale. **Misurato: questo taglio, com'era, non
+    // toglieva NIENTE da quel file — zero campioni.** Il parlato perduto sta a
+    // 3,44-3,60 s a piena voce (RMS 0,075, il punto più forte di tutta la coda),
+    // e sopravvive intatto fino al decoder.
+    //
+    // Poi il banco, sullo stesso file. **Un processo per clip**, e quella riga
+    // vale quanto i risultati: decodificando più clip in un processo solo i
+    // risultati dipendono dall'ordine — la prima versione di questo banco
+    // metteva cinque varianti in una cartella e dava numeri che si ribaltavano
+    // cambiando il file di riscaldamento. La pipeline si porta dietro lo stato
+    // fra una decodifica e l'altra (è lo stesso fatto che ISC-108 ripara
+    // ricaricando il modello), quindi un banco a più clip misura anche l'ordine.
+    //
+    //   · intero, 3,987 s ................. perde «vedo di là», 5/5
+    //   · tagliato a 3,93 s ............... lo perde, 3/3
+    //   · tagliato a 3,79 s ............... lo perde, 3/3
+    //   · tagliato a 3,75 / 3,70 / 3,65 / 3,60 / 3,55 s ... lo TIENE, 2/2 ognuno
+    //   · con 1 s o 3 s di silenzio AGGIUNTI ... lo perde
+    //   · solo la coda, da 2,4 s in poi ........ «ti vedo di là»
+    //
+    // Cioè: TOGLIERE la coda quieta ripara, aggiungerne no, e il dirupo sta fra
+    // 3,75 e 3,79 — mentre il parlato finisce verso 3,60. Il difetto non era un
+    // taglio troppo avido: era un taglio che non tagliava. Sotto c'è un
+    // comportamento del decoder che non controlliamo, e questa funzione non
+    // pretende di spiegarlo: gli consegna il parlato e poca quiete, che è tutto
+    // ciò che può fare da questa parte.
+    //
+    // Perché non tagliava: il criterio era **il singolo campione**, e il rumore
+    // di fondo di un microfono vero ha picchi istantanei sopra 0,008 fino
+    // all'ultimo campione del file. La scansione all'indietro si fermava quindi
+    // subito, sempre. Il taglio prendeva solo il silenzio DIGITALE — che da un
+    // microfono non arriva quasi mai — mentre ogni dettatura vera finisce in
+    // rumore di stanza, e quel rumore andava tutto al decoder.
+    //
+    // Il criterio giusto è l'energia su una FINESTRA: il rumore di stanza sta a
+    // 0,004-0,013 di RMS su 100 ms, il parlato di quel file a 0,044-0,075. Fra i
+    // due c'è un fattore cinque, e una finestra lo vede dove un campione no.
+    // È lo stesso errore di misura del guardiano del silenzio (2026-08-04): la
+    // statistica sbagliata su un campione che non risponde alla domanda fatta.
+    //
+    // NOTA sul verso di questa riparazione: rende il taglio PIÙ severo, non meno,
+    // quindi rafforza la difesa contro le allucinazioni da silenzio invece di
+    // indebolirla. `codaDiRumoreVieneTolta` è il polo che lo dice, ed è rosso
+    // sul codice di prima.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// La finestra su cui si misura l'energia, e il passo con cui si sposta.
+    static let trimWindow = 1_600        // 0.1 s a 16 kHz
+    static let trimHop = 160             // 10 ms
+    /// Quanto si tiene DOPO l'ultima finestra parlata.
+    ///
+    /// **0,15 s dal 2026-08-17, ed è il centro di un altopiano misurato, non un
+    /// numero scelto.** Era 0,05 s, e quel valore gli ha mangiato due parole vere:
+    /// nella dettatura delle 00:29:45 «vorrei qualcosa **di diverso**» è stato
+    /// consegnato come «vorrei qualcosa».
+    ///
+    /// **Il difetto non era dove sembrava, e vale la pena scriverlo.** Il sospetto
+    /// era la soglia — troppo alta, che rade la coda parlata. Misurato: su quel
+    /// file la soglia valeva 0,0051 e il parlato finiva a 11,2 s con la quiete
+    /// dopo a 0,001, cioè **il taglio ha tolto solo silenzio vero**. Le parole
+    /// erano ancora dentro l'audio consegnato al decoder — `whisper-cli` sullo
+    /// stesso ritaglio le sente entrambe. A perderle è WhisperKit, e a decidere se
+    /// le perde è **quanta quiete gli arriva in fondo**: sotto un decimo di
+    /// secondo non chiude la frase.
+    ///
+    /// La spazzata, motore vero dell'app, tre passate per casella, sui suoi file:
+    ///
+    /// | cuscino | «vedo di là» (145026) | «di diverso» (002945) |
+    /// |---------|----------------------|----------------------|
+    /// | 0,05 s  | 3/3                  | **0/3**              |
+    /// | 0,10 s  | 3/3                  | 3/3                  |
+    /// | **0,15 s** | **3/3**           | **3/3**              |
+    /// | 0,20 s  | 3/3                  | 3/3                  |
+    /// | 0,30 s  | **0/3**              | 3/3                  |
+    ///
+    /// I due dirupi sono reali e tirano in direzioni opposte, quindi la banda
+    /// sicura è 0,10–0,20 e 0,15 è il punto più lontano da entrambi. **Sotto c'è
+    /// un comportamento del decoder che non controlliamo** — la nota del 16/08 qui
+    /// sotto lo diceva già, e resta vera: da questa parte si può solo consegnargli
+    /// il parlato con un po' di quiete, e scegliere «un po'» misurando.
+    ///
+    /// La riga del 16/08 che diceva «è piccolo, perché ogni frazione di quiete
+    /// consegnata al decoder lavora contro di noi» è **smentita dalla tabella**:
+    /// lavora contro solo oltre 0,2 s, e sotto 0,1 s lavora contro nell'altro
+    /// verso. Il dirupo di quel giorno (3,75/3,79 s) era stato misurato per
+    /// TRONCAMENTO a tempi assoluti, non attraverso questa funzione; rimisurato il
+    /// 17/08 dal percorso vero, a cuscino 0,10 e 0,15 quel file regge 3/3.
+    static let trimPad = 2_400           // 0.15 s
+
+    /// Il cuscino e l'interruttore del taglio, per la spazzata di
+    /// `--selftest-engine --cuscino=<s>` e `--senza-taglio`.
+    ///
+    /// Esistono perché la domanda «è il taglio o è il decodificatore?» si risponde
+    /// solo cambiando UN parametro alla volta sullo stesso file e rileggendo cosa
+    /// esce dal motore vero. Stessa ragione di `WaveIsland.probeTaratura`: una
+    /// spazzata che per girare deve modificare il sorgente è una spazzata che
+    /// nessuno può rifare.
+    nonisolated(unsafe) static var probeTrimPad: Int?
+    nonisolated(unsafe) static var probeTrimOff = false
+
+    static var cuscino: Int { probeTrimPad ?? trimPad }
+
+    /// La soglia si misura sulla registrazione stessa, non su una costante buona
+    /// per tutti i microfoni: **una frazione della finestra più forte del file**.
+    ///
+    /// Il parlato vero, anche l'ultima sillaba smorzata, sta molto sopra un
+    /// settimo del picco; il rumore di stanza sta molto sotto. I due estremi
+    /// esistono perché la frazione da sola sbaglia agli estremi: su una
+    /// registrazione quasi muta darebbe una soglia priva di senso (da qui il
+    /// pavimento, che è `AudioRecorder.speechFloor`, la definizione di silenzio
+    /// che l'app ha già) e su una gridata la renderebbe severa al punto di
+    /// mangiare una coda parlata piano (da qui il tetto, che è
+    /// `AudioSplit.silenceRMS`, il «qui si può tagliare» che l'app ha già).
+    /// Nessuno dei tre numeri è nuovo in questo progetto, e non doveva esserlo.
+    static let trimFraction: Float = 0.15
+
+    /// **Oltre questo, un taglio si dichiara sospetto nel registro.**
+    ///
+    /// Non è un limite e non ferma niente: è la riga che si legge il giorno dopo.
+    /// Il difetto del 2026-08-17 — 2,22 s di coda parlata rasi via — stava nel
+    /// registro fin dal primo minuto come «taglio coda 13.59s → 11.37s», scritto
+    /// esattamente come un taglio da tre decimi, e nessuno poteva distinguerli
+    /// scorrendo. Un secondo e mezzo di coda quieta è una pausa lunghissima; oltre,
+    /// la spiegazione più probabile è che sia stato tagliato del parlato.
+    static let trimSospetto: Double = 1.5
+
+    /// **Il tetto vero della soglia: una frazione della MEDIANA del parlato, non
+    /// una costante presa in prestito** (2026-08-17).
+    ///
+    /// Fino a oggi il tetto era `AudioSplit.silenceRMS` (0,02), che è il «qui si
+    /// può tagliare una giuntura» di un'altra parte dell'app: una domanda diversa,
+    /// e un numero molto più alto di quanto serva qui. L'effetto si vede sui suoi
+    /// file — su `20260816-143651` la soglia usciva **0,0200 contro una mediana
+    /// del parlato di 0,0114**, cioè stava al doppio del parlato tipico di quella
+    /// registrazione e ne rasava 8,3 s di coda. Su `20260816-154025` uguale, 0,0200
+    /// contro 0,0078.
+    ///
+    /// La mediana è la statistica giusta perché è **robusta al picco** — che è
+    /// precisamente ciò che tradiva la frazione sul massimo quando la
+    /// registrazione comincia forte.
+    ///
+    /// **Perché 1,5 e non 1,0, che sarebbe il numero "di principio".** Perché 1,0
+    /// e 0,5 sono stati provati e riaprono il difetto che questo taglio esiste per
+    /// riparare. La mediana è contaminata: le finestre sopra il pavimento
+    /// includono il rumore di stanza, quindi su una registrazione con la coda
+    /// lunga la mediana SCENDE verso il rumore e un tetto stretto azzera il
+    /// taglio. Misurato sui suoi file, tetto contro taglio su `20260816-145026`,
+    /// che è il caso da non perdere:
+    ///
+    /// | quota | 145026 | 143651 | il banco del fruscio |
+    /// |-------|--------|--------|----------------------|
+    /// | 0,5   | **0,00 s — non taglia più** | 0,66 s | **rosso** |
+    /// | 1,0   | **0,00 s — non taglia più** | 1,80 s | **rosso** |
+    /// | **1,5** | **0,15 s** | 5,08 s (era 8,27) | verde |
+    ///
+    /// Quindi questo tetto non fa la cosa di principio, fa **la cosa misurata**:
+    /// toglie i casi estremi — la soglia che stava a 1,75× e a 2,5× la mediana del
+    /// parlato — senza mai scendere dentro il rumore di stanza. Il caso che resta
+    /// scoperto è dichiarato in `unaFinestraDiParlatoNonVieneMaiTolta`.
+    static let trimQuotaMediana: Float = 1.5
+
+    /// La soglia, dai tre termini che la governano.
+    ///
+    /// · pavimento `speechFloor` — sotto, niente è parlato per definizione dell'app;
+    /// · frazione del picco — la taratura sulla registrazione stessa;
+    /// · tetto sulla mediana — il vincolo «mai sopra il parlato tipico».
+    ///
+    /// La mediana arriva da fuori invece di essere ricalcolata qui: chi chiama ha
+    /// già il profilo d'energia in mano, e rifarlo sarebbe la funzione che riscrive
+    /// la misura che deve usare.
+    static func trimSoglia(_ picco: Float, mediana: Float = 0) -> Float {
+        let base = max(AudioRecorder.speechFloor, picco * trimFraction)
+        // Mediana zero significa «non misurata», non «zero». Un valore mancante non
+        // deve poter passare per un valore: senza, si ricade sul comportamento di
+        // prima invece di far finta che il vincolo ci sia.
+        guard mediana > 0 else { return min(AudioSplit.silenceRMS, base) }
+        return max(AudioRecorder.speechFloor,
+                   min(AudioSplit.silenceRMS, base, mediana * trimQuotaMediana))
+    }
+
+    /// La mediana delle finestre che portano parlato, cioè quelle sopra il
+    /// pavimento. **Mediana e non media**: una coda lunga di quiete tirerebbe giù
+    /// una media fino a renderla inservibile, e sono proprio le registrazioni con
+    /// la coda lunga il caso che qui interessa.
+    static func trimMediana(_ energie: [Float]) -> Float {
+        let parlate = energie.filter { $0 >= AudioRecorder.speechFloor }.sorted()
+        return parlate.isEmpty ? 0 : parlate[parlate.count / 2]
+    }
+
+    /// Drop near-silent TRAILING samples (keeps a small pad). The head is left
+    /// exactly where the recorder put it, and that is deliberate.
+    //
+    // `internal`, not `private`, since 2026-08-05: `WhisperCppTranscriber` calls it.
+    // Copying the body into the new engine would have been the worse move — the
+    // trim and the silence gate are the two places where this project has
+    // already been wrong twice, and two copies drift apart without a test noticing.
+    //
+    // The LEADING half was here from the first commit and was removed on
+    // 2026-08-16, because it was eating a whole sentence out of long dictations.
+    // Only the trailing half ever had a reason: Whisper invents "thank you" /
+    // "grazie" on silence at the END, trained as it is on video captions. Nothing
+    // was ever wrong with silence at the START, and cutting it bought about a
+    // tenth of a second of decode on a recording lasting a minute.
+    //
+    // What it cost instead: both Whisper engines chop the audio into 30-second
+    // windows, and a sentence landing across a seam can be dropped with no error
+    // and no log line. Cutting the head SHIFTS every later sentence against that
+    // grid — by however long the user waited before speaking, so a different
+    // amount on every recording. Measured 2026-08-08 on an 82-second file:
+    // whisper.cpp lost the same sentence 16 decodes out of 16 in the app, while
+    // the same model on the same file through the command line kept it every
+    // time; removing the first three seconds by hand made the command line lose
+    // it too, with the app's exact word count. The head trim here was doing 0.33 s
+    // of that same shift. Re-measured 2026-08-16 with this function trimming the
+    // tail only: the sentence comes back, 8 decodes out of 8.
+    //
+    // Both engines, not just whisper.cpp: WhisperKit has its own documented
+    // window-seam fragility (see `chunkingStrategy` above), a random offset is no
+    // safer there, and it was measured on the same bench in the same hour — 5
+    // long files, 8 passes, no sentence lost and no word count down.
+    static func trimSilence(_ s: [Float]) -> [Float] {
+        guard !probeTrimOff else { return s }
+        // Un pezzo delle forbici non si rifila in coda: la pausa in cui il
+        // taglio è caduto è ciò che chiude l'ultima frase del pezzo, e la
+        // registrazione intera è GIÀ stata rifilata prima di essere tagliata
+        // (SegmentedDecode). Il perché, coi numeri: il commento di `PieceDecode`.
+        guard !PieceDecode.inPiece else { return s }
+        guard s.count > trimWindow else { return s }
+
+        // Somme cumulate dei quadrati: l'energia di qualunque finestra è una
+        // sottrazione, quindi il file si legge UNA volta sola invece di una
+        // volta per finestra. Su una dettatura di un minuto la differenza è
+        // fra 10 milioni di moltiplicazioni e un milione, e questa funzione gira
+        // sulla coda di ogni dettatura, davanti all'utente che aspetta.
+        // L'accumulatore è `Double` di proposito: in `Float` le somme cumulate di
+        // una registrazione lunga arrivano dove la differenza fra due valori
+        // vicini perde le cifre che servono, e le finestre in fondo — proprio
+        // quelle che decidono — sarebbero le meno precise.
+        var cumulata = [Double](repeating: 0, count: s.count + 1)
+        for i in 0 ..< s.count { cumulata[i + 1] = cumulata[i] + Double(s[i]) * Double(s[i]) }
+
+        /// L'energia di una finestra che comincia in `start`.
+        func rms(_ start: Int) -> Float {
+            let energia = cumulata[start + trimWindow] - cumulata[start]
+            return Float((max(0, energia) / Double(trimWindow)).squareRoot())
+        }
+
+        var energie: [(start: Int, valore: Float)] = []
+        energie.reserveCapacity(s.count / trimHop + 1)
         var start = 0
-        while start < end && abs(s[start]) < threshold { start += 1 }
-        guard start < end else { return s }   // all silence → leave as-is
-        let pad = 1_600                        // 0.1 s at 16 kHz
-        return Array(s[max(0, start - pad) ..< min(s.count, end + pad)])
+        while start + trimWindow <= s.count {
+            energie.append((start, rms(start)))
+            start += trimHop
+        }
+        guard let picco = energie.map(\.valore).max() else { return s }
+        let soglia = trimSoglia(picco, mediana: trimMediana(energie.map(\.valore)))
+
+        guard let ultima = energie.last(where: { $0.valore >= soglia })?.start else {
+            return s   // tutto quieto → si lascia com'è, decide `isSilent`
+        }
+
+        // Si tiene la finestra INTERA, e non si affina a campione dentro di essa.
+        //
+        // Affinarla è stato il primo tentativo, e rimetteva dentro il difetto
+        // appena tolto: dentro quella finestra il rumore di stanza ha picchi
+        // istantanei sopra la soglia, quindi la scansione a campione si fermava
+        // sull'ultimo di quelli — a 3,688 s invece che sulla fine del parlato — e
+        // il taglio finiva a 3,79 s, dalla parte sbagliata del dirupo. La finestra
+        // è la misura giusta; una misura giusta non si «raffina» con quella
+        // sbagliata.
+        //
+        // Il prezzo è dichiarato: la risoluzione di questo taglio è la finestra,
+        // cioè 100 ms, e non può essere più fine di così. Va bene, perché
+        // l'errore va nella direzione prudente — si tiene un po' di troppo, mai
+        // un po' di meno.
+        let fine = min(s.count, ultima + trimWindow)
+        return Array(s[0 ..< min(s.count, fine + cuscino)])
     }
 
     /// Drop Whisper's own control tokens (`<|it|>`, `<|3.42|>`, …) from a raw

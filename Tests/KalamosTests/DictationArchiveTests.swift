@@ -15,8 +15,9 @@ struct DictationArchiveTests {
     /// This is the failure that was measured on real audio: 11 seconds of normal
     /// speech inside a long recording averages under the floor, and the old
     /// guard returned "silent" for a recording with a sentence in it. The quiet
-    /// is in the MIDDLE on purpose — `trimSilence` removes it at the ends, which
-    /// is what hid this for so long.
+    /// is in the MIDDLE on purpose — `trimSilence` removed it at the ends, which
+    /// is what hid this for so long. (Since 2026-08-16 it only removes it at the
+    /// end; the middle is still where the guard has to do the work.)
     @Test func speechBuriedInQuietIsNotSilence() {
         let sr: Float = 16_000
         // 0.02 is not an arbitrary "quiet": it is the amplitude matching the

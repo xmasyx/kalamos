@@ -57,6 +57,49 @@ enum DictationArchive {
             to: sidecar, atomically: true, encoding: .utf8)
     }
 
+    /// Throw a recording away, sound and sidecar together.
+    ///
+    /// For the one case that is not a dictation at all: the microphone opened
+    /// and nothing was said. Those were being kept, listed, and offered to him
+    /// to correct, which is asking what he had said about a moment when he had
+    /// said nothing.
+    static func discard(_ wav: URL?) {
+        guard let wav else { return }
+        let fm = FileManager.default
+        try? fm.removeItem(at: wav)
+        try? fm.removeItem(at: sidecar(of: wav))
+        Log.write("archivio: \(wav.lastPathComponent) buttata, registrazione vuota")
+    }
+
+    /// Sweep away the recordings that never got any text beside them.
+    ///
+    /// **This is what he was actually seeing** (2026-08-16): rows in the panel
+    /// with a time, a duration and nothing to read. Not an empty transcript — no
+    /// sidecar at all, because the decode returned nothing and the code that
+    /// writes the text never ran. Twelve of them on his machine.
+    ///
+    /// `youngerThan` protects the one in flight: a recording is written before
+    /// its transcription exists, so for a few seconds every dictation looks like
+    /// an orphan. Five minutes is longer than the slowest decode measured on this
+    /// Mac, which was a cold model load at 2m15s.
+    @discardableResult
+    static func discardOrphans(olderThan age: TimeInterval = 300, now: Date = Date()) -> Int {
+        let fm = FileManager.default
+        guard let all = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        else { return 0 }
+        var gone = 0
+        for wav in all where wav.pathExtension == "wav" {
+            guard !fm.fileExists(atPath: sidecar(of: wav).path) else { continue }
+            let stem = wav.deletingPathExtension().lastPathComponent
+            guard let started = DictationIndex.date(fromStem: stem),
+                  now.timeIntervalSince(started) > age else { continue }
+            try? fm.removeItem(at: wav)
+            gone += 1
+        }
+        if gone > 0 { Log.write("archivio: buttate \(gone) registrazioni vuote senza testo") }
+        return gone
+    }
+
     /// The sidecar that belongs to a recording.
     static func sidecar(of wav: URL) -> URL {
         wav.deletingPathExtension().appendingPathExtension("txt")
@@ -90,12 +133,78 @@ enum DictationArchive {
 
     /// Write down what was actually said. The one line in the whole file that is
     /// not a guess.
-    static func recordTruth(_ wav: URL, verbatim: String) {
+    ///
+    /// **How it was settled is written down with it**, because the two ways are
+    /// not equally strong evidence and a corpus that cannot tell them apart
+    /// cannot weigh them later. `corrected` means he retyped the words that were
+    /// wrong. `confirmed` means he read it and it was already right, which is
+    /// what most dictations are — and until 2026-08-15 the app had no way for him
+    /// to say so, so an untouched recording looked exactly like one nobody had
+    /// ever looked at.
+    static func recordTruth(_ wav: URL, verbatim: String, how: TruthSource = .corrected) {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm"
         f.locale = Locale(identifier: "en_US_POSIX")
-        append(wav, lines: ["", "VERITÀ (\(f.string(from: Date()))):", verbatim])
-        Log.write("archive: verbatim recorded for \(wav.lastPathComponent)")
+        append(wav, lines: ["", "VERITÀ (\(f.string(from: Date()))\(how.note)):", verbatim])
+        Log.write("archive: verbatim \(how.rawValue) for \(wav.lastPathComponent)")
+    }
+
+    /// How a verbatim came to be settled.
+    enum TruthSource: String, Sendable {
+        /// He fixed the words that were wrong.
+        case corrected
+        /// He read it and confirmed it was already right.
+        case confirmed
+        /// He confirmed a whole screenful at once. Weaker than one at a time and
+        /// recorded as such: a sweep is a claim about a list, and whoever trains
+        /// on this later is entitled to know which lines came from a glance.
+        case confirmedInBulk = "confirmed_bulk"
+
+        /// Nobody said anything, and that is the point: he used the dictation and
+        /// never went back to it, while the ones he DID go back to are marked.
+        /// The weakest of the four, inferred by the app rather than stated by
+        /// him, and it never gets written into a sidecar — it is computed at
+        /// export time, so the day he corrects one the stronger source wins.
+        case presumed
+
+        /// **Capitals, and not for emphasis.** `isHeading` recognises a block by
+        /// a line of capitals ending in a colon, so a lower-case note inside the
+        /// parentheses would stop the line from being a heading at all: the
+        /// verbatim would be filed as the tail of the previous block and the
+        /// recording would read back as never settled. Written in lower case
+        /// first, caught by the test below, and it would never have shown up in
+        /// the app — the file looks perfectly reasonable to a human eye.
+        var note: String {
+            switch self {
+            case .corrected: return ""
+            case .confirmed: return ", CONFERMATA"
+            case .confirmedInBulk: return ", CONFERMATA IN BLOCCO"
+            // Never written to a sidecar: a presumption is not something the
+            // archive should record as if he had said it. It is derived at
+            // export time and lives only in the corpus line.
+            case .presumed: return ""
+            }
+        }
+    }
+
+    /// Has this recording been settled, one way or the other?
+    static func isSettled(_ wav: URL) -> Bool {
+        section("VERITÀ", in: wav)?.isEmpty == false
+    }
+
+    /// How it was settled, read back off the file. Nil when it never was.
+    ///
+    /// Read by the marker in the heading rather than by parsing the date beside
+    /// it: the markers are unique upper-case strings this type writes and
+    /// nothing else does, so the check cannot be fooled by a transcript that
+    /// happens to contain the word.
+    static func truthSource(of wav: URL) -> TruthSource? {
+        guard isSettled(wav),
+              let text = try? String(contentsOf: sidecar(of: wav), encoding: .utf8)
+        else { return nil }
+        if text.contains("CONFERMATA IN BLOCCO") { return .confirmedInBulk }
+        if text.contains("CONFERMATA") { return .confirmed }
+        return .corrected
     }
 
     /// Read back one labelled block of a sidecar — "GREZZO", "CONSEGNATO".

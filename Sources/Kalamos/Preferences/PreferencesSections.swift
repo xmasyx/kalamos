@@ -886,3 +886,260 @@ struct AdvancedSection: View {
                    "Après \(minutes) minute\(minutes == 1 ? "" : "s") sans dicter, la mémoire est libérée. La dictée suivante coûte quelques secondes de plus, le temps de relire les modèles.")
     }
 }
+
+// MARK: - Onda
+
+/// The wave, and the four decisions it comes with.
+///
+/// **This section applies immediately and has no place in `SettingsDraft`,
+/// deliberately.** Everything else in this window is a decision with a cost —
+/// re-registering a global event tap, throwing away a loaded model — so it waits
+/// for **Applica**. A colour has no cost, and a colour you cannot see land is a
+/// colour you cannot choose: the preview above the pills has to change the
+/// instant you touch one, or you are picking from names. The precedent inside
+/// this window is the vocabulary, which is entries rather than settings and
+/// likewise never waits.
+///
+/// The consequence is that the footer keeps saying "tutto applicato" while you
+/// work here, and that is true: there is nothing pending, because it is already
+/// done.
+struct WaveSection: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        Group {
+            PrefRow(title: L.t("L'onda mentre detti", "The wave while you dictate",
+                               "L'onde pendant la dictée"),
+                    note: L.t("Compare quando il microfono si apre e sparisce quando la dettatura finisce. Segue la tua voce: non ascolta niente in più, guarda l'audio che Kalamos sta già registrando.",
+                              "It appears when the microphone opens and goes away when the dictation ends. It follows your voice from the audio Kalamos is already recording — nothing extra is listened to.",
+                              "Elle apparaît quand le micro s'ouvre et disparaît à la fin de la dictée. Elle suit votre voix à partir de l'audio déjà enregistré."),
+                    toggle: $state.waveEnabled) {
+                preview
+            }
+
+            PrefRow(title: L.t("Colore dell'onda", "Wave colour", "Couleur de l'onde")) {
+                TintRow(tints: WavePalette.wave, selection: $state.waveTint)
+            }
+
+            PrefRow(title: L.t("Colore della pillola", "Pill colour", "Couleur de la pastille")) {
+                VStack(alignment: .leading, spacing: 12) {
+                    TintRow(tints: WavePalette.shell, selection: $state.waveShellTint)
+                    PrefToggle(title: L.t("Disegna la pillola dietro l'onda",
+                                          "Draw the pill behind the wave",
+                                          "Dessiner la pastille derrière l'onde"),
+                               note: L.t("Senza pillola resta solo l'onda, sospesa sullo schermo. La trascini lo stesso: si prende da tutta la sua area, anche dove non c'è niente di dipinto. Appesa al notch la pillola non serve, perché lì il guscio è nero e continua l'hardware.",
+                                         "With no pill only the wave is left, floating on the screen. You can still drag it: the whole of its area is the handle, painted or not. Hanging from the notch the pill is not used, because there the shell is black and continues the hardware.",
+                                         "Sans pastille il ne reste que l'onde, suspendue à l'écran. Vous pouvez toujours la déplacer : toute sa surface sert de poignée. Sous l'encoche la pastille ne sert pas : la coque y est noire et prolonge le matériel."),
+                               isOn: $state.waveShell)
+                }
+            }
+
+            PrefRow(title: L.t("Dove compare", "Where it appears", "Où elle apparaît"),
+                    note: L.t("Appesa al notch sta in cima allo schermo. Come isoletta diventa una pillola piccola che trascini dove vuoi, e trascinarla è il modo di scegliere il punto: la prendi da qualunque punto della pillola.",
+                              "Hanging from the notch it sits at the top of the screen. As a floating island it becomes a small pill you drag where you like, and dragging it is how the spot gets chosen: grab it anywhere on the pill.",
+                              "Sous l'encoche, elle reste en haut de l'écran. En îlot, elle devient une petite pastille que vous faites glisser où vous voulez : attrapez-la n'importe où.")) {
+                ChipRow(options: [
+                    (WavePosition.notch, L.t("Dal notch", "From the notch", "Sous l'encoche"), ""),
+                    (WavePosition.bubble, L.t("Isoletta", "Floating island", "Îlot"), ""),
+                ], isOn: { state.wavePosition == $0 }, pick: { state.wavePosition = $0 })
+            }
+        }
+    }
+
+    /// The island as it will actually appear — same wave, same shell, **same
+    /// shape**, alive and in the colours currently chosen.
+    ///
+    /// Not a swatch of colour next to a label: the thing being decided is a
+    /// moving picture on a dark ground, and a square of flat blue says nothing
+    /// about how it will read. `WaveformView` is the SAME view the island draws,
+    /// not a copy of it, so a preview cannot show something the island does not.
+    ///
+    /// The shape follows the position for the same reason, and it is why the
+    /// preview changes size: hanging from the notch the island is a band, free of
+    /// it the island is a small pill, and a preview that kept drawing a band for both
+    /// would be showing him a shape the app stopped having on 2026-08-16. The wave
+    /// inside the pill is laid out by `BubbleGeometry` — the island's own
+    /// arithmetic, called with the smaller diameter rather than copied with
+    /// numbers chosen by eye.
+    @ViewBuilder
+    private var preview: some View {
+        if posizione == .notch { notchPreview } else { bubblePreview }
+    }
+
+    /// La forma da mostrare, con la sonda che può scavalcare l'impostazione.
+    ///
+    /// Stessa ragione di `WaveIsland.probePosition`, che questo campo È: una
+    /// sonda che dovesse SCRIVERE `wavePosition` per fotografare l'anteprima
+    /// lascerebbe la sua Kalamos configurata da chi ha scattato per ultimo. Senza
+    /// questa riga l'anteprima della pillola non era fotografabile affatto, e
+    /// l'unica pagina che la mostra si sarebbe giudicata leggendo il sorgente.
+    private var posizione: WavePosition {
+        WaveIsland.probePosition ?? state.wavePosition
+    }
+
+    private var notchPreview: some View {
+        VStack(spacing: 0) {
+            Spacer().frame(height: 10)
+            WaveformView(livello: 0.55,
+                         tinta: WaveTint.color(from: state.waveTint),
+                         attiva: state.waveEnabled)
+                // The same proportions as the island, at 300×92 instead of
+                // 400×128. The caption came off the island on 2026-08-16 and had
+                // to come off here in the same breath: this preview says in its
+                // own comment that it cannot show something the island does not,
+                // and a preview left behind is a picture of last week's app.
+                .frame(height: 52)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 5)
+        .frame(width: 300, height: Self.previewHeight)
+        .background {
+            UnevenRoundedRectangle(cornerRadii: .init(bottomLeading: 20, bottomTrailing: 20),
+                                   style: .continuous)
+                .fill(.black)
+        }
+        .modifier(PreviewFrame(enabled: state.waveEnabled))
+    }
+
+    /// The pill, at the size it really is.
+    ///
+    /// **Not scaled to the row's height like the notch band is**, and that is the
+    /// point of the whole change: what he asked for is a SMALL island, so a
+    /// preview that blew it up to 92 points would be answering the question
+    /// "what shape" while hiding the question "how big". Drawn at its own 150×40
+    /// inside a box as tall as the other preview, it is the only preview in this
+    /// window that is life-size, because size is the thing being decided.
+    private var bubblePreview: some View {
+        ZStack {
+            if state.waveShell {
+                Capsule(style: .continuous)
+                    .fill(WaveTint.color(from: state.waveShellTint).opacity(0.94))
+            } else {
+                // No shell means the wave floats on the desktop, and the preview
+                // has to say so: nothing at all on paper would read as a white
+                // pill, which is the one thing that never happens on screen.
+                Capsule(style: .continuous).fill(Theme.ink.opacity(0.10))
+                    .overlay(Capsule(style: .continuous)
+                        .strokeBorder(Theme.rule,
+                                      style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
+            }
+            WaveformView(livello: 0.55,
+                         tinta: WaveTint.color(from: state.waveTint),
+                         attiva: state.waveEnabled,
+                         profilo: BubbleGeometry.profile(box: previewWave,
+                                                         in: BubbleGeometry.size))
+                .frame(width: previewWave.width, height: previewWave.height)
+        }
+        .frame(width: BubbleGeometry.width, height: BubbleGeometry.height)
+        .clipShape(Capsule(style: .continuous))
+        // The row keeps the height the band preview has, so flipping the chip
+        // does not make the page jump; the pill simply sits in the middle of it,
+        // small, which is what it is.
+        .frame(height: Self.previewHeight)
+        .modifier(PreviewFrame(enabled: state.waveEnabled))
+    }
+
+    /// One height for both shapes, so flipping the chip does not make the row
+    /// jump.
+    private static let previewHeight: CGFloat = 92
+
+    private var previewWave: CGSize {
+        BubbleGeometry.waveSize(in: BubbleGeometry.size)
+    }
+}
+
+/// What every preview of the island shares: dimmed when the wave is off, and hard
+/// left like every other row on the page.
+///
+/// Centred, the block floated with its own title flush left two lines above it,
+/// and on a pane where everything else starts at the same margin one centred block
+/// reads as adrift rather than as featured (MacAppRules §2, check 2).
+private struct PreviewFrame: ViewModifier {
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(enabled ? 1 : 0.45)
+            // **Al CENTRO della riga, non a sinistra** (sua richiesta,
+            // 2026-08-16), e vale per tutt'e due le forme perché tutt'e due
+            // passano di qui: la banda del notch è larga 300 punti e la pillola
+            // 150, quindi centrarne una sola le farebbe saltare da una parte
+            // all'altra scambiando il chip — lo stesso ballo che `previewHeight`
+            // esiste già per impedire sull'altro asse.
+            //
+            // **È l'unica riga che serviva, e ci sono arrivato per esclusione.**
+            // Prima ho aggiunto un modificatore sopra le due anteprime, prima con
+            // `maxWidth: .infinity` e poi con due spaziatori, e la fotografia ha
+            // detto no tutte e due le volte: quale che fosse l'involucro, dentro
+            // c'era già questo `frame` a tutta larghezza che le inchiodava al
+            // bordo sinistro. Un contenitore che allinea non si scavalca da fuori.
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+/// A row of colour pills, one tap and it is done.
+///
+/// The system colour panel was the alternative and is the wrong material twice
+/// over: it hides every colour behind a click, and it arrives wearing macOS's
+/// livery inside a window that has its own (MacAppRules §2). Same reason
+/// `ChipRow` exists instead of a `Picker`.
+///
+/// `selection` is the `"r g b a"` string the setting is stored as, so the
+/// comparison is textual and the persistence stays readable with `defaults read`.
+struct TintRow: View {
+    let tints: [(name: String, color: Color)]
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(tints, id: \.name) { tint in
+                let value = WaveTint.string(from: tint.color)
+                let chosen = Self.sameColour(value, selection)
+                Button { selection = value } label: {
+                    Circle()
+                        .fill(tint.color)
+                        .frame(width: 22, height: 22)
+                        .overlay {
+                            if chosen {
+                                // Two rings, not one: a white ring vanishes on the
+                                // pearl pill and an ink ring vanishes on the black
+                                // one, so the mark carries both and is visible on
+                                // every colour in the row.
+                                Circle().strokeBorder(.white, lineWidth: 2)
+                                Circle().strokeBorder(Theme.ink.opacity(0.6), lineWidth: 0.5)
+                            } else {
+                                // A full point at a quarter opacity, not half a
+                                // point at fifteen percent: on the night face the
+                                // dark pills sit on a dark page, and a ring that
+                                // faint stopped being an edge — Petrolio, Bosco and
+                                // Grafite were three smudges (seen in the dark
+                                // photograph, 2026-08-16).
+                                Circle().strokeBorder(Theme.ink.opacity(0.25), lineWidth: 1)
+                            }
+                        }
+                        // The whole disc, not the pixel you aimed at.
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(tint.name)
+                .accessibilityLabel(tint.name)
+                .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Two `"r g b a"` strings are the same colour when every channel agrees to
+    /// the hundredth: the `Color → NSColor → sRGB` round trip shaves the third
+    /// decimal, and comparing the strings exactly would light no pill at all.
+    ///
+    /// `nonisolated` because it is arithmetic on two strings: a `View` is
+    /// main-actor by inheritance, and a pure helper that comes along for the ride
+    /// drags every caller — the test included — onto the main actor for nothing.
+    nonisolated static func sameColour(_ a: String, _ b: String) -> Bool {
+        let x = a.split(separator: " ").compactMap { Double($0) }
+        let y = b.split(separator: " ").compactMap { Double($0) }
+        guard x.count == 4, y.count == 4 else { return false }
+        return zip(x, y).allSatisfy { abs($0 - $1) < 0.01 }
+    }
+}

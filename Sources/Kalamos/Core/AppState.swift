@@ -164,6 +164,53 @@ final class AppState: ObservableObject {
     /// finishing. Pointless without the space, and both are off by default.
     @Published var smartCapitalization: Bool { didSet { persist("smartCapitalization", smartCapitalization) } }
 
+    // MARK: The wave (2026-08-16)
+
+    /// Show the wave while the microphone is open. **On by default**, because what
+    /// it answers is "is it listening to me right now", and that question exists
+    /// for everybody until they decide it does not.
+    @Published var waveEnabled: Bool { didSet { persist("waveEnabled", waveEnabled) } }
+
+    /// The wave's colour and the shell's, as `"r g b a"` — see `WaveTint`.
+    @Published var waveTint: String { didSet { persist("waveTint", waveTint) } }
+    @Published var waveShellTint: String { didSet { persist("waveShellTint", waveShellTint) } }
+
+    /// Draw the bubble behind the wave. Off, the wave floats on the desktop.
+    /// Ignored in the notch, where the shell IS the point.
+    @Published var waveShell: Bool { didSet { persist("waveShell", waveShell) } }
+
+    /// Quanto si sta spingendo il riascolto oltre l'originale, come QUOTA 0…1
+    /// dello spazio che il file ha (0 = suono nudo).
+    ///
+    /// Ricordato come la velocità, e per lo stesso motivo: la sua voce non cambia
+    /// volume fra ieri e oggi, quindi rimettere la spinta a ogni apertura sarebbe
+    /// un lavoro che l'app può risparmiargli. Vive qui e non nel lettore perché il
+    /// lettore muore col pannello — che è esattamente il punto della regola sulle
+    /// risorse audio, e il motivo per cui la sua impostazione non può vivere lì.
+    @Published var playbackGainQuota: Double { didSet { persist("playbackGainQuota", playbackGainQuota) } }
+
+    /// Hanging from the notch, or a free island. See `WavePosition`.
+    @Published var wavePosition: WavePosition { didSet { persist("wavePosition", wavePosition.rawValue) } }
+
+    /// Where the free island was last dropped: **its centre**, `"x y"` in screen
+    /// points.
+    ///
+    /// The centre and not the corner, because the island is not always the same
+    /// size — 400×128 hanging from the notch, a pill 150×40 once it is free.
+    /// A corner saved by one shape and read back by the other moves the island by
+    /// half the difference, which looks like a bug in the drag rather than in the
+    /// arithmetic. Renamed from `waveOrigin` on 2026-08-16 together with its
+    /// meaning, and with no migration on purpose: that key never left this Mac —
+    /// the wave was built after v1.2.0 and `defaults read com.kalamos.app` had
+    /// never written it — so a compatibility path would have been dead code from
+    /// its first day.
+    ///
+    /// Not a setting anybody decides — the record of a gesture, like a window
+    /// frame. Which is why it is not in `SettingsDraft`: a drag is finished the
+    /// moment you let go, and asking him to press **Applica** after moving
+    /// something with his hand would be asking him to confirm the past.
+    @Published var waveCenter: String { didSet { persist("waveCenter", waveCenter) } }
+
     @Published var hotKeyCode: UInt16 { didSet { persist("hotKeyCode", Int(hotKeyCode)) } }
     @Published var formatterMode: FormatterMode { didSet { persist("formatterMode", formatterMode.rawValue) } }
     @Published var enabledLanguages: Set<Language> { didSet { persistLanguages() } }
@@ -300,6 +347,15 @@ final class AppState: ObservableObject {
         removeTrailingPeriod = (defaults.object(forKey: "removeTrailingPeriod") as? Bool) ?? false
         spaceBetweenDictations = (defaults.object(forKey: "spaceBetweenDictations") as? Bool) ?? false
         smartCapitalization = (defaults.object(forKey: "smartCapitalization") as? Bool) ?? false
+        // The wave. On by default; the two tints start on the family's own pen and
+        // ink, so a fresh install already looks like the rest of the app.
+        waveEnabled = (defaults.object(forKey: "waveEnabled") as? Bool) ?? true
+        waveTint = defaults.string(forKey: "waveTint") ?? WaveTint.defaultWave
+        waveShellTint = defaults.string(forKey: "waveShellTint") ?? WaveTint.defaultShell
+        waveShell = (defaults.object(forKey: "waveShell") as? Bool) ?? true
+        playbackGainQuota = (defaults.object(forKey: "playbackGainQuota") as? Double) ?? 0
+        wavePosition = WavePosition(rawValue: defaults.string(forKey: "wavePosition") ?? "") ?? .notch
+        waveCenter = defaults.string(forKey: "waveCenter") ?? ""
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
         // 0x3F == Fn / Globe — default Edit-Mode modifier. Distinct from the
         // dictation trigger (Right Command), and NOT used to type text, so it

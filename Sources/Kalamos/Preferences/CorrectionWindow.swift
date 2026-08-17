@@ -131,7 +131,7 @@ struct CorrectionView: View {
     }
 
     private func commit() {
-        guard ready else { NSSound(named: "Funk")?.play(); return }
+        guard ready else { Sounds.no(); return }
         add(wrong.trimmingCharacters(in: .whitespacesAndNewlines),
             correct.trimmingCharacters(in: .whitespacesAndNewlines))
     }

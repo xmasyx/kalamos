@@ -54,6 +54,24 @@ enum Tuning {
 
 
 
+    /// Cut recordings longer than one encoder window into pieces at the pauses,
+    /// decode them one at a time and rejoin the text. **OFF by default**, and it
+    /// stays off until the bench in `03-Plans/Kalamos/kalamos-forbici/REFERTO.md`
+    /// says otherwise — the default path is the one nine dictations in ten take,
+    /// and a change of behaviour there is his call, not a build's.
+    /// `defaults write com.kalamos.app segmentLongAudio -bool YES`
+    ///
+    /// Whisper engines only. Parakeet has no 30-second window and nothing to gain.
+    static var segmentLongAudio: Bool {
+        let v = UserDefaults.standard.object(forKey: "segmentLongAudio")
+        if let b = v as? Bool { return b }
+        if let n = v as? Int { return n != 0 }
+        // A value set on the command line arrives as a String — the same trap
+        // `idleUnloadSeconds` documents above, and the same answer.
+        if let s = v as? String { return ["1", "true", "yes", "YES"].contains(s) }
+        return false
+    }
+
     static func setIdleUnload(_ seconds: Int) {
         UserDefaults.standard.set(seconds, forKey: "idleUnloadSeconds")
     }

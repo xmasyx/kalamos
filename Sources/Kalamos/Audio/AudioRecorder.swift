@@ -47,6 +47,8 @@ final class AudioRecorder: @unchecked Sendable {
     /// One log line per recording for dropped buffers, not one per buffer —
     /// the tap fires ~16 times a second and the log is a file.
     private var mismatchLogged = false
+    /// The loudest buffer since somebody last asked. See `takeLevelPeak()`.
+    private var levelPeak: Float = 0
 
     /// WhisperKit input format.
     static let targetSampleRate: Double = 16_000
@@ -70,6 +72,7 @@ final class AudioRecorder: @unchecked Sendable {
         samples.removeAll(keepingCapacity: true)
         _heardSpeech = false
         mismatchLogged = false
+        levelPeak = 0
         lock.unlock()
         hitCeiling = false
 
@@ -332,6 +335,26 @@ final class AudioRecorder: @unchecked Sendable {
         return out
     }
 
+    /// How loud the microphone has been since the last time anybody asked, as the
+    /// RMS of the loudest buffer — for the wave, and for nothing else.
+    ///
+    /// **It costs no audio resource, which is the entire point.** The RMS is
+    /// already computed in `append()` for the speech flag, so drawing the wave
+    /// reads a number that exists rather than opening a second tap on the
+    /// microphone — a second CoreAudio client, held only to draw a picture, is
+    /// what the crashes of 2026-08-14 were made of.
+    ///
+    /// Consumed on read, and PEAK rather than latest, for two reasons that are the
+    /// same reason: a reader at 30 Hz sees one or two buffers per tick and the
+    /// loudest of them is the honest answer for that window, and a value that
+    /// clears itself means a microphone that has stopped delivering reads as
+    /// silence instead of freezing the wave at whatever it last heard. One reader
+    /// only — a second one would see zeros the first one has already taken.
+    func takeLevelPeak() -> Double {
+        lock.lock(); let peak = levelPeak; levelPeak = 0; lock.unlock()
+        return Double(peak)
+    }
+
     /// The last `seconds` of audio, and nothing else.
     ///
     /// `currentSamples()` copies the entire recording, which at ten minutes is
@@ -365,6 +388,7 @@ final class AudioRecorder: @unchecked Sendable {
         let rms = frames > 0 ? (sum / Float(frames)).squareRoot() : 0
         lock.lock()
         if rms >= Self.speechFloor { _heardSpeech = true }
+        if rms > levelPeak { levelPeak = rms }
         let ceiling = Int(Self.maxSeconds * Self.targetSampleRate)
         if samples.count < ceiling {
             samples.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: frames))
