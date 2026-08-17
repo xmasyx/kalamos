@@ -32,6 +32,12 @@ let package = Package(
         // `dependencies: []`: it cannot pull swift-transformers into the
         // resolution and cannot disturb the 0.1.x line WhisperKit and MLX share.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
+        // Tokenizer del modello di punteggiatura L1 (XLM-RoBERTa). La 1.0.0 è
+        // già nel grafo via mlx-swift-examples 2.29.1 (Package.resolved):
+        // dichiararla `exact` non muove niente, dà solo accesso al product
+        // Tokenizers. La parità Swift↔banco è misurata su QUESTA versione
+        // (6.371 token id identici su 174 item, banco kalamos-punteggiatura).
+        .package(url: "https://github.com/huggingface/swift-transformers.git", exact: "1.0.0"),
     ],
     targets: [
         // whisper.cpp — il terzo motore (2026-08-05), come XCFramework già
@@ -60,9 +66,15 @@ let package = Package(
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "Tokenizers", package: "swift-transformers"),
             ],
             path: "Sources/Kalamos",
-            resources: [.process("Resources")]
+            resources: [
+                .process("Resources"),
+                // Copiata così com'è: AutoTokenizer legge la cartella per
+                // percorso (tokenizer.json + config), i nomi devono restare.
+                .copy("PunctuationTokenizer"),
+            ]
         ),
         .testTarget(
             name: "KalamosTests",

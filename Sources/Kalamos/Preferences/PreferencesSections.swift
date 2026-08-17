@@ -206,6 +206,8 @@ struct CleanupSection: View {
                 }
             }
 
+            PunctuationModelRow()
+
             PrefRow(title: L.t("Quando il modello viene scartato", "When the model is refused",
                                "Quand le modèle est écarté"),
                     note: L.t("Kalamos confronta quello che il modello restituisce con quello che hai detto, e se ha cambiato le tue parole lo butta e usa la pulizia a regole. Succede in silenzio: questo lo rende visibile.",

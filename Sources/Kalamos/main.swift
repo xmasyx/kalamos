@@ -669,6 +669,116 @@ if let i = CommandLine.arguments.firstIndex(of: "--bench-archivio") {
     exit(0)
 }
 
+// `Kalamos --punct-status` — il modello di punteggiatura è sul disco, integro?
+// Stampa percorso e verdetto della verifica di taglia, esce 0 se pronto, 1 se no.
+// `Kalamos --punct-download` — lo scarica (pinnato alla revisione verificata).
+if CommandLine.arguments.contains("--punct-status") {
+    print("percorso: \(PunctuationModel.modelDir.path)")
+    print(PunctuationModel.isDownloaded
+        ? "punteggiatura veloce: sul disco e integro (taglie verificate)"
+        : "punteggiatura veloce: NON scaricato (o incompleto)")
+    exit(PunctuationModel.isDownloaded ? 0 : 1)
+}
+if CommandLine.arguments.contains("--punct-download") {
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        do {
+            try await PunctuationModel.download { f in
+                FileHandle.standardError.write(Data(String(format: "\r%.0f%%", f * 100).utf8))
+            }
+            print("\nscaricato e verificato: \(PunctuationModel.modelDir.path)")
+        } catch {
+            FileHandle.standardError.write(Data("\nscaricamento fallito: \(error.localizedDescription)\n".utf8))
+            exit(1)
+        }
+        sem.signal()
+    }
+    waitServicingMainActor(sem)
+    exit(0)
+}
+
+// `Kalamos --bench-l1 <items.json> --out <out.json> [--model <mlmodelc>] [--tokenizer <dir>]`
+// — le sole etichette del modello, sugli item del banco: il gate di equivalenza
+// con `risultati/l1c.json` (i campi `out` devono coincidere parola per parola).
+//
+// `Kalamos --bench-i5w <items.json> <metro.jsonl> --out <out.json> [--model …] [--tokenizer …]`
+// — l'intera politica I5W sugli stessi item: il gate di parità coi numeri del
+// banco (85,9/78,4/91,2 · 91,5% sul metro d'autore). I due comandi esistono
+// perché l'innesto si prova PRIMA contro il banco e POI si consegna: un
+// innesto non equivalente è un altro modello, non quello misurato.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--bench-l1")
+    ?? CommandLine.arguments.firstIndex(of: "--bench-i5w") {
+    let args = CommandLine.arguments
+    let vuoleI5W = args[flagIndex] == "--bench-i5w"
+    func value(_ flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    let itemsPath = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    let metroPath = vuoleI5W && flagIndex + 2 < args.count ? args[flagIndex + 2] : ""
+    guard !itemsPath.isEmpty, !itemsPath.hasPrefix("--"),
+          let outPath = value("--out"), !(vuoleI5W && metroPath.isEmpty) else {
+        print("usage: Kalamos --bench-l1 <items.json> --out <out.json> [--model <mlmodelc>] [--tokenizer <dir>]")
+        print("       Kalamos --bench-i5w <items.json> <metro.jsonl> --out <out.json> [--model <mlmodelc>] [--tokenizer <dir>]")
+        exit(2)
+    }
+
+    struct L1Item: Codable { let id: String; let spoglio: String }
+    struct L1Row: Codable { let id: String; let out: String; let seconds: Double }
+
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        do {
+            let items = try JSONDecoder().decode(
+                [L1Item].self, from: Data(contentsOf: URL(fileURLWithPath: itemsPath)))
+            // `originale` = il testo di Whisper, da cui I5W eredita segni e maiuscole.
+            var grezzoDi: [String: String] = [:]
+            if vuoleI5W {
+                for riga in try String(contentsOf: URL(fileURLWithPath: metroPath), encoding: .utf8)
+                    .split(separator: "\n") where !riga.isEmpty {
+                    if let obj = try JSONSerialization.jsonObject(with: Data(riga.utf8)) as? [String: Any],
+                       let id = obj["id"] as? String, let orig = obj["originale"] as? String {
+                        grezzoDi[id] = orig
+                    }
+                }
+            }
+            try await PunctuationModel.shared.prepare(
+                modelURL: value("--model").map { URL(fileURLWithPath: $0) },
+                tokenizerDir: value("--tokenizer").map { URL(fileURLWithPath: $0) })
+
+            var rows: [L1Row] = []
+            for it in items {
+                let parole = it.spoglio.split(separator: " ").map(String.init)
+                let t0 = Date()
+                let etichette = try await PunctuationModel.shared.etichette(perParole: parole)
+                let out: String
+                if vuoleI5W {
+                    guard let grezzo = grezzoDi[it.id] else {
+                        FileHandle.standardError.write(Data("manca l'originale di \(it.id)\n".utf8))
+                        exit(4)
+                    }
+                    out = PunctuationHybrid.i5w(parole: parole, etichette: etichette, grezzo: grezzo)
+                } else {
+                    out = zip(parole, etichette)
+                        .map { p, l in p + (l != "0" ? l : "") }
+                        .joined(separator: " ")
+                }
+                rows.append(L1Row(id: it.id, out: out, seconds: Date().timeIntervalSince(t0)))
+            }
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try enc.encode(rows).write(to: URL(fileURLWithPath: outPath))
+            print("scritte \(rows.count) righe in \(outPath)")
+        } catch {
+            FileHandle.standardError.write(Data("bench-l1: \(error)\n".utf8))
+            exit(3)
+        }
+        sem.signal()
+    }
+    waitServicingMainActor(sem)
+    exit(0)
+}
+
 if let flagIndex = CommandLine.arguments.firstIndex(of: "--bench-clean") {
     let args = CommandLine.arguments
     let inputPath = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""

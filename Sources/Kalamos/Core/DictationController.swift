@@ -81,6 +81,18 @@ final class DictationController {
             Log.write("warmUp: done")
         }
 
+        // Il modello di punteggiatura, se il modo lo usa ed è sul disco: il
+        // carico a freddo dopo un sonno lungo costerebbe secondi alla prima
+        // dettatura, a caldo ne costa mezzo. Stessa ragione del riscaldamento
+        // dei modelli voce.
+        if state.formatterMode == .adaptive, PunctuationModel.isDownloaded {
+            Task.detached(priority: .utility) {
+                Log.write("warmUp: preloading punctuation model")
+                try? await PunctuationModel.shared.prepare()
+                Log.write("warmUp: punctuation model ready")
+            }
+        }
+
         #if canImport(MLXLLM)
         let keepResident = Tuning.idleUnloadSeconds == nil
         // Edit Mode runs on the same engine, so it is the same reason to have it
@@ -521,10 +533,23 @@ final class DictationController {
         case .off:       return IdentityFormatter()
         case .ruleBased: return RuleBasedFormatter()
         case .adaptive:
-            #if canImport(MLXLLM)
             let needed = CleanupNeed.needsModel(raw)
-            Log.write("adaptive: \(needed ? "al modello" : "regole, già punteggiato")")
-            return needed ? MLXFormatter(engine: .shared) : RuleBasedFormatter()
+            guard needed else {
+                Log.write("adaptive: regole, già punteggiato")
+                return RuleBasedFormatter()
+            }
+            // Il lavoro di punteggiatura va al modello dedicato quando c'è:
+            // stessa qualità misurata sopra l'LLM (85,9/78,4/91,2 contro
+            // 72,6/53,8/50,0 sul metro) a 20 ms invece di 3 s. L'LLM resta il
+            // ripiego finché il modello non è scaricato, e resta il titolare
+            // di tono/registro nel modo «Rifinitura AI».
+            if PunctuationModel.isDownloaded {
+                Log.write("adaptive: al modello L1")
+                return L1Formatter()
+            }
+            #if canImport(MLXLLM)
+            Log.write("adaptive: al modello (L1 non scaricato)")
+            return MLXFormatter(engine: .shared)
             #else
             return RuleBasedFormatter()
             #endif

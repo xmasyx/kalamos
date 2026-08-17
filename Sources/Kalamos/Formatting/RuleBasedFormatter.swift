@@ -126,7 +126,7 @@ struct RuleBasedFormatter: TextFormatter {
 
     // MARK: - Steps
 
-    private func applyCommands(to input: String, lang: Language) -> String {
+    func applyCommands(to input: String, lang: Language) -> String {
         var out = input
         // Longest phrase first so "punto e virgola" beats "virgola", etc.
         for (phrase, replacement) in (Self.commands[lang] ?? []).sorted(by: { $0.phrase.count > $1.phrase.count }) {
@@ -140,7 +140,7 @@ struct RuleBasedFormatter: TextFormatter {
     /// Context-aware punctuation names ("punto"/"virgola" and their siblings):
     /// turn one into its mark only when it's punctuation, keep it as a word when
     /// it's the noun.
-    private func applyPunctuationWord(to input: String, lang: Language) -> String {
+    func applyPunctuationWord(to input: String, lang: Language) -> String {
         var out = input
         for pw in Self.punctuationWords[lang] ?? [] {
             let det = pw.determiners.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
@@ -190,13 +190,13 @@ struct RuleBasedFormatter: TextFormatter {
         i > 0 && i + 1 < chars.count && chars[i - 1].isNumber && chars[i + 1].isNumber
     }
 
-    private func ensureTerminalPunctuation(_ input: String) -> String {
+    func ensureTerminalPunctuation(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespaces)
         guard let last = trimmed.last else { return trimmed }
         return ".!?\n".contains(last) ? trimmed : trimmed + "."
     }
 
-    private func tidySpacing(_ input: String) -> String {
+    func tidySpacing(_ input: String) -> String {
         var out = input
         out = out.replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
         out = out.replacingOccurrences(of: " +([,.;:!?])", with: "$1", options: .regularExpression)
