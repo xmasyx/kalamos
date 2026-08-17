@@ -945,6 +945,9 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// nessuno può rifare.
     nonisolated(unsafe) static var probeTrimPad: Int?
     nonisolated(unsafe) static var probeTrimOff = false
+    /// La terza manopola, `--tetto=<rms>`: il banco che sceglie `trimTetto` deve
+    /// poter provare i candidati sul motore vero senza toccare il sorgente.
+    nonisolated(unsafe) static var probeTrimTetto: Float?
 
     static var cuscino: Int { probeTrimPad ?? trimPad }
 
@@ -957,9 +960,9 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// registrazione quasi muta darebbe una soglia priva di senso (da qui il
     /// pavimento, che è `AudioRecorder.speechFloor`, la definizione di silenzio
     /// che l'app ha già) e su una gridata la renderebbe severa al punto di
-    /// mangiare una coda parlata piano (da qui il tetto, che è
-    /// `AudioSplit.silenceRMS`, il «qui si può tagliare» che l'app ha già).
-    /// Nessuno dei tre numeri è nuovo in questo progetto, e non doveva esserlo.
+    /// mangiare una coda parlata piano (da qui il tetto, che dal 17/08 sera è
+    /// `trimTetto`, misurato per QUESTO taglio — il prestito di
+    /// `AudioSplit.silenceRMS` è il difetto che il cantiere D ha chiuso).
     static let trimFraction: Float = 0.15
 
     /// **Oltre questo, un taglio si dichiara sospetto nel registro.**
@@ -1007,6 +1010,34 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// scoperto è dichiarato in `unaFinestraDiParlatoNonVieneMaiTolta`.
     static let trimQuotaMediana: Float = 1.5
 
+    /// **Il tetto ASSOLUTO della soglia, e stavolta è del taglio** (2026-08-17 sera,
+    /// cantiere D — banco e referto in `03-Plans/Kalamos/kalamos-taglio-coda/`).
+    ///
+    /// Fino a stasera il tetto era `AudioSplit.silenceRMS` (0,02), il «qui si può
+    /// tagliare una giuntura» di un'altra parte dell'app, e la sera stessa il campo
+    /// ha pagato il prestito: la dettatura delle 17:21 ha perso «dall'LLM» con la
+    /// soglia a 0,0184, mentre la coda parlata stava tutta fra 0,006 e 0,019.
+    ///
+    /// Il valore esce da uno sweep sul MOTORE VERO (0,006 / 0,008 / 0,010 / 0,012),
+    /// misurato in parole perse contro la decodifica senza taglio, su cinque code
+    /// che il motore ha provato essere parlato e tre che ha provato essere quiete:
+    ///
+    ///   file        ora    t=0,006  t=0,008
+    ///   172114      −3     **0**    0        (il caso di stasera)
+    ///   034221      −22    **−5**   −18
+    ///   143651      −11    **0**    0
+    ///   154025      −10    **−3**   −6
+    ///   160434      −6     **−3**   −12
+    ///   3 quieti    ok     ok       ok
+    ///
+    /// 0,006 domina il comportamento attuale su TUTTI i rossi e non tocca i quieti;
+    /// da 0,008 in su si riapre il difetto. Il residuo dichiarato: parlato con RMS
+    /// fra il pavimento (0,004) e questo tetto resta indistinguibile dal rumore per
+    /// una soglia in RMS — è la banda del polo negativo in
+    /// `unaFinestraDiParlatoNonVieneMaiTolta`, e un rimedio vero sarebbe di
+    /// contenuto, non di soglia.
+    static let trimTetto: Float = 0.006
+
     /// La soglia, dai tre termini che la governano.
     ///
     /// · pavimento `speechFloor` — sotto, niente è parlato per definizione dell'app;
@@ -1017,13 +1048,14 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// già il profilo d'energia in mano, e rifarlo sarebbe la funzione che riscrive
     /// la misura che deve usare.
     static func trimSoglia(_ picco: Float, mediana: Float = 0) -> Float {
+        let tetto = probeTrimTetto ?? trimTetto
         let base = max(AudioRecorder.speechFloor, picco * trimFraction)
         // Mediana zero significa «non misurata», non «zero». Un valore mancante non
         // deve poter passare per un valore: senza, si ricade sul comportamento di
         // prima invece di far finta che il vincolo ci sia.
-        guard mediana > 0 else { return min(AudioSplit.silenceRMS, base) }
+        guard mediana > 0 else { return min(tetto, base) }
         return max(AudioRecorder.speechFloor,
-                   min(AudioSplit.silenceRMS, base, mediana * trimQuotaMediana))
+                   min(tetto, base, mediana * trimQuotaMediana))
     }
 
     /// La mediana delle finestre che portano parlato, cioè quelle sopra il
@@ -1122,7 +1154,44 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         // l'errore va nella direzione prudente — si tiene un po' di troppo, mai
         // un po' di meno.
         let fine = min(s.count, ultima + trimWindow)
-        return Array(s[0 ..< min(s.count, fine + cuscino)])
+        let taglioPrimario = min(s.count, fine + cuscino)
+        if taglioPrimario < s.count { return Array(s[0 ..< taglioPrimario]) }
+
+        // **Il ripiego, e perché esiste (17/08 sera, `20260816-145026`).** Col
+        // tetto severo può non esserci NIENTE sotto soglia in coda — su quel file
+        // il fruscio sta a RMS 0,008, sopra `trimTetto` — e «nessun taglio» è esso
+        // stesso il caso che perde parole: consegnato intero, il decoder perde
+        // «vedo di là» 3 volte su 3, mentre QUALSIASI taglio (anche 0,03 s) lo
+        // ripara, misurato nella tabella di `ilTaglioTogliePerDavveroLaCodaDiRumore`.
+        // Quindi, solo quando il primo passaggio non toglie nulla, si ritenta con
+        // la soglia PRE-tetto (la formula adattiva col vecchio limite largo): sui
+        // file con la coda di fruscio forte taglia il fruscio; sui file dove anche
+        // quella non trova nulla, si consegna intero come prima. Il rischio
+        // residuo è dichiarato nel referto del banco: una coda parlata SENZA una
+        // sola finestra sotto il tetto rientrerebbe qui — nei 120 file
+        // dell'archivio non ce n'è una, e il caso tipico (tasto rilasciato subito
+        // dopo l'ultima parola) produce un taglio ~0 comunque.
+        let sogliaLarga = { () -> Float in
+            let base = max(AudioRecorder.speechFloor, picco * trimFraction)
+            let mediana = trimMediana(energie.map(\.valore))
+            guard mediana > 0 else { return min(AudioSplit.silenceRMS, base) }
+            return max(AudioRecorder.speechFloor,
+                       min(AudioSplit.silenceRMS, base, mediana * trimQuotaMediana))
+        }()
+        guard sogliaLarga > soglia,
+              let ultimaLarga = energie.last(where: { $0.valore >= sogliaLarga })?.start
+        else { return s }
+        let fineLarga = min(s.count, ultimaLarga + trimWindow)
+        let taglioLargo = min(s.count, fineLarga + cuscino)
+        // Il ripiego non supera MAI la linea del sospetto: `trimSospetto` dice già
+        // che oltre 1,5 s «la spiegazione più probabile è che sia stato tagliato
+        // del parlato», e il ripiego esiste per togliere un pelo di fruscio, non
+        // per riaprire il difetto col tetto vecchio. Misurato (17/08 sera): senza
+        // questo limite il ripiego rimangiava «dall'LLM» (1,76 s) e la coda di
+        // `160434` (2,27 s); con il limite taglia gli 0,15 s di `145026` e lascia
+        // interi gli altri, che interi si decodificano bene.
+        guard Double(s.count - taglioLargo) / 16_000 <= trimSospetto else { return s }
+        return Array(s[0 ..< taglioLargo])
     }
 
     /// Drop Whisper's own control tokens (`<|it|>`, `<|3.42|>`, …) from a raw

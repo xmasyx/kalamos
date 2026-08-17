@@ -169,6 +169,13 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
         WhisperKitTranscriber.probeTrimOff = true
         FileHandle.standardError.write(Data("  · taglio di coda SPENTO\n".utf8))
     }
+    // La terza manopola: il candidato tetto dello sweep (cantiere D). Stessa
+    // ragione delle altre due: un parametro alla volta, sul motore vero.
+    if let f = args.first(where: { $0.hasPrefix("--tetto=") }),
+       let rms = Float(f.dropFirst("--tetto=".count)) {
+        WhisperKitTranscriber.probeTrimTetto = rms
+        FileHandle.standardError.write(Data("  · tetto del taglio \(rms)\n".utf8))
+    }
     let sem = DispatchSemaphore(value: 0)
     Task.detached {
         #if canImport(FluidAudio) && canImport(WhisperKit)

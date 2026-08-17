@@ -103,9 +103,12 @@ enum SondaTaglio {
         let relativa = picco * WhisperKitTranscriber.trimFraction
         let tettoMediana = mediana * WhisperKitTranscriber.trimQuotaMediana
         let termine: String
+        // Il tetto qui è quello che trimSoglia ha DAVVERO usato, manopola compresa:
+        // una sonda che nomina un termine diverso da quello vivo mente sul referto.
+        let tetto = WhisperKitTranscriber.probeTrimTetto ?? WhisperKitTranscriber.trimTetto
         if soglia <= AudioRecorder.speechFloor { termine = "pavimento speechFloor" }
-        else if mediana > 0, tettoMediana < min(relativa, AudioSplit.silenceRMS) { termine = "tetto mediana" }
-        else if relativa >= AudioSplit.silenceRMS { termine = "tetto silenceRMS" }
+        else if mediana > 0, tettoMediana < min(relativa, tetto) { termine = "tetto mediana" }
+        else if relativa >= tetto { termine = "tetto trimTetto" }
         else { termine = "relativa al picco" }
 
         let dopo = WhisperKitTranscriber.trimSilence(s)

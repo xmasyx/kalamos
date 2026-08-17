@@ -117,12 +117,20 @@ import Testing
     /// anche PERCHÉ è una prova.
     @Test func codaDiRumoreVieneTolta() {
         let speech = tone(seconds: 1, amplitude: 0.3)
-        let room = tone(seconds: 3, amplitude: 0.012)   // fruscio, non silenzio
+        // Fruscio, non silenzio — e CALIBRATO sulla banda di rumore vera (17/08):
+        // l'ampiezza storica 0,012 dava RMS 0,0085, che sta DENTRO la banda dove
+        // il motore ha provato che vivono parole («dall'LLM» a 0,006-0,016, cinque
+        // code parlate su otto sospette). Un test che chiama «rumore da tagliare»
+        // quella banda pretende il difetto che il cantiere D ha chiuso. Il rumore
+        // di stanza dei suoi file REALI sta sotto: le tre code provate quiete dal
+        // motore tagliavano con soglie 0,0040-0,0050.
+        let room = tone(seconds: 3, amplitude: 0.007)   // RMS ≈ 0,005, sotto trimTetto
         let input = speech + room
 
         // Il criterio a campione qui non taglierebbe niente: nella coda ci sono
-        // campioni ben sopra la vecchia soglia di 0,008.
-        #expect(room.contains { abs($0) >= 0.008 })
+        // campioni sopra la soglia viva, mentre l'RMS di finestra le sta sotto.
+        // È la stessa proprietà che faceva fallire il criterio vecchio.
+        #expect(room.contains { abs($0) >= WhisperKitTranscriber.trimTetto })
 
         let out = WhisperKitTranscriber.trimSilence(input)
         #expect(out.count < input.count, "il fruscio in coda è arrivato intero al decoder")
@@ -136,8 +144,8 @@ import Testing
     ///
     /// È il rischio che il taglio nuovo introduce e che il taglio vecchio non
     /// aveva, perché una misura più severa può mangiare l'ultima sillaba. Ciò
-    /// che la protegge è il TETTO della soglia (`AudioSplit.silenceRMS`), non la
-    /// frazione: su una registrazione forte la frazione da sola darebbe 0,032 e
+    /// che la protegge è il TETTO della soglia (`trimTetto`, dal 17/08 sera), non
+    /// la frazione: su una registrazione forte la frazione da sola darebbe 0,032 e
     /// questa coda a 0,035 passerebbe per un pelo. Il giorno che qualcuno alza
     /// il tetto, questa diventa rossa prima della consegna invece che sul Mac
     /// del principale.
@@ -200,17 +208,15 @@ import Testing
     /// giorno che il tetto cambia questa prova cambia con lui invece di restare
     /// indietro. Sopra il confine il taglio non deve mai toccare l'ultima parola.
     ///
-    /// **Sotto il confine c'è un caso scoperto, e va detto qui.** Su una
-    /// registrazione forte la soglia si inchioda al tetto `AudioSplit.silenceRMS`
-    /// (0,02), che è il «qui si può tagliare una giuntura» di un'altra parte
-    /// dell'app: una domanda diversa. Una parola finale detta molto piano — RMS di
-    /// finestra fra 0,004 e 0,014, cioè sopra `speechFloor` e quindi parlato per
-    /// definizione dell'app — viene ancora rasa. Il tetto sulla mediana
-    /// (`trimQuotaMediana`) non la salva, perché su quella forma la mediana è il
-    /// parlato forte. Il rimedio sarebbe un tetto proprio del taglio invece di uno
-    /// preso in prestito, e **non è stato fatto perché non è stato misurato**: nei
-    /// suoi 120 file il tetto comanda 3 volte, e senza un banco col motore vero su
-    /// quei tre non si tocca un numero che decide cosa lui perde.
+    /// **Sotto il confine resta un caso scoperto, ed è diventato una BANDA
+    /// stretta** (17/08 sera, cantiere D). Il tetto preso in prestito
+    /// (`AudioSplit.silenceRMS`, 0,02) è stato sostituito da `trimTetto` (0,006),
+    /// scelto con lo sweep sul motore vero: la banda mangiabile era 0,004-0,020,
+    /// ora è 0,004-0,006. Dentro quella banda residua una soglia in RMS non può
+    /// distinguere parlato debolissimo da rumore di stanza — il rimedio vero
+    /// sarebbe di contenuto, non di soglia — e i tre casi che ci restano dentro
+    /// (5 parole su 034221, 3 su 154025, 3 su 160434) sono dichiarati nel referto
+    /// del banco, non nascosti da questo verde.
     @Test func unaFinestraDiParlatoNonVieneMaiTolta() {
         let forte = tone(seconds: 1.5, amplitude: 0.30)
         let pausa = [Float](repeating: 0, count: Self.rate / 2)
@@ -227,15 +233,18 @@ import Testing
             #expect(out.count >= intero.count,
                     "ampiezza \(ampiezza): l'ultima parola è stata tagliata (\(out.count) < \(intero.count))")
         }
-        // Il polo negativo, ed è quello che tiene onesto il confine: appena SOTTO,
-        // il taglio mangia davvero. Se un giorno diventa verde vuol dire che il
-        // caso scoperto è stato coperto — e allora questa riga va tolta insieme al
-        // paragrafo qui sopra, non lasciata a mentire.
-        let troppoPiano = tone(seconds: 0.3, amplitude: confine * 0.5)
+        // Il polo negativo, ed è quello che tiene onesto il confine: DENTRO la
+        // banda residua (RMS fra il pavimento e trimTetto) il taglio mangia
+        // davvero, ed è il caso dichiarato nel paragrafo qui sopra. L'ampiezza è
+        // DERIVATA dai due estremi della banda, così se un giorno la banda si
+        // chiude (un rimedio di contenuto) questa riga diventa verde e va tolta
+        // insieme al paragrafo, non lasciata a mentire.
+        let rmsResiduo = (AudioRecorder.speechFloor + WhisperKitTranscriber.trimTetto) / 2
+        let troppoPiano = tone(seconds: 0.3, amplitude: rmsResiduo * Float(2).squareRoot())
         let interoPiano = forte + pausa + troppoPiano
         let outPiano = WhisperKitTranscriber.trimSilence(interoPiano + tone(seconds: 2, amplitude: 0.002))
         #expect(outPiano.count < interoPiano.count,
-                "il caso scoperto non si riproduce più: il confine dichiarato non è più quello vero")
+                "la banda residua non si riproduce più: o è stata chiusa (togli questo polo) o il confine dichiarato non è quello vero")
     }
 
     /// **Il cuscino sta dentro l'altopiano misurato sui suoi file.**
