@@ -100,27 +100,51 @@ final class ArchiveStore: ObservableObject {
     /// open, with no spinner, because the paint that would draw the spinner is
     /// queued behind it. Reading the contents costs another 12 s at that size,
     /// which is invisible: those arrive into a window that is already up.
+    /// **`self` non entra mai nel lavoro di sfondo, ed è un vincolo del
+    /// compilatore, non uno stile.** Questa classe è isolata al MainActor:
+    /// catturarla dentro un `Task.detached` e poi passarla a `MainActor.run`
+    /// significa *spedire* un valore non-Sendable attraverso il confine di
+    /// isolamento. Swift 6.3 in locale lo accetta, il compilatore del runner
+    /// no — e il rilascio v1.5.0 è morto lì, con quattro `sending 'self' risks
+    /// causing data races`. La forma qui sotto non ha quel problema per
+    /// costruzione: il lavoro fuori dal main thread lo fanno due funzioni
+    /// `nonisolated static` che prendono e restituiscono solo dati `Sendable`,
+    /// e il `self` resta sempre dalla parte del MainActor.
     func load() {
         loading = true
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let stems = DictationIndex.stems()
-            await MainActor.run { self?.entries = stems }
+        Task { [weak self] in
+            let stems = await Self.listing()
+            guard let self else { return }
+            self.entries = stems
             guard !stems.isEmpty else {
-                await MainActor.run { self?.loading = false }
+                self.loading = false
                 return
             }
 
-            var acc: [URL: DictationDetails] = [:]
-            for (i, entry) in stems.enumerated() {
-                acc[entry.wav] = DictationIndex.details(of: entry.wav)
-                if acc.count >= hydrationChunk || i == stems.count - 1 {
-                    let batch = acc
-                    acc = [:]
-                    await MainActor.run { self?.merge(batch) }
-                }
+            var start = 0
+            while start < stems.count {
+                let end = min(start + hydrationChunk, stems.count)
+                self.merge(await Self.hydrate(Array(stems[start..<end])))
+                start = end
             }
-            await MainActor.run { self?.loading = false }
+            self.loading = false
         }
+    }
+
+    /// L'elenco della cartella, fuori dal main thread: 9,3 s a 100000 registrazioni.
+    private nonisolated static func listing() async -> [DictationEntry] {
+        await Task.detached(priority: .userInitiated) { DictationIndex.stems() }.value
+    }
+
+    /// I contenuti di un blocco, fuori dal main thread. Un `Task.detached` per
+    /// blocco di `hydrationChunk`, non per file: a 100000 registrazioni sono
+    /// 2500 task invece di 100000.
+    private nonisolated static func hydrate(_ slice: [DictationEntry]) async -> [URL: DictationDetails] {
+        await Task.detached(priority: .userInitiated) {
+            var acc: [URL: DictationDetails] = [:]
+            for entry in slice { acc[entry.wav] = DictationIndex.details(of: entry.wav) }
+            return acc
+        }.value
     }
 
     /// Re-read one recording, after its verbatim has just been written.
