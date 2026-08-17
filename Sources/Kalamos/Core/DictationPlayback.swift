@@ -319,6 +319,15 @@ final class DictationPlayer: NSObject, ObservableObject {
     /// diceva sì, e il motore si è schiantato lo stesso. Un dispositivo può
     /// essere registrato e non avere un solo canale utilizzabile. La domanda
     /// giusta è quanti canali escono, non se una riga esiste in tabella.
+    ///
+    /// **E sul runner questa guardia resta comunque INERTE, il che va detto
+    /// invece che scoperto due volte.** Lì un dispositivo con canali c'è: qui
+    /// si risponde `true`, si carica, e il crash arriva più in basso, quando si
+    /// riproduce sul serio. A fermarlo non è questa proprietà ma la dipendenza
+    /// dichiarata sulla suite che suona. La guardia resta perché ripara un caso
+    /// VERO e suo — un Mac con tutto staccato, o l'istante di un cambio di
+    /// dispositivo — dove il mixer nasce davvero a zero canali. Due difetti
+    /// diversi con lo stesso sintomo: questa copre il primo, non il secondo.
     nonisolated static var uscitaDisponibile: Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,

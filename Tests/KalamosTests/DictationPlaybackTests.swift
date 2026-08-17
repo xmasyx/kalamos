@@ -109,19 +109,42 @@ struct DictationPlaybackTests {
 /// Il test suona un file vero e alza il volume a metà ascolto: se la
 /// riproduzione muore, è il difetto. Scritto PRIMA della riparazione e visto
 /// rosso; il polo che deve restare vivo è la fine naturale, sotto.
-/// **Questi due test pretendono una scheda audio, ed è dichiarato invece che
-/// implicito.** Suonano un file vero perché è il punto: la gara vive dentro il
-/// motore, e un finto motore non la riproduce. Su una macchina senza
-/// dispositivo d'uscita — il runner GitHub, un Mac con tutto staccato — non c'è
-/// niente da esercitare, e il codice di produzione adesso si rifiuta di
-/// caricare (vedi `DictationPlayer.uscitaDisponibile`). La condizione è la
-/// STESSA proprietà che usa la produzione: se un domani quella cambia, questi
-/// test la seguono invece di divergere. Il caso «nessuna uscita» non resta
-/// scoperto: lo tiene `laMancanzaDiUscitaNonCarica()` qui sotto, che gira su
-/// qualunque macchina.
+
+/// Dove sta girando la suite. Una riga sola, esplicita e leggibile: le due
+/// variabili le mette qualunque servizio di integrazione continua, e leggere
+/// l'ambiente è più onesto di un'euristica che finge di misurare l'hardware.
+enum AmbienteDiProva {
+    static var suRunnerCI: Bool {
+        let ambiente = ProcessInfo.processInfo.environment
+        return ambiente["CI"] != nil || ambiente["GITHUB_ACTIONS"] != nil
+    }
+}
+/// **Questi due test pretendono una scheda audio che SUONI davvero, e la
+/// dipendenza è dichiarata invece che implicita.** Suonano un file vero perché
+/// è il punto: la gara vive dentro il motore, e un finto motore non la
+/// riproduce. Nessuna asserzione qui dentro è stata toccata; cambia solo dove
+/// il test è eseguibile, e sul suo Mac resta pieno — che è l'unico posto in cui
+/// quella verifica significa qualcosa.
+///
+/// **Perché serve l'innesco esplicito, e non basta la sonda.** Un runner
+/// GitHub un dispositivo d'uscita ce l'ha, con canali: `uscitaDisponibile`
+/// risponde `true` in perfetta buona fede (stampato sul runner, corsa
+/// 32072993926), perché quel dispositivo esiste — semplicemente non suona.
+/// Riprodurci sopra fa scattare un'asserzione dentro AVFoundation che uccide
+/// il processo con signal 5, fuori dalla portata di qualunque `catch`. Il
+/// colpevole ha un nome grazie alla corsa **32073489802**, la prima in serie:
+/// il registro finisce esattamente su «Alzare il volume a metà ascolto».
+/// Non esiste un modo economico di chiedere a CoreAudio «ma suona davvero?»,
+/// quindi la condizione è la variabile d'ambiente, che è leggibile e onesta
+/// invece di un'euristica che finge di misurare l'hardware.
+///
+/// La sonda resta comunque nella condizione: su una macchina vera senza uscita
+/// (tutto staccato) questi test non hanno nulla da esercitare. E il caso
+/// «nessuna uscita» non resta scoperto — lo tiene
+/// `laMancanzaDiUscitaNonCarica()`, che gira ovunque, runner compreso.
 @Suite("Playback — il volume alzato durante l'ascolto non ferma niente",
-       .enabled(if: DictationPlayer.uscitaDisponibile,
-                "serve un dispositivo d'uscita audio: qui non ce n'è uno"))
+       .enabled(if: !AmbienteDiProva.suRunnerCI && DictationPlayer.uscitaDisponibile,
+                "serve un'uscita audio che riproduca davvero: un runner CI non ne ha una"))
 @MainActor struct PlaybackGainRaceTests {
 
     /// Un wav mono a 16 kHz con margine di spinta (picco 0,1 → spazioDB > 0).
