@@ -66,6 +66,37 @@ final class DictationController {
     ///
     /// On any other setting the old behaviour stands: a model that is going to be
     /// released in five minutes should not be fetched into memory at launch.
+    /// Whether the 4 GB cleanup model is worth holding in memory before anybody
+    /// asks for it.
+    ///
+    /// Pulled out of `warmUp` so it can be checked rather than asserted: the
+    /// condition lived inline in a method whose only observable effect was a
+    /// preload, so nothing could go red when it drifted — and it did drift. The
+    /// test imports THIS function instead of restating it, so the day the routing
+    /// changes again the two cannot disagree quietly.
+    ///
+    /// It must mirror `makeFormatter` exactly. `adaptive` sends punctuation to
+    /// `L1Formatter` when the punctuation model is on disk and only falls back to
+    /// the LLM when it is not, so `adaptive` alone is not a reason to keep 4 GB
+    /// resident.
+    /// `nonisolated` perché è una funzione dei suoi parametri e basta: legarla al
+    /// MainActor la renderebbe asincrona da fuori, cioè scomoda da provare, che è
+    /// il motivo per cui una decisione così finisce sepolta in un metodo e nessuno
+    /// la controlla più.
+    nonisolated static func wantsCleanupModelResident(
+        mode: FormatterMode,
+        punctuationModelOnDisk: Bool,
+        translating: Bool,
+        editMode: Bool
+    ) -> Bool {
+        if translating || editMode { return true }
+        switch mode {
+        case .localLLM:  return true
+        case .adaptive:  return !punctuationModelOnDisk
+        case .off, .ruleBased: return false
+        }
+    }
+
     func warmUp() {
         let transcriber = self.transcriber
         Task.detached(priority: .utility) {
@@ -98,13 +129,23 @@ final class DictationController {
         // Edit Mode runs on the same engine, so it is the same reason to have it
         // ready — it was missing from this test, and someone who uses the model
         // ONLY to rewrite selections got the cold load they had asked to avoid.
-        // `adaptive` belongs here too: it reaches for the model only on long
-        // unpunctuated speech, but when it does the wait must not also include a
-        // cold load. Leaving it out was the whole point of the caveat.
-        let usesCleanupModel = state.formatterMode == .localLLM
-            || state.formatterMode == .adaptive
-            || state.translationEnabled
-            || state.editModeEnabled
+        //
+        // **`adaptive` counts only while the punctuation model is missing**, and
+        // that qualifier is the whole point. Until the punctuation layer shipped,
+        // `adaptive` reached for this 4 GB model on every long unpunctuated
+        // dictation, so keeping it warm was right. It now routes to `L1Formatter`
+        // whenever `PunctuationModel.isDownloaded` (see `makeFormatter`), and the
+        // LLM is the fallback for the one case where that model is absent. The
+        // condition has to mirror the routing exactly or the app holds 4 GB for a
+        // path nobody walks: measured on a real install with Edit Mode off,
+        // 5747 MB of footprint, 4.0 GB of it the MLX allocation in
+        // `IOAccelerator`, for a model no dictation was calling any more.
+        let usesCleanupModel = Self.wantsCleanupModelResident(
+            mode: state.formatterMode,
+            punctuationModelOnDisk: PunctuationModel.isDownloaded,
+            translating: state.translationEnabled,
+            editMode: state.editModeEnabled
+        )
         guard keepResident, usesCleanupModel else { return }
         Task.detached(priority: .utility) {
             Log.write("warmUp: preloading cleanup model (memory set to never free)")
