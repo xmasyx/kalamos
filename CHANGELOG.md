@@ -89,7 +89,30 @@ at which the code already assumes it is looking at speech.
   its ends at the quietest point: the failure that dropped 47 words out of 90 on
   one pass in eight is zero in 24, and the normal path is deterministic.
 
-474 tests.
+### Under the hood: the first CI run in two days found two defects nothing local could
+
+Everything above reached the build machine in one go, and a build machine is the
+first computer that is not the author's. Two defects only it could see:
+
+- **A concurrency error the local compiler waves through.** `ArchiveStore` is
+  MainActor-isolated, so capturing `self` inside a detached task and handing it to
+  `MainActor.run` sends a non-Sendable value across an isolation boundary. Swift
+  6.3 accepts it; the build machine's compiler does not. The background work is now
+  done by `nonisolated static` functions that take and return `Sendable` data only,
+  and `self` never leaves the main actor. Same behaviour, one detached task per
+  batch of 40 instead of one per file.
+- **A test that needs a real sound card was killing the whole suite.** The check for
+  the volume-during-playback race plays a file for real — that race lives inside the
+  audio engine and a fake engine cannot reproduce it — and a CI runner has no output
+  that sounds. It has a *registered* device with declared channels, which is why a
+  CoreAudio probe answers yes in good faith. Playing through it trips an assertion
+  inside AVFoundation, which kills the process past any `catch` and takes the other
+  tests with it. That suite now declares its dependency on real hardware rather than
+  weakening a single assertion: on a real Mac it runs in full. Naming the culprit
+  needed serial execution first, because a dying process leaves a dozen tests in
+  flight and the log then reads as a list of suspects rather than a defendant.
+
+475 tests.
 
 
 ## v1.4.0
