@@ -5,6 +5,90 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
+## v1.5.0
+
+### Punctuation without the language model: 28 ms instead of 3.3 seconds
+
+Restoring punctuation used to mean waking a 7-billion-parameter model and waiting
+about 3.3 seconds. A dedicated 560M token classifier, converted to Core ML and run
+at fp16, does the same job in **28 ms median (52.7 ms p90)** — and does it better.
+
+It is measured against a 40-sentence reference punctuated by hand from a style
+guide, not against Whisper's own punctuation: the raw transcript already carries
+that, so it would score itself 100% and measure nothing. F1 for period / comma /
+question mark:
+
+| | `.` | `,` | `?` | Sentence capitals |
+|---|---|---|---|---|
+| Rule-based floor | 48.3 | 0.0 | 0.0 | 37.7% |
+| Whisper's own punctuation | 72.6 | 62.3 | 88.5 | 64.2% |
+| Language model, 7B | 72.6 | 53.8 | 50.0 | 68.4% |
+| **This release** | **85.9** | **78.4** | **91.2** | **91.5%** |
+
+- **The best punctuation is a hybrid, and it costs nothing.** The model reads text;
+  Whisper heard the audio. In Italian a question is marked by intonation and almost
+  never by syntax, so a text-only model is blind to it by construction — its recall
+  on question marks is 65.5% against Whisper's 79.3% at 100% precision. Sentence
+  terminators and word-internal capitals are therefore taken from Whisper, commas
+  and the rest from the model, and the model fills only what Whisper left empty. No
+  second inference is involved: the raw transcript already contains Whisper's marks.
+- **The model never rewrites your words.** A token classifier labels; it cannot
+  substitute. Coverage against the reference is 100%, where the language-model path
+  sits at 96.8% and falls back to rules on 10% of dictations because it changed too
+  much.
+- **Filler and self-corrections are repaired by rule, and the rule wins.** The
+  repair in a spoken self-correction repeats the opening of what it retracts ("the
+  red door, no wait, the green door"); anchoring on that repetition gives 87.6%
+  recall on a synthetic bench with **zero** legitimate words removed and zero false
+  positives on the negative pole, where the same words are used properly. The
+  language model on the same bench: 70.1% recall, 64 legitimate words lost, 44
+  invented.
+- **The model is downloaded on first use, not shipped.** 1.1 GB, pinned to a fixed
+  revision and size-checked; `--punct-status` and `--punct-download` report and
+  repair it. The tokenizer travels in the bundle.
+- **Compute units are pinned to CPU+GPU on purpose.** Core ML's default `.all`
+  produces garbage with this graph — 173 of 174 bench rows come back with commas
+  scattered through them — while CPU+GPU and CPU-only are faithful. It is also the
+  fastest of the four (19.3 ms against 27.4 on the Neural Engine).
+- Two alternatives were measured and rejected, and their numbers are in the repo:
+  per-class thresholds on the model's logits (**−0.71** average F1 out of sample
+  once the hybrid is in place, because the dial repairs the same hole the hybrid
+  already fills for free), and a 47-language joint punctuation-and-truecasing model
+  (67.1 / 70.2 / 55.6, and its truecasing loses to Whisper's own capitals, 69.4
+  against 94.1).
+
+### A final word said quietly is no longer shaved off
+
+The tail-silence trim borrowed its ceiling from `AudioSplit.silenceRMS` (0.02),
+the threshold the segmenter uses to decide where to *split*, which is a different
+question. On a loud recording, a last word spoken softly sat under that ceiling and
+vanished. The trim now has its own ceiling, `trimTetto` (0.006), chosen by a sweep
+over real recordings with both poles held: the quiet word must survive **and**
+genuinely silent tails must still be trimmed. Across the affected files in a
+120-recording archive, words lost fall from **46 to 8**. Where the new ceiling
+finds nothing to cut, the old threshold is retried but never past 1.5 s, the point
+at which the code already assumes it is looking at speech.
+
+### From the same two days
+
+- **Your dictations, reviewable.** ⌃⌥V opens the archive with filters and search,
+  playback at 0.5/1/1.5× with volume beyond the original (headroom computed per
+  file, limiter as a net), corrections that feed the training corpus, a bin for
+  empty rows and automatic advance.
+- **The waveform** lives in the notch or as a floating 150×40 pill, with a
+  two-stage envelope that no longer pumps on every syllable, driven from buffers
+  the recorder already has open.
+- **Segmentation** (`segmentLongAudio`, off by default and staying off) splits at
+  silences into pieces of ≤25 s and stitches them with overlap dedup; a piece is
+  exempt from the tail trim, so the sentence at the end of a piece is no longer
+  mangled.
+- **A rare half-dictation loss is dead.** Re-decoding a skipped stretch now anchors
+  its ends at the quietest point: the failure that dropped 47 words out of 90 on
+  one pass in eight is zero in 24, and the normal path is deterministic.
+
+474 tests.
+
+
 ## v1.4.0
 
 ### Wired headphones no longer crash the app — or leave it deaf
