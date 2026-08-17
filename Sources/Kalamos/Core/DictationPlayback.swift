@@ -287,6 +287,43 @@ final class DictationPlayer: NSObject, ObservableObject {
     /// mixer a zero non cambia i tempi né i completion: cambia solo chi sente.
     nonisolated(unsafe) static var probeMuto = false
 
+    /// **C'è un'uscita audio su cui suonare?** Sembra una domanda oziosa su un
+    /// portatile e non lo è: un Mac senza dispositivo d'uscita esiste — tutti
+    /// staccati, una macchina headless, l'istante di un cambio di dispositivo —
+    /// e in quel caso il mixer nasce a **zero canali**. Collegargli un formato
+    /// vero non solleva un errore Swift: fa scattare un'asserzione dentro
+    /// AVFoundation, che **uccide il processo** e non passa da nessun `catch`.
+    /// È la stessa famiglia del crash delle cuffie del 14/08, una risorsa di
+    /// sistema che sparisce sotto un grafo audio, e la riparazione è la stessa
+    /// forma: guardare com'è il mondo ADESSO invece di darlo per scontato.
+    ///
+    /// L'ha trovato il runner GitHub, che una scheda audio non ce l'ha: la
+    /// suite che riproduce davvero moriva di SIGTRAP mentre la gemella di sola
+    /// matematica passava (corsa 32062600856, 17/08).
+    /// `nonisolated` perché non tocca niente dell'istanza — chiede al sistema
+    /// com'è fatto adesso — e perché la condizione di una suite di test vive in
+    /// una closure `Sendable`, che da una proprietà isolata al MainActor non
+    /// potrebbe leggere.
+    ///
+    /// **Si chiede a CoreAudio, non ad AVAudioEngine, e il motivo è stato
+    /// pagato subito:** la prima versione costruiva un motore usa e getta per
+    /// leggergli il formato d'uscita, e la suite è morta di SIGSEGV sul mio
+    /// stesso Mac. `AVAudioEngine` non è pensato per nascere e morire in una
+    /// proprietà calcolata chiamata da un thread qualunque; la tabella dei
+    /// dispositivi invece si interroga da ovunque ed è lo stesso idioma che
+    /// `AudioRecorder` usa già per l'ingresso.
+    nonisolated static var uscitaDisponibile: Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject),
+                                                &address, 0, nil, &size, &device)
+        return status == noErr && device != kAudioObjectUnknown
+    }
+
     /// Il numero della programmazione corrente. `AVAudioPlayerNode.stop()` fa
     /// SCATTARE il completion handler del buffer che stava suonando, e ogni
     /// riprogrammazione — un cambio di volume, una trascinata — passa da uno
@@ -317,6 +354,13 @@ final class DictationPlayer: NSObject, ObservableObject {
     /// strip simply is not there.
     func load(_ url: URL?) {
         guard formato == nil, let url else { return }
+        // Senza uscita audio non si carica: il collegamento al mixer a zero
+        // canali non fallisce, abbatte il processo. Meglio una striscia che non
+        // compare che un'app che sparisce (vedi `uscitaDisponibile`).
+        guard Self.uscitaDisponibile else {
+            Log.write("playback: nessun dispositivo d'uscita audio, riproduzione non disponibile")
+            return
+        }
         do {
             let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32,
                                        interleaved: false)

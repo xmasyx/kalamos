@@ -109,7 +109,19 @@ struct DictationPlaybackTests {
 /// Il test suona un file vero e alza il volume a metà ascolto: se la
 /// riproduzione muore, è il difetto. Scritto PRIMA della riparazione e visto
 /// rosso; il polo che deve restare vivo è la fine naturale, sotto.
-@Suite("Playback — il volume alzato durante l'ascolto non ferma niente")
+/// **Questi due test pretendono una scheda audio, ed è dichiarato invece che
+/// implicito.** Suonano un file vero perché è il punto: la gara vive dentro il
+/// motore, e un finto motore non la riproduce. Su una macchina senza
+/// dispositivo d'uscita — il runner GitHub, un Mac con tutto staccato — non c'è
+/// niente da esercitare, e il codice di produzione adesso si rifiuta di
+/// caricare (vedi `DictationPlayer.uscitaDisponibile`). La condizione è la
+/// STESSA proprietà che usa la produzione: se un domani quella cambia, questi
+/// test la seguono invece di divergere. Il caso «nessuna uscita» non resta
+/// scoperto: lo tiene `laMancanzaDiUscitaNonCarica()` qui sotto, che gira su
+/// qualunque macchina.
+@Suite("Playback — il volume alzato durante l'ascolto non ferma niente",
+       .enabled(if: DictationPlayer.uscitaDisponibile,
+                "serve un dispositivo d'uscita audio: qui non ce n'è uno"))
 @MainActor struct PlaybackGainRaceTests {
 
     /// Un wav mono a 16 kHz con margine di spinta (picco 0,1 → spazioDB > 0).
@@ -168,6 +180,47 @@ struct DictationPlaybackTests {
         try await Task.sleep(nanoseconds: 1_500_000_000)
         #expect(!player.isPlaying, "a nastro finito il play deve essersi chiuso")
         #expect(player.elapsed >= player.duration - 0.05)
+        player.unload()
+    }
+}
+
+/// **Il caso che il runner ha scoperto, e che gira su qualunque macchina.**
+/// Senza dispositivo d'uscita il collegamento al mixer a zero canali non
+/// fallisce: fa scattare un'asserzione dentro AVFoundation e abbatte il
+/// processo, fuori dalla portata di ogni `catch`. La riparazione è la guardia
+/// in `load`, e questo test la tiene in tutti e due i sensi — dove l'uscita
+/// c'è il file si apre, dove non c'è si resta scarichi e vivi. Sul suo Mac
+/// prova il primo ramo, sul runner il secondo, e da nessuna parte è muto.
+@Suite("Playback — senza scheda audio non si schianta")
+@MainActor struct PlaybackNoOutputTests {
+
+    /// Il wav si scrive in una funzione SUA, e non è stile: `AVAudioFile` in
+    /// scrittura svuota il buffer quando muore, quindi finché l'oggetto resta
+    /// vivo nella stessa funzione il file sul disco è ancora vuoto e il player
+    /// non lo apre. Preso al primo giro da questo stesso test.
+    private func wavDiUnSecondo() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("senza-uscita-\(UUID().uuidString).wav")
+        let formato = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+                                    channels: 1, interleaved: false)!
+        let file = try AVAudioFile(forWriting: url, settings: formato.settings,
+                                   commonFormat: .pcmFormatFloat32, interleaved: false)
+        let n = AVAudioFrameCount(16_000)
+        let buffer = AVAudioPCMBuffer(pcmFormat: formato, frameCapacity: n)!
+        buffer.frameLength = n
+        for i in 0..<Int(n) { buffer.floatChannelData![0][i] = (i % 2 == 0) ? 0.1 : -0.1 }
+        try file.write(from: buffer)
+        return url
+    }
+
+    @Test func laMancanzaDiUscitaNonCarica() throws {
+        let url = try wavDiUnSecondo()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let player = DictationPlayer()
+        player.load(url)                     // non deve MAI abbattere il processo
+        #expect(player.isLoaded == DictationPlayer.uscitaDisponibile,
+                "si carica se e solo se c'è un'uscita audio")
         player.unload()
     }
 }
