@@ -45,7 +45,10 @@ question mark:
   invented.
 - **The model is downloaded on first use, not shipped.** 1.1 GB, pinned to a fixed
   revision and size-checked; `--punct-status` and `--punct-download` report and
-  repair it. The tokenizer travels in the bundle.
+  repair it. The tokenizer comes down with it, pinned to its own revision: a
+  tokenizer shipped in the bundle and a model fetched later are two halves an
+  update can separate silently, and the wrong tokenizer does not raise an error —
+  it returns different punctuation.
 - **Compute units are pinned to CPU+GPU on purpose.** Core ML's default `.all`
   produces garbage with this graph — 173 of 174 bench rows come back with commas
   scattered through them — while CPU+GPU and CPU-only are faithful. It is also the

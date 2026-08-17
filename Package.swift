@@ -71,9 +71,6 @@ let package = Package(
             path: "Sources/Kalamos",
             resources: [
                 .process("Resources"),
-                // Copiata così com'è: AutoTokenizer legge la cartella per
-                // percorso (tokenizer.json + config), i nomi devono restare.
-                .copy("PunctuationTokenizer"),
             ]
         ),
         .testTarget(

@@ -43,76 +43,161 @@ actor PunctuationModel {
         ("analytics/coremldata.bin", 243),
     ]
 
+    /// Il tokenizer scende INSIEME al modello, e non è una comodità: un
+    /// tokenizer spedito nel bundle e un modello scaricato dopo sono due cose
+    /// che l'aggiornamento può separare in silenzio, e un tokenizer diverso
+    /// non dà un errore — dà una punteggiatura diversa. Scaricandoli insieme,
+    /// ognuno pinnato alla sua revisione, la coppia non può divergere.
+    ///
+    /// Viene dal modello ORIGINALE (`oliverguhr`, MIT), non dalla conversione
+    /// CoreML di terzi, che il tokenizer non lo contiene.
+    private static let tokRepo = "oliverguhr/fullstop-punctuation-multilang-large"
+    private static let tokRev = "345e80adc07e761d3a35feafd20f2f44a151f453"
+    /// `config.json` porta `id2label`, `tokenizer.json` è il vocabolario vero.
+    /// Taglie di upstream, byte per byte.
+    private static let tokFiles: [(rel: String, bytes: Int)] = [
+        ("config.json", 892),
+        ("tokenizer.json", 17_098_080),
+    ]
+    /// Il terzo file è a parte perché è l'UNICO che tocchiamo: `oliverguhr` lo
+    /// scrisse nel 2021 senza `tokenizer_class`, e senza quel campo
+    /// swift-transformers deriva «Xlm-RobertaTokenizer» dal `model_type` e
+    /// muore. Si scarica pristino (406 byte di upstream, verificati), poi si
+    /// riscrive col campo aggiunto — perciò la sua integrità non si misura in
+    /// byte ma sul contenuto: vedi `tokenizerConfigOK`.
+    private static let tokConfigName = "tokenizer_config.json"
+    private static let tokConfigBytes = 406
+    private static let tokClass = "XLMRobertaTokenizer"
+
     /// `<Application Support>/Kalamos/punctuation/<rev>/punctuation.mlmodelc`
     static var modelDir: URL {
+        puntoBase.appendingPathComponent("punctuation.mlmodelc", isDirectory: true)
+    }
+
+    /// `<Application Support>/Kalamos/punctuation/<rev>/tokenizer`
+    static var tokenizerDir: URL {
+        puntoBase.appendingPathComponent("tokenizer", isDirectory: true)
+    }
+
+    /// La cartella è keyed sulla revisione del MODELLO: il tokenizer vive
+    /// dentro la stessa, così la coppia si sposta o si butta insieme.
+    private static var puntoBase: URL {
         ModelStorage.base
             .appendingPathComponent("punctuation", isDirectory: true)
             .appendingPathComponent(rev, isDirectory: true)
-            .appendingPathComponent("punctuation.mlmodelc", isDirectory: true)
     }
 
-    /// Scaricato E integro: ogni file presente alla taglia esatta.
-    static var isDownloaded: Bool {
-        files.allSatisfy { f in
-            let url = modelDir.appendingPathComponent(f.rel)
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
-            return size == f.bytes
-        }
+    private static func taglia(_ url: URL) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
     }
 
-    /// Scarica i cinque file del pacchetto, uno per uno, e verifica la taglia.
-    /// Un file già integro non si riscarica (riprendere costa zero).
+    /// Il `tokenizer_config.json` è a posto se parsifica E dichiara la classe.
+    /// Un controllo sul contenuto, non sui byte, perché quel file lo scriviamo
+    /// noi: misurarne la taglia vorrebbe dire inseguire la nostra stessa patch.
+    private static var tokenizerConfigOK: Bool {
+        let url = tokenizerDir.appendingPathComponent(tokConfigName)
+        guard let data = FileManager.default.contents(atPath: url.path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return json["tokenizer_class"] as? String == tokClass
+    }
+
+    /// Scaricato E integro: modello e tokenizer, ogni file alla taglia esatta.
+    static var isDownloaded: Bool { isModelDownloaded && isTokenizerDownloaded }
+
+    static var isModelDownloaded: Bool {
+        files.allSatisfy { taglia(modelDir.appendingPathComponent($0.rel)) == $0.bytes }
+    }
+
+    static var isTokenizerDownloaded: Bool {
+        tokFiles.allSatisfy { taglia(tokenizerDir.appendingPathComponent($0.rel)) == $0.bytes }
+            && tokenizerConfigOK
+    }
+
+    /// Scarica i file del modello e quelli del tokenizer, uno per uno, e
+    /// verifica la taglia. Un file già integro non si riscarica (riprendere
+    /// costa zero).
     static func download(progress: @escaping @Sendable (Double) -> Void) async throws {
+        // Il `tokenizer_config.json` entra nel conto con la taglia di upstream:
+        // è quella che viaggia sulla rete.
         let totale = files.reduce(0) { $0 + $1.bytes }
+            + tokFiles.reduce(0) { $0 + $1.bytes } + tokConfigBytes
         var fatti = 0
-        for f in files {
-            let dest = modelDir.appendingPathComponent(f.rel)
-            let attuale = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int) ?? nil
-            if attuale == f.bytes {
-                fatti += f.bytes
-                progress(Double(fatti) / Double(totale))
-                continue
-            }
+
+        func scarica(_ url: URL, verso dest: URL, attesi: Int, nome: String) async throws {
             try FileManager.default.createDirectory(
                 at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let url = URL(string:
-                "https://huggingface.co/\(repo)/resolve/\(rev)/punctuation.mlmodelc/\(f.rel)")!
             let (tmp, risposta) = try await URLSession.shared.download(from: url)
             guard let http = risposta as? HTTPURLResponse, http.statusCode == 200 else {
                 throw NSError(domain: "PunctuationModel", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "HTTP \((risposta as? HTTPURLResponse)?.statusCode ?? -1) su \(f.rel)"])
+                    NSLocalizedDescriptionKey: "HTTP \((risposta as? HTTPURLResponse)?.statusCode ?? -1) su \(nome)"])
             }
-            let size = (try FileManager.default.attributesOfItem(atPath: tmp.path)[.size] as? Int) ?? -1
-            guard size == f.bytes else {
+            let size = taglia(tmp) ?? -1
+            guard size == attesi else {
                 try? FileManager.default.removeItem(at: tmp)
                 throw NSError(domain: "PunctuationModel", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "\(f.rel): \(size) byte invece di \(f.bytes) — scaricamento incompleto"])
+                    NSLocalizedDescriptionKey: "\(nome): \(size) byte invece di \(attesi) — scaricamento incompleto"])
             }
             try? FileManager.default.removeItem(at: dest)
             try FileManager.default.moveItem(at: tmp, to: dest)
+        }
+
+        for f in files {
+            let dest = modelDir.appendingPathComponent(f.rel)
+            if taglia(dest) != f.bytes {
+                let url = URL(string:
+                    "https://huggingface.co/\(repo)/resolve/\(rev)/punctuation.mlmodelc/\(f.rel)")!
+                try await scarica(url, verso: dest, attesi: f.bytes, nome: f.rel)
+            }
             fatti += f.bytes
             progress(Double(fatti) / Double(totale))
         }
+
+        for f in tokFiles {
+            let dest = tokenizerDir.appendingPathComponent(f.rel)
+            if taglia(dest) != f.bytes {
+                let url = URL(string: "https://huggingface.co/\(tokRepo)/resolve/\(tokRev)/\(f.rel)")!
+                try await scarica(url, verso: dest, attesi: f.bytes, nome: f.rel)
+            }
+            fatti += f.bytes
+            progress(Double(fatti) / Double(totale))
+        }
+
+        if !tokenizerConfigOK {
+            let dest = tokenizerDir.appendingPathComponent(tokConfigName)
+            let url = URL(string: "https://huggingface.co/\(tokRepo)/resolve/\(tokRev)/\(tokConfigName)")!
+            try await scarica(url, verso: dest, attesi: tokConfigBytes, nome: tokConfigName)
+            // La patch, sui byte appena verificati: aggiunge il campo mancante
+            // e non tocca nient'altro.
+            guard let data = FileManager.default.contents(atPath: dest.path),
+                  var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                throw NSError(domain: "PunctuationModel", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey: "\(tokConfigName) scaricato ma illeggibile"])
+            }
+            json["tokenizer_class"] = tokClass
+            let patched = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+            try patched.write(to: dest, options: .atomic)
+            guard tokenizerConfigOK else {
+                throw NSError(domain: "PunctuationModel", code: 9, userInfo: [
+                    NSLocalizedDescriptionKey: "\(tokConfigName) riscritto ma senza tokenizer_class"])
+            }
+        }
+        fatti += tokConfigBytes
+        progress(Double(fatti) / Double(totale))
     }
 
     // ------------------------------------------------------------ caricamento
-
-    /// La cartella del tokenizer dentro il bundle (tokenizer.json + i config,
-    /// col `tokenizer_class` che il file originale del 2021 non dichiarava —
-    /// senza, swift-transformers deriva un nome sbagliato e muore).
-    private static var bundledTokenizerDir: URL? {
-        Bundle.module.resourceURL?.appendingPathComponent("PunctuationTokenizer", isDirectory: true)
-    }
 
     /// Carica modello e tokenizer, una volta. Percorsi espliciti per il banco
     /// (`--bench-l1`); nil = i percorsi dell'app.
     func prepare(modelURL: URL? = nil, tokenizerDir: URL? = nil) async throws {
         if modello != nil { return }
         let modelPath = modelURL ?? Self.modelDir
-        let tokDir = tokenizerDir ?? Self.bundledTokenizerDir
-        guard let tokDir else {
+        let tokDir = tokenizerDir ?? Self.tokenizerDir
+        guard FileManager.default.fileExists(atPath: tokDir.appendingPathComponent("tokenizer.json").path) else {
             throw NSError(domain: "PunctuationModel", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "cartella del tokenizer assente dal bundle"])
+                NSLocalizedDescriptionKey: "tokenizer assente in \(tokDir.path) — serve --punct-download"])
         }
 
         let cfg = MLModelConfiguration()

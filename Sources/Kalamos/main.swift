@@ -680,10 +680,13 @@ if let i = CommandLine.arguments.firstIndex(of: "--bench-archivio") {
 // Stampa percorso e verdetto della verifica di taglia, esce 0 se pronto, 1 se no.
 // `Kalamos --punct-download` — lo scarica (pinnato alla revisione verificata).
 if CommandLine.arguments.contains("--punct-status") {
-    print("percorso: \(PunctuationModel.modelDir.path)")
+    print("modello:   \(PunctuationModel.modelDir.path)")
+    print("           \(PunctuationModel.isModelDownloaded ? "integro (taglie verificate)" : "NON scaricato o incompleto")")
+    print("tokenizer: \(PunctuationModel.tokenizerDir.path)")
+    print("           \(PunctuationModel.isTokenizerDownloaded ? "integro (taglie verificate + tokenizer_class)" : "NON scaricato o incompleto")")
     print(PunctuationModel.isDownloaded
-        ? "punteggiatura veloce: sul disco e integro (taglie verificate)"
-        : "punteggiatura veloce: NON scaricato (o incompleto)")
+        ? "punteggiatura veloce: pronta"
+        : "punteggiatura veloce: NON pronta — serve --punct-download")
     exit(PunctuationModel.isDownloaded ? 0 : 1)
 }
 if CommandLine.arguments.contains("--punct-download") {
