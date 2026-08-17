@@ -41,7 +41,11 @@ jobs:
           fi
 
       - name: Run tests
-        run: swift test
+        # Seriale, e non è pigrizia: in parallelo un processo che muore porta
+        # giù la decina di test in volo, e il registro non dice quale sia stato
+        # (17/08, tre corse a interpretare un insieme di sospetti). Serializzato,
+        # l'ultimo test avviato È il colpevole.
+        run: swift test --no-parallel
 
       - name: Build Kalamos.app
         env:
