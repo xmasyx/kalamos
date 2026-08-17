@@ -17,14 +17,32 @@ enum Playback {
     /// It replaced a single «Lento» toggle at 0.6. The number mattered less than
     /// the shape: a toggle tells you what pressing it does, three buttons tell
     /// you where you already are.
-    static let speeds: [Float] = [0.5, 1.0, 1.5]
+    /// **Quattro velocità, sua richiesta del 2026-08-18**, nello stesso ingombro
+    /// che ne teneva tre: le pastiglie si stringono, la fila no.
+    ///
+    /// `1,25×` è quella che mancava davvero — su una dettatura sua è «più svelto
+    /// ma ancora chiaro», mentre a 1,5 comincia a costare attenzione. È un dato e
+    /// non un meccanismo: il cambio di velocità passa già da un nodo che non alza
+    /// il tono e accetta qualunque valore.
+    ///
+    /// Prima erano tre (2026-08-16), e prima ancora un solo interruttore «Lento»
+    /// a 0,6. Il numero contava meno della forma: un interruttore ti dice cosa fa
+    /// premerlo, dei bottoni ti dicono dove sei già.
+    static let speeds: [Float] = [0.5, 1.0, 1.25, 1.5]
     static let normalRate: Float = 1.0
 
     /// `0,5×` in Italian, `0.5×` elsewhere: it is a number on a button, and a
     /// decimal point in the wrong shape is the sort of thing he notices.
+    ///
+    /// **Due decimali solo quando servono**, e il caso che l'ha imposto è `1,25`:
+    /// con `%.1f` sarebbe uscito «1,2×», cioè un'altra velocità. Con `%.2f` fisso
+    /// uscirebbe «0,50×», che è la stessa bruttezza dall'altra parte.
     @MainActor
     static func speedLabel(_ rate: Float) -> String {
-        let s = String(format: "%.1f", rate)
+        let intero = (rate * 100).rounded()
+        let s = intero.truncatingRemainder(dividingBy: 10) == 0
+            ? String(format: "%.1f", rate)
+            : String(format: "%.2f", rate)
         return L.t(s.replacingOccurrences(of: ".", with: ",") + "×", s + "×",
                    s.replacingOccurrences(of: ".", with: ",") + "×")
     }
@@ -149,6 +167,34 @@ enum Guadagno {
     /// due pastiglie non deve restarne accesa una che mente sul valore vero.
     static func quota(perDB dB: Float, spazio: Float) -> Int? {
         quote.first { abs(self.dB(perQuota: $0, spazio: spazio) - dB) < 0.5 }
+    }
+
+    /// **La tacchetta sotto il dito, se ce n'è una** — per il clic sul cursore del
+    /// volume, che deve portare esattamente su quel valore.
+    ///
+    /// Sta qui e non sulla vista per due motivi: la matematica del guadagno vive
+    /// tutta in questo tipo, e una funzione su una `View` è isolata al MainActor,
+    /// quindi scomoda da provare — che è il modo in cui una decisione finisce
+    /// sepolta e nessuno la controlla più.
+    ///
+    /// **La tolleranza è in punti sullo schermo, non in percentuale**, perché è
+    /// una questione di mira: la stessa barra larga il doppio non deve diventare
+    /// il doppio più difficile da centrare. Sei punti per lato, cioè un bersaglio
+    /// da dodici, più largo del segno disegnato — la regola del bottone che si
+    /// clicca tutto e non solo dove c'è scritto.
+    ///
+    /// Non è un magnete: agisce **solo sul clic**, mai durante il trascinamento
+    /// (`GainBar`). La differenza è tutta lì, ed è la ragione per cui il cursore
+    /// non combatte con la mano quando lui vuole un valore in mezzo.
+    static func taccaVicina(a percentuale: Double, larghezza: Double,
+                            tacche: [Int], tolleranzaPunti: Double = 6) -> Int? {
+        guard larghezza > 0, !tacche.isEmpty else { return nil }
+        let tolleranza = tolleranzaPunti / larghezza * 100
+        var migliore = tacche[0]
+        for t in tacche where abs(Double(t) - percentuale) < abs(Double(migliore) - percentuale) {
+            migliore = t
+        }
+        return abs(Double(migliore) - percentuale) <= tolleranza ? migliore : nil
     }
 
     /// Da dB a fattore di ampiezza.

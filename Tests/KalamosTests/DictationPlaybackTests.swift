@@ -90,9 +90,12 @@ struct DictationPlaybackTests {
 
     // MARK: the speed that made the word readable
 
-    @Test("Le tre velocità sono 0,5 · 1 · 1,5")
+    /// Erano tre fino al 2026-08-17. `1,25×` è arrivata il 18 su sua richiesta:
+    /// «più svelto ma ancora chiaro», dove 1,5 comincia a costare attenzione.
+    /// Il test è cambiato perché è cambiata la richiesta, non per farlo passare.
+    @Test("Le quattro velocità sono 0,5 · 1 · 1,25 · 1,5")
     func speeds() {
-        #expect(Playback.speeds == [0.5, 1.0, 1.5])
+        #expect(Playback.speeds == [0.5, 1.0, 1.25, 1.5])
         #expect(Playback.normalRate == 1.0)
     }
 }

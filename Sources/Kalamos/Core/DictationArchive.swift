@@ -15,6 +15,32 @@ import Foundation
 /// and `keepLastDictations 0` turns the whole thing off.
 enum DictationArchive {
 
+    /// **Una registrazione è entrata nell'archivio, o è cambiata.** L'URL del
+    /// `.wav` viaggia in `object`.
+    ///
+    /// Esiste perché il pannello delle dettature leggeva la cartella una volta
+    /// sola, all'apertura, e nessuno gli diceva più niente: dettando col pannello
+    /// aperto la riga nuova non compariva finché non lo si richiudeva. Non era un
+    /// ritardo, era che l'informazione non partiva.
+    ///
+    /// **Si annuncia a file chiuso, e non è una precauzione teorica**: sia il
+    /// `.wav` sia il suo `.txt` sono scritti atomicamente, e l'annuncio parte
+    /// DOPO. La notte del 17/08 una corsa di prova è morta esattamente lì, con un
+    /// lettore che apriva un file che chi lo scriveva non aveva ancora chiuso.
+    ///
+    /// Chi ascolta deve essere **idempotente**: lo stesso URL può arrivare più di
+    /// una volta (una dettatura marcata dopo essere stata ridetta è già in lista,
+    /// e quel secondo annuncio è giusto — significa che la riga è cambiata).
+    static let didArchive = Notification.Name("kalamos.didArchive")
+
+    /// Dillo a chi sta guardando la lista. Sempre dal main thread, perché chi
+    /// ascolta è l'interfaccia.
+    private static func announce(_ wav: URL) {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: didArchive, object: wav)
+        }
+    }
+
     /// Where the kept dictations live. Beside the log, on purpose: someone
     /// looking for one will look for the other.
     static var directory: URL {
@@ -55,6 +81,10 @@ enum DictationArchive {
         let sidecar = wav.deletingPathExtension().appendingPathExtension("txt")
         try? lines.joined(separator: "\n").appending("\n").write(
             to: sidecar, atomically: true, encoding: .utf8)
+        // Qui, e non in `keep`: adesso la riga ha sia il suono sia le parole.
+        // Annunciata alla `keep` comparirebbe muta, e andrebbe aggiornata subito
+        // dopo — due eventi per una cosa sola.
+        announce(wav)
     }
 
     /// Throw a recording away, sound and sidecar together.
@@ -126,9 +156,17 @@ enum DictationArchive {
     /// Flag a recording as one that probably went wrong, with the reason that
     /// made it look that way. Written into the sidecar rather than a database
     /// because the sidecar is what survives being copied somewhere else.
+    /// Annuncia anche questa, e i due casi che copre sono diversi ma la stessa
+    /// riparazione: una dettatura vuota CON voce dentro non passa mai da
+    /// `annotate`, quindi senza l'annuncio qui non comparirebbe mai a caldo; e una
+    /// marcata perché ridetta è già in lista, quindi chi ascolta la aggiorna
+    /// invece di inserirla, ed è così che il ⚠ compare mentre lui guarda.
+    ///
+    /// A file chiuso anche qui: `append` chiude la maniglia prima di tornare.
     static func mark(_ wav: URL, reason: String) {
         append(wav, lines: ["SOSPETTA: \(reason)"])
         Log.write("archive: marked \(wav.lastPathComponent) — \(reason)")
+        announce(wav)
     }
 
     /// Write down what was actually said. The one line in the whole file that is

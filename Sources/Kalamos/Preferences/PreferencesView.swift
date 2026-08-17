@@ -447,6 +447,20 @@ struct PrefToggle: View {
 struct PrefButton: View {
     let title: String
     var filled = false
+    /// Larghezza imposta, per le file in cui tutte le voci devono essere uguali.
+    ///
+    /// **Deve stare QUI e non fuori**, ed è la stessa trappola del riempimento
+    /// applicato fuori dal `Button`: il testo ha `.fixedSize()`, quindi un
+    /// `.frame(width:)` messo sul `PrefButton` dall'esterno viene semplicemente
+    /// ignorato — il bottone resta largo quanto la sua etichetta dentro una
+    /// cornice più larga, e la fila continua a uscire sfrangiata. Provato il
+    /// 2026-08-18 sui tre bottoni del corpus: dal codice sembrava fatto, e solo
+    /// la fotografia del pannello intero ha mostrato che non era successo niente.
+    ///
+    /// Messa dopo il riempimento e prima dello sfondo, cresce anche il rettangolo
+    /// disegnato e quindi l'area cliccabile: la regola del bottone che si clicca
+    /// tutto resta vera.
+    var width: CGFloat? = nil
     let act: () -> Void
 
     var body: some View {
@@ -463,6 +477,7 @@ struct PrefButton: View {
                 .fixedSize()
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5.5)
+                .frame(width: width)
                 .background(RoundedRectangle(cornerRadius: 7)
                     .fill(filled ? Theme.pen : Theme.penWash))
                 .contentShape(RoundedRectangle(cornerRadius: 7))

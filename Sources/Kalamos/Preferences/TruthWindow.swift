@@ -152,12 +152,80 @@ final class ArchiveStore: ObservableObject {
         merge([wav: DictationIndex.details(of: wav)])
     }
 
+    /// Riempi la lista senza toccare il disco, per i test.
+    ///
+    /// Iniettabile per un motivo solo, lo stesso di `onDrag` nel pannello
+    /// dell'onda: la prova dell'inserimento deve girare su un archivio finto in
+    /// una cartella temporanea, e un test che scrivesse nell'archivio vero
+    /// riempirebbe di spazzatura le sue dettature per controllare una riga.
+    func adotta(_ voci: [DictationEntry]) { entries = voci }
+
+    /// **Una dettatura è arrivata mentre il pannello era aperto.**
+    ///
+    /// Tre proprietà, e ognuna è un difetto evitato:
+    ///
+    /// · **Non rilegge la cartella.** L'elenco completo costa 9,3 s al tetto di
+    ///   100000 che questo archivio permette. La cosa cambiata è una sola e chi
+    ///   annuncia sa quale, quindi si costruisce quella riga e basta — stesso
+    ///   motivo per cui `forget` toglie una riga invece di ricaricare.
+    ///
+    /// · **È idempotente.** Lo stesso URL può arrivare due volte: una dettatura
+    ///   ridetta viene marcata quando è già in lista. Se c'è già, si aggiorna al
+    ///   suo posto; non si inserisce un doppione e non si sposta la riga.
+    ///
+    /// · **Non ruba il posto.** L'inserimento tocca solo `entries`. La selezione
+    ///   vive fuori di qui e non viene nominata, quindi una riga che arriva mentre
+    ///   lui sta riascoltando o correggendo non gli sposta niente sotto le mani.
+    ///
+    /// L'ordine è quello di `stems`: per nome decrescente, cioè la più recente in
+    /// cima. Non si assume che la nuova arrivata sia la più recente — si inserisce
+    /// dove il nome dice, così una registrazione recuperata da un backup finisce
+    /// al posto giusto invece che in testa.
+    /// L'identità qui è il **nome del file**, non l'URL: in questo archivio il
+    /// nome porta il momento in cui la registrazione è cominciata, ed è già
+    /// l'ordinamento di `stems`. Confrontare due `URL` per uguaglianza è fragile
+    /// — lo stesso file arriva come `/var/…` o `/private/var/…` a seconda di come
+    /// è stato costruito, e il doppione che ne esce l'ha trovato un test.
+    func arrived(_ wav: URL) {
+        guard let entry = DictationIndex.entry(for: wav) else { return }
+        let nome = entry.wav.lastPathComponent
+        if let i = entries.firstIndex(where: { $0.wav.lastPathComponent == nome }) {
+            entries[i].details = entry.details
+            return
+        }
+        let posto = entries.firstIndex {
+            $0.wav.lastPathComponent < nome
+        } ?? entries.count
+        entries.insert(entry, at: posto)
+    }
+
     /// Take a recording out of the list, after it has been thrown away.
     ///
     /// The list is not re-read from disk: a full listing costs 9.3 s at the cap
     /// this archive allows, and the one thing that changed is already known here.
     func forget(_ wav: URL) {
         entries.removeAll { $0.wav == wav }
+    }
+
+    /// **Un intero lotto in una mutazione sola.**
+    ///
+    /// `forget` chiamata in un ciclo ripubblica `entries` a ogni giro, cioè
+    /// ridisegna l'elenco una volta per riga buttata. È metà del blocco totale
+    /// del 2026-08-18; l'altra metà era il ricalcolo quadratico. Qui l'elenco
+    /// cambia una volta e la vista si ridisegna una volta.
+    func dimentica(_ lotto: [DictationEntry]) {
+        guard !lotto.isEmpty else { return }
+        entries = DictationIndex.senza(lotto, in: entries)
+    }
+
+    /// Un lotto di contenuti aggiornati, in una pubblicazione sola.
+    ///
+    /// `merge` scorre già tutto l'elenco per ogni chiamata: chiamarla una volta
+    /// per riga costa O(B×N) e ridisegna B volte. Con tutto il lotto insieme è
+    /// O(N) e un ridisegno. Stessa lezione di `dimentica`.
+    func aggiorna(_ batch: [URL: DictationDetails]) {
+        guard !batch.isEmpty else { return }
+        merge(batch)
     }
 
     private func merge(_ batch: [URL: DictationDetails]) {
@@ -175,6 +243,15 @@ struct TruthBrowser: View {
     let initial: URL?
     let save: (URL, String, DictationArchive.TruthSource) -> Void
     let close: () -> Void
+
+    /// Quanto sono larghi i tre bottoni in fondo alla barra laterale, tutti e
+    /// tre uguali.
+    ///
+    /// Tarata sul più largo — «Conferma tutte» con il numero — e con lo spazio
+    /// per **tre cifre**, che è quanto basta per sempre: non ci saranno mai mille
+    /// dettature da confermare in una volta. Il numero fisso serve proprio a
+    /// questo, che il bordo destro non balli mentre il contatore cambia.
+    static let larghezzaBottoniCorpus: CGFloat = 176
 
     @StateObject private var store = ArchiveStore()
     @State private var selection: URL?
@@ -243,6 +320,12 @@ struct TruthBrowser: View {
         // the disk a second time, keeps the whole opening down to one listing.
         .onChange(of: store.entries) {
             if selection == nil { selection = store.entries.first?.wav }
+        }
+        // Dettando col pannello aperto, la riga compare da sola. Prima l'elenco
+        // si leggeva una volta in `onAppear` e nessuno lo avvisava più: la
+        // dettatura nuova si vedeva solo richiudendo e riaprendo.
+        .onReceive(NotificationCenter.default.publisher(for: DictationArchive.didArchive)) { note in
+            if let wav = note.object as? URL { store.arrived(wav) }
         }
     }
 
@@ -323,11 +406,23 @@ struct TruthBrowser: View {
             // Stacked, not side by side: two labels of different lengths in one
             // row leave one button two lines tall and the other one, and the
             // eye reads the taller one as more important than it is.
+            //
+            // **Larghezza unica per tutti e tre** (sua richiesta, 2026-08-18): è
+            // la regola di casa dei selettori — le voci hanno la stessa larghezza
+            // dentro un controllo e fra controlli vicini — applicata a una colonna
+            // di bottoni, dove tre bordi destri diversi si vedono come un difetto
+            // di allineamento anche quando ogni bottone preso da solo è giusto.
+            //
+            // Tarata su «Conferma tutte» col numero, che è il più largo, e
+            // dimensionata per **tre cifre**: sua indicazione esplicita, non
+            // avendo mai mille dettature da confermare in una volta. Così il
+            // bordo non balla quando il contatore passa da 9 a 10 a 100.
             VStack(alignment: .leading, spacing: 6) {
                 if !unsettled.isEmpty {
                     PrefButton(title: L.t("Conferma tutte (\(unsettled.count))",
                                           "Confirm all (\(unsettled.count))",
-                                          "Tout confirmer (\(unsettled.count))")) { confirmVisible() }
+                                          "Tout confirmer (\(unsettled.count))"),
+                               width: Self.larghezzaBottoniCorpus) { confirmVisible() }
                 }
                 // Shown only when there are any, like the button above it: a
                 // count of zero on a button is a button that says the archive is
@@ -335,9 +430,19 @@ struct TruthBrowser: View {
                 if !blanks.isEmpty {
                     PrefButton(title: L.t("Elimina vuote (\(blanks.count))",
                                           "Delete the empty ones (\(blanks.count))",
-                                          "Supprimer les vides (\(blanks.count))")) { discardBlanks() }
+                                          "Supprimer les vides (\(blanks.count))"),
+                               width: Self.larghezzaBottoniCorpus) { discardBlanks() }
                 }
-                PrefButton(title: L.t("Mettile da parte", "Set them aside", "Mettre de côté")) {
+                // **«Archivia» è sua proposta del 2026-08-18**, e la riserva resta
+                // sua da sciogliere: questa finestra si chiama «Le tue dettature»
+                // ed È l'archivio, quindi un bottone «Archivia» dentro l'archivio
+                // può leggersi come «mettile dove già stanno». Quello che fa
+                // davvero è staccarne una copia per l'allenamento, che sopravvive
+                // alla potatura — il verbo giusto è più vicino a «metti da parte»
+                // che ad «archivia». Applicata la sua parola; se all'uso suona
+                // ambigua, la riserva è scritta qui.
+                PrefButton(title: L.t("Archivia", "Archive", "Archiver"),
+                           width: Self.larghezzaBottoniCorpus) {
                     let n = TrainingCorpus.export()
                     n > 0 ? Sounds.ok() : Sounds.no()
                 }
@@ -411,27 +516,47 @@ struct TruthBrowser: View {
         alert.addButton(withTitle: L.t("Annulla", "Cancel", "Annuler"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        var done = 0, skipped = 0
-        for e in batch {
-            // The raw is the target: it is what the microphone produced, and a
-            // fine-tune learns to produce it. The delivered text has been through
-            // punctuation and vocabulary repair, so training on it would teach
-            // the model to do work that already happens after it.
-            guard let raw = DictationArchive.section("GREZZO", in: e.wav),
-                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                skipped += 1
-                continue
+        // **Stessa forma di «Elimina vuote», stessa riparazione**, e questa non è
+        // arrivata da una segnalazione: è uscita dalla passata sui fratelli del
+        // blocco totale del 2026-08-18. Il ciclo di prima faceva, per OGNI riga,
+        // una lettura del sidecar, una scrittura, e una `store.refresh` che
+        // ripubblica l'elenco — e `refresh` scorre `entries` per intero, quindi
+        // anche qui si pagava O(B×N) più 2B accessi al disco sul main thread.
+        // Non si piantava come l'altro perché le righe da confermare sono in
+        // genere meno delle vuote, il che rende il difetto più raro, non più
+        // piccolo.
+        //
+        // Adesso il disco lo tocca un task fuori dal main thread, e l'elenco si
+        // aggiorna una volta sola con tutto il lotto.
+        let files = batch.map(\.wav)
+        Task.detached(priority: .userInitiated) {
+            var aggiornate: [URL: DictationDetails] = [:]
+            var done = 0, skipped = 0
+            for wav in files {
+                // The raw is the target: it is what the microphone produced, and a
+                // fine-tune learns to produce it. The delivered text has been through
+                // punctuation and vocabulary repair, so training on it would teach
+                // the model to do work that already happens after it.
+                guard let raw = DictationArchive.section("GREZZO", in: wav),
+                      !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    skipped += 1
+                    continue
+                }
+                DictationArchive.recordTruth(wav, verbatim: raw, how: .confirmedInBulk)
+                aggiornate[wav] = DictationIndex.details(of: wav)
+                done += 1
             }
-            DictationArchive.recordTruth(e.wav, verbatim: raw, how: .confirmedInBulk)
-            store.refresh(e.wav)
-            done += 1
+            let esito = (done: done, skipped: skipped, dettagli: aggiornate)
+            await MainActor.run {
+                store.aggiorna(esito.dettagli)
+                Log.write("verbatim ⌃⌥V: confermate in blocco \(esito.done), saltate \(esito.skipped) senza grezzo")
+                TrainingCorpus.exportIfBatchFull()
+                // Successo muto (sua richiesta, 2026-08-16): le spunte compaiono
+                // sulle righe e il contatore sale, non serve altro. Suona solo il
+                // fallimento, che non ha nessun segno visibile suo.
+                if esito.done == 0 { Sounds.no() }
+            }
         }
-        Log.write("verbatim ⌃⌥V: confermate in blocco \(done), saltate \(skipped) senza grezzo")
-        TrainingCorpus.exportIfBatchFull()
-        // Successo muto (sua richiesta, 2026-08-16): le spunte compaiono
-        // sulle righe e il contatore sale, non serve altro. Suona solo il
-        // fallimento, che non ha nessun segno visibile suo.
-        if done == 0 { Sounds.no() }
     }
 
     /// Throw away every empty recording currently listed, after asking.
@@ -456,8 +581,36 @@ struct TruthBrowser: View {
         alert.addButton(withTitle: L.t("Annulla", "Cancel", "Annuler"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        for e in batch { discard(e.wav) }
-        Log.write("verbatim ⌃⌥V: eliminate \(batch.count) dettature vuote")
+        // **Un'operazione in blocco tocca l'elenco UNA volta sola**, e questa
+        // riga è la riparazione di un blocco totale segnalato dal campo il
+        // 2026-08-18: premendo questo bottone l'app smetteva di rispondere, e non
+        // usciva nemmeno dalla richiesta di terminare del sistema. Quel dettaglio
+        // È la diagnosi — un'app che non risponde non riceve nemmeno il «termina»
+        // gentile, quindi il main thread non tornava MAI al ciclo degli eventi.
+        //
+        // Prima era `for e in batch { discard(e.wav) }`, e ogni giro ricalcolava
+        // l'elenco visibile (O(n), con la ricerca dentro), cercava la riga
+        // successiva (O(n)) e ripubblicava `entries`, cioè ridisegnava. Con B
+        // vuote su N righe: O(B×N) più B ridisegni più 2B cancellazioni su disco,
+        // tutto di fila senza respirare. Misurato sul solo calcolo, 2000 righe con
+        // 1000 vuote: **853 ms contro 1 ms** (`BulkDiscardTests`, che tiene la
+        // forma vecchia come polo negativo).
+        //
+        // Adesso: la selezione si calcola una volta, l'elenco si muta una volta, e
+        // il disco lo tocca un task fuori dal main thread — l'unica parte che
+        // resta lenta, e l'unica che non ha bisogno di essere guardata.
+        let nuovaSelezione = DictationIndex.dopoIlLotto(batch, partendoDa: selection,
+                                                        in: store.entries)
+        store.dimentica(batch)
+        selection = nuovaSelezione
+
+        let files = batch.map(\.wav)
+        Task.detached(priority: .utility) {
+            for wav in files { DictationArchive.discard(wav) }
+            await MainActor.run {
+                Log.write("verbatim ⌃⌥V: eliminate \(files.count) dettature vuote")
+            }
+        }
     }
 
     private var empty: some View {
@@ -732,6 +885,31 @@ struct TruthView: View {
 struct TruthPlayerStrip: View {
     @ObservedObject var player: DictationPlayer
 
+    /// Quanto è larga una pastiglia di velocità, uguale per tutte e quattro.
+    ///
+    /// Tarata su «1,25×», che è la più lunga. Quattro pastiglie in questo spazio
+    /// stanno più strette di quanto stessero le tre di ieri, ed è voluto: sua
+    /// richiesta di tenere **lo stesso ingombro** della fila, perché la larghezza
+    /// del cursore del volume qui sotto è definita su quell'ingombro.
+    static let larghezzaPastigliaVelocità: CGFloat = 46
+
+    /// La colonna del tempo, e quindi anche quella dell'etichetta «Volume audio»
+    /// che ci va **esattamente sotto** (sua richiesta, 2026-08-18). Larga quanto
+    /// serve alla più lunga delle due, `0:00 / 0:00` e «Volume audio».
+    static let larghezzaColonnaTempo: CGFloat = 92
+
+    /// L'ingombro della fila delle velocità: quattro pastiglie e tre spazi.
+    ///
+    /// Il cursore del volume è largo esattamente così — sua richiesta: «lunga
+    /// tanto quanto lo spazio che va dal bottone iniziale 0,5 fino alla fine del
+    /// bottone 1,5». Derivata invece che scritta a mano, così aggiungendo una
+    /// quinta velocità le due file restano allineate da sole invece di divergere
+    /// in silenzio.
+    static var ingombroVelocità: CGFloat {
+        let n = CGFloat(Playback.speeds.count)
+        return n * larghezzaPastigliaVelocità + (n - 1) * 12
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
@@ -748,17 +926,31 @@ struct TruthPlayerStrip: View {
 
                 ScrubBar(fraction: player.fraction) { player.seek(toFraction: $0) }
 
+                // Larghezza fissa, e non solo perché le cifre ballano: è la
+                // colonna sotto cui va incolonnata «Volume audio» (sua richiesta,
+                // 2026-08-18), e una colonna che cambia larghezza col contenuto
+                // non è una colonna.
                 Text(player.clock)
                     .font(Theme.font(11.5, .medium).monospacedDigit())
                     .foregroundStyle(Theme.inkFaded)
+                    .frame(width: Self.larghezzaColonnaTempo, alignment: .leading)
 
-                // Three speeds and not a toggle (sua richiesta, 2026-08-16).
-                // «Lento» said what the button did, not what it would do: with
-                // one button you have to press it to find out where you are, and
-                // with three the current speed is simply visible.
+                // Four speeds and not a toggle (sue richieste, 2026-08-16 e
+                // 2026-08-18). «Lento» said what the button did, not what it
+                // would do: with one button you have to press it to find out
+                // where you are, and with four the current speed is simply
+                // visible.
+                //
+                // **Larghezza unica, tarata sulla più lunga**, e non è pignoleria:
+                // «0,5×» e «1,25×» hanno lunghezze diverse, e a larghezza naturale
+                // la fila esce sfrangiata e si porta dietro il bordo di colonna su
+                // cui è appoggiato il cursore del volume qui sotto. È la regola di
+                // casa dei selettori: le voci hanno la stessa larghezza dentro un
+                // controllo e fra controlli vicini.
                 ForEach(Playback.speeds, id: \.self) { rate in
                     PrefButton(title: Playback.speedLabel(rate),
-                               filled: player.rate == rate) { player.rate = rate }
+                               filled: player.rate == rate,
+                               width: Self.larghezzaPastigliaVelocità) { player.rate = rate }
                 }
             }
 
@@ -773,33 +965,157 @@ struct TruthPlayerStrip: View {
         }
     }
 
-    /// **Il volume oltre l'originale: quattro pastiglie e basta** (sua parola,
-    /// 2026-08-17 pomeriggio: «togli lo 0%, togli anche la barra con i più e
-    /// meno — teniamo semplicemente volume audio +25% +50 +75 +100»). Lo slider
-    /// e il numero in dB del mattino sono stati tolti su quella riga; la
-    /// matematica sotto (`Guadagno.quote`, con lo zero dentro) non si muove,
-    /// perché sonda e test misurano le quote, non i bottoni.
+    /// **Il volume oltre l'originale: un cursore, non più quattro pastiglie**
+    /// (sua richiesta del 2026-08-18: «i pulsanti là occupano un sacco di spazio,
+    /// mettiamo solamente la barra che si muove»).
     ///
-    /// Le pastiglie leggono `player.quotaAccesa`: un solo stato, come prima.
-    /// Il ritorno al suono nudo, senza la pastiglia 0%, è il ri-clic su quella
-    /// accesa — la pastiglia si comporta da interruttore, non da radio a cui
-    /// manca una stazione.
+    /// Le pastiglie `+25/50/75/100` sono diventate le tacchette della barra, che
+    /// restano cliccabili: non si è perso niente e si è guadagnato lo spazio.
+    /// Sparisce anche il problema che aveva sollevato il giorno prima — non
+    /// c'era modo di tornare al volume base se non ricliccando la pastiglia
+    /// accesa, un gesto che nessuno vede — perché ora il volume base è
+    /// semplicemente l'estremo sinistro della barra.
+    ///
+    /// **La casella del valore è in sola lettura, e la storia della decisione
+    /// vale più della decisione.** Lui l'aveva chiesta editabile il 17; il 18,
+    /// dopo aver scartato il magnete perché «non è un lavoro di fino, devo
+    /// semplicemente essere in grado di sentirlo», ha applicato la stessa logica
+    /// al campo e l'ha tolto: digitare un numero è un gesto preciso per un
+    /// bisogno dichiarato impreciso. Larghezza fissa e cifre monospaziate, perché
+    /// un numero che cambia larghezza fa ballare quello che ha accanto.
     private var volume: some View {
+        // **Incolonnata sulla riga di sopra, non allineata a sinistra**, ed è la
+        // sua richiesta del 18/08: «Volume audio» esattamente sotto il tempo, e la
+        // barra lunga quanto la fila delle velocità. Lo `Spacer` in testa spinge
+        // il gruppo a destra finché le due colonne coincidono, e i due ingombri
+        // sono costanti condivise: le righe non possono scollarsi.
+        //
+        // La barra e la lettura insieme stanno nell'ingombro delle velocità,
+        // quindi il bordo destro è lo stesso per entrambe le file — la regola di
+        // casa per cui tutti i comandi di una pagina finiscono sullo stesso bordo.
         HStack(spacing: 12) {
+            Spacer(minLength: 0)
+
             Text(L.t("Volume audio", "Audio volume", "Volume audio"))
                 .font(Theme.font(11.5, .medium))
                 .foregroundStyle(Theme.inkFaded)
                 .lineLimit(1)
-                .fixedSize()
+                .frame(width: Self.larghezzaColonnaTempo, alignment: .leading)
 
-            ForEach(Guadagno.quote.filter { $0 > 0 }, id: \.self) { q in
-                PrefButton(title: "+\(q)%", filled: player.quotaAccesa == q) {
-                    let già = player.quotaAccesa == q
-                    player.imposta(dB: già ? 0
-                                           : Guadagno.dB(perQuota: q, spazio: player.spazioDB))
-                }
+            GainBar(quota: quotaCorrente, accesa: player.quotaAccesa) { q in
+                player.imposta(dB: Guadagno.dB(perQuota: Int((q * 100).rounded()),
+                                               spazio: player.spazioDB))
             }
+            .frame(width: Self.ingombroVelocità - Self.larghezzaLettura - 12)
+
+            Text("+\(Int((quotaCorrente * 100).rounded()))%")
+                .font(Theme.font(11.5, .medium).monospacedDigit())
+                .foregroundStyle(Theme.inkFaded)
+                .frame(width: Self.larghezzaLettura, alignment: .trailing)
         }
+    }
+
+    /// La casella della percentuale: larghezza fissa perché un numero che cambia
+    /// larghezza fa ballare la barra che ha accanto. Tarata su «+100%».
+    static let larghezzaLettura: CGFloat = 44
+
+    /// Dove sta la manopola, 0…1. Il margine di questo file è il fondo scala: a
+    /// margine zero non c'è niente da spingere e la barra sta a sinistra invece
+    /// di dividere per zero.
+    private var quotaCorrente: Double {
+        guard player.spazioDB > 0 else { return 0 }
+        return Playback.clamp(Double(player.guadagnoDB / player.spazioDB))
+    }
+}
+
+/// **Il cursore del volume**, disegnato sulla forma di `ScrubBar` e non su uno
+/// `Slider`, per la stessa ragione: un controllo di sistema porta il colore e le
+/// proporzioni di qualcun altro dentro una pagina di carta e inchiostro.
+///
+/// Sostituisce le quattro pastiglie `+25/50/75/100` (sua richiesta del
+/// 2026-08-18: «i pulsanti occupano un sacco di spazio»). Quello che le pastiglie
+/// facevano non è andato perso: sono diventate **tacchette cliccabili**.
+///
+/// Tre decisioni prese con lui, e il perché di ognuna:
+///
+/// · **Niente magnete.** Gliel'avevo proposto sul 50 e l'ha scartato: «chi se ne
+///   frega se 47, non è un lavoro di fino, devo semplicemente essere in grado di
+///   sentirlo». Aveva ragione, ed è una lezione di progettazione — magnete e
+///   tacchette servivano a conservare una capacità delle pastiglie (tornare su un
+///   valore tondo) che non era un bisogno, era un effetto collaterale del fatto
+///   che le pastiglie erano discrete.
+/// · **Le tacchette restano, e si cliccano.** Sono scorciatoie, non calamite: ci
+///   clicchi e ci salti, ma non ti afferrano mentre trascini.
+/// · **La percentuale è lineare nei decibel** senza che questo cursore faccia
+///   niente, perché `Guadagno.dB(perQuota:spazio:)` è `spazio × q / 100`: la
+///   manopola a metà barra è davvero il 50%, e non mente mai.
+///
+/// Il fondo scala è lo spazio di QUEL file (`spazioDB`), cioè «più forte
+/// possibile senza rovinarlo», non un numero fisso.
+struct GainBar: View {
+    /// 0…1, dove 1 è tutto il margine disponibile del file.
+    let quota: Double
+    /// La tacchetta su cui si è **esattamente**, o `nil` se si sta in mezzo a due.
+    ///
+    /// Viene da `Guadagno.quota(perDB:spazio:)`, scritta quando le pastiglie erano
+    /// bottoni, con questo commento: *«nil è un'informazione e va disegnata come
+    /// tale: tirando lo slider fra due pastiglie non deve restarne accesa una che
+    /// mente sul valore vero»*. Era una funzione scritta per uno slider mesi prima
+    /// che lo slider esistesse, e qui fa finalmente il mestiere per cui era nata.
+    let accesa: Int?
+    let imposta: (Double) -> Void
+
+    /// Le stesse quote delle pastiglie di ieri (`Guadagno.quote` = 0, 25, 50, 75,
+    /// 100), importate e non ricopiate: il giorno che cambiano, cambiano qui.
+    private var tacche: [Int] { Guadagno.quote }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = max(geo.size.width, 1)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.rule).frame(height: 4)
+
+                // Le tacchette stanno SOTTO il riempimento e la manopola: sono
+                // punti di riferimento, non comandi che competono con lo stato.
+                ForEach(tacche, id: \.self) { q in
+                    Capsule()
+                        .fill(q == accesa ? Theme.pen : Theme.rule)
+                        .frame(width: 2, height: q == accesa ? 12 : 9)
+                        .offset(x: w * (Double(q) / 100) - 1)
+                }
+
+                Capsule().fill(Theme.pen).frame(width: w * Playback.clamp(quota), height: 4)
+                Circle()
+                    .fill(Theme.pen)
+                    .frame(width: 11, height: 11)
+                    .offset(x: w * Playback.clamp(quota) - 5.5)
+            }
+            .frame(height: geo.size.height, alignment: .center)
+            // Tutta la striscia è il bersaglio, manopola compresa: un cerchio da
+            // 11 punti non lo prende nessuno al primo colpo. Stessa regola del
+            // bottone che si clicca tutto e non solo dove c'è scritto.
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { imposta(Playback.clamp($0.location.x / w)) }
+                .onEnded { g in
+                    // **Il clic su una tacchetta ci va esatto; il trascinamento
+                    // non viene mai afferrato.** Sono due gesti diversi e vanno
+                    // distinti qui, non con un magnete: un magnete agirebbe anche
+                    // mentre trascini, ed è precisamente la cosa che rende un
+                    // cursore fastidioso quando vuoi un valore in mezzo.
+                    //
+                    // Un clic è un trascinamento che non si è mosso. Sotto i tre
+                    // punti è la mano ferma, non un'intenzione di spostarsi.
+                    let fermo = abs(g.translation.width) < 3 && abs(g.translation.height) < 3
+                    guard fermo else { return }
+                    let q = Playback.clamp(g.location.x / w) * 100
+                    if let tacca = Guadagno.taccaVicina(a: q, larghezza: w, tacche: tacche) {
+                        imposta(Double(tacca) / 100)
+                    }
+                }
+            )
+        }
+        .frame(height: 18)
     }
 }
 

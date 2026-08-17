@@ -71,6 +71,38 @@ enum DictationIndex {
             }
     }
 
+    /// **Una registrazione sola, già idratata**, per la riga che arriva mentre il
+    /// pannello è aperto.
+    ///
+    /// Esiste per NON rileggere la cartella: un elenco completo costa 9,3 s al
+    /// tetto che questo archivio permette, e la cosa cambiata è una sola ed è
+    /// nota a chi la annuncia. Stessa lettura del nome di `stems`, così una voce
+    /// arrivata a caldo e la stessa voce riletta domani all'apertura non possono
+    /// differire.
+    ///
+    /// `nil` se il nome non è uno stamp dei nostri: la porta d'ingresso è la
+    /// stessa di `stems`, e un file estraneo non entra nella lista da nessuna
+    /// delle due strade.
+    /// Il file deve esistere: fra l'annuncio e questa lettura ci può essere
+    /// passata la potatura del tetto, e una riga che punta a un file sparito è
+    /// peggio di una riga mancante — si può cliccare.
+    /// **L'URL NON viene normalizzato, e chi lo consuma non deve confrontarlo per
+    /// uguaglianza.** `contentsOfDirectory` restituisce percorsi risolti
+    /// (`/private/var/…`), un URL costruito per composizione no (`/var/…`): stesso
+    /// file, due stringhe diverse. `resolvingSymlinksInPath()` sembra la
+    /// riparazione e non lo è — provato: non risolve niente se il file non esiste
+    /// ancora, quindi darebbe un falso senso di sicurezza. L'identità in questo
+    /// archivio è il **nome**, che porta il momento in cui la registrazione è
+    /// cominciata ed è già l'ordinamento di `stems`. Il doppione che nasceva dal
+    /// confronto fra URL l'ha trovato un test, non un ragionamento.
+    static func entry(for wav: URL) -> DictationEntry? {
+        guard wav.pathExtension == "wav",
+              FileManager.default.fileExists(atPath: wav.path),
+              let started = date(fromStem: wav.deletingPathExtension().lastPathComponent)
+        else { return nil }
+        return DictationEntry(wav: wav, started: started, details: details(of: wav))
+    }
+
     /// `20260815-151553` → the moment it started. A file whose name is not a
     /// stamp is not one of ours and does not belong in the list.
     ///
@@ -207,6 +239,58 @@ enum DictationIndex {
         guard let i = visibili.firstIndex(where: { $0.wav == wav }) else { return nil }
         if let p = prossima(dopo: wav, in: visibili) { return p }
         return i > 0 ? visibili[i - 1].wav : nil
+    }
+
+    // MARK: buttarne tante in una volta
+
+    /// **L'elenco senza un intero lotto, in una passata sola.**
+    ///
+    /// Nata dal blocco totale del 2026-08-18: «Elimina vuote» piantava l'app al
+    /// punto che non rispondeva più nemmeno alla richiesta di terminare del
+    /// sistema. Non era una riga lenta, era la forma — un ciclo che per OGNI riga
+    /// da buttare ricalcolava l'elenco visibile e cercava la riga successiva,
+    /// cioè O(B×N), e ridisegnava l'elenco B volte senza mai restituire il main
+    /// thread al ciclo degli eventi.
+    ///
+    /// Qui l'insieme dei condannati si costruisce una volta e si scorre l'elenco
+    /// una volta: O(N). Misurato su 2000 righe con 1000 vuote, la forma vecchia
+    /// contro questa sta **oltre venti volte sopra** (`BulkDiscardTests`, che
+    /// tiene la forma vecchia come polo negativo apposta).
+    ///
+    /// L'ordine sopravvive perché si filtra, non si ricostruisce.
+    static func senza(_ lotto: [DictationEntry], in entries: [DictationEntry]) -> [DictationEntry] {
+        guard !lotto.isEmpty else { return entries }
+        let condannati = Set(lotto.map(\.wav.lastPathComponent))
+        return entries.filter { !condannati.contains($0.wav.lastPathComponent) }
+    }
+
+    /// Dove va la selezione dopo che un intero lotto è sparito.
+    ///
+    /// Calcolata **una volta sola** per tutta l'operazione, che è l'altra metà
+    /// della riparazione: la forma vecchia la ricalcolava a ogni giro, e a ogni
+    /// giro la spostava su una riga che il giro dopo avrebbe buttato.
+    ///
+    /// Se la riga selezionata sopravvive al lotto, non si muove: spostare una
+    /// selezione che non aveva motivo di spostarsi è un modo di rubare il posto a
+    /// chi sta leggendo.
+    static func dopoIlLotto(_ lotto: [DictationEntry], partendoDa corrente: URL?,
+                            in entries: [DictationEntry]) -> URL? {
+        let rimaste = senza(lotto, in: entries)
+        guard let corrente else { return rimaste.first?.wav }
+        if rimaste.contains(where: { $0.wav.lastPathComponent == corrente.lastPathComponent }) {
+            return corrente
+        }
+        // La prima sopravvissuta DOPO quella che sparisce, altrimenti l'ultima
+        // prima di lei: la stessa regola di `dopoLEliminazione`, applicata al
+        // lotto invece che a una riga.
+        guard let i = entries.firstIndex(where: { $0.wav.lastPathComponent == corrente.lastPathComponent })
+        else { return rimaste.first?.wav }
+        let condannati = Set(lotto.map(\.wav.lastPathComponent))
+        if let dopo = entries[entries.index(after: i)...]
+            .first(where: { !condannati.contains($0.wav.lastPathComponent) }) {
+            return dopo.wav
+        }
+        return entries[..<i].last { !condannati.contains($0.wav.lastPathComponent) }?.wav
     }
 
     // MARK: le righe vuote, e chi può buttarle
