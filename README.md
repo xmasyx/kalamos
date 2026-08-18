@@ -13,8 +13,7 @@
 </p>
 
 Hold a key, speak, release. Punctuated, cleaned-up text lands at your cursor, in
-whatever app you are using. Both models, the one that hears you and the one that
-tidies what you said, run on your Mac.
+whatever app you are using. Every model it uses runs on your Mac.
 
 ```
 you say:  the meeting is on tuesday at ten no wait wednesday at ten thirty in the big room
@@ -63,6 +62,56 @@ else: a dropped condition, a missing "not", a rounded number. Those get refused
 rather than typed. No other dictation app does this, and it is the reason this one
 exists — [the whole argument, with the failure cases](docs/why.md).
 
+**Punctuation lands in 28 milliseconds, 118× faster than the language model it
+replaced, and it is the most accurate of every path measured.** F1 against 40
+sentences punctuated by hand from a style guide, with the time each path adds to a
+dictation:
+
+| Punctuating with | Added time | `.` | `,` | `?` |
+|---|---|---|---|---|
+| Rules alone | 0 ms | 48.3 | 0.0 | 0.0 |
+| A 7B language model | 3,300 ms<br>0.96 – 9.36 s | 72.6 | 53.8 | 50.0 |
+| Whisper's own marks | 0 ms | 72.6 | 62.3 | 88.5 |
+| **Kalamos today** | **28 ms**<br>never past 70 | **85.9**<br>**+18%** | **78.4**<br>**+26%** | **91.2**<br>**+3%** |
+
+The percentages are against **Whisper's own marks**, not against the language
+model, because the free option was never worse than the 7B on any mark and far
+better on commas and question marks. Improving on it costs 28 ms.
+
+**The second column is the one to read twice.** The language model's cost grew with
+the sentence: on the bench corpus it ran from 0.96 s on a short one to **9.36 s** on
+a long one, so the longer the thought you had just spoken, the longer you sat there.
+The classifier does not care — it stayed between 6 and 70 ms across the same corpus.
+A human starts noticing a delay at around 100 ms, so the punctuated text is simply
+*there* when you release the key, whether you said four words or eighty. Across
+twenty dictations a day, the old path spent **66 seconds** waiting. This one spends
+**0.6**.
+
+**And punctuation is only half of it.** Whisper transcribes what you said, faithfully
+— which means it keeps every *sort of*, *like*, *I mean*, *and so on*. Measured over
+**386 real Italian dictations** from one Mac's archive, comparing Whisper's raw
+output to what Kalamos typed: **180 were changed**, 67 filler words were cut, and
+the delivered text came out **0.3% shorter** while gaining all its punctuation.
+Spoken self-corrections are resolved by rule at **87.6%** recall with **zero**
+legitimate words removed — the 7B model managed 70.1%, and to get there it deleted
+64 words you had actually said and invented 44 you had not.
+
+**Long dictations keep their words.** Speaking for two minutes without stopping used
+to cost you the odd word, in two different ways, both now fixed and both measured on
+a 120-recording archive: a last word said quietly was shaved off with the trailing
+silence (**46 words lost, now 8**), and a rare re-decode could drop a stretch in the
+middle (**47 words out of 90 on one pass in eight, now zero in 24**). Say the whole
+paragraph.
+
+**It also gave you 4 GB of memory back.** Dictating used to hold Whisper *and* a 4 GB
+language model resident, about 5.5 GB of weights. Today dictation loads Whisper
+alone: **1.5 GB**, measured as Activity Monitor measures it. Both speech engines cost
+the same, 1.5 GB of weights each, so this is not a WhisperKit-versus-whisper.cpp
+saving — it is the 7B not being there. The language model is
+still there for the two jobs only it can do, rewriting a selection and translating as
+you dictate, and it is loaded when you ask for those and not before. [How the 28 ms path is put together,
+and the two alternatives measured and thrown away](docs/engines-and-models.md).
+
 **It resolves what you take back mid-sentence.** *"We should ship on Friday, I mean
 Monday, because Friday is a public holiday"* becomes **"We should ship on Monday
 because Friday is a public holiday."** The wrong day goes, the reason for it
@@ -81,6 +130,12 @@ menu bar lists them with their keys.
 **It rewrites text you already have.** Select any text, hold the edit key, say how
 to change it, and it is rewritten in place. **It translates on device**: dictate in
 Italian and get English at the cursor, same model, nothing leaves the Mac.
+
+**Nothing is lost, and you can go back and listen.** ⌃⌥V opens every dictation you
+have made, with search and filters, the audio next to the text, and playback at
+0.5/1/1.25/1.5× with volume past the original when you spoke too quietly. Correcting
+a line there is not cosmetic: the correction feeds the words it learns from, so the
+next transcription is better for having been wrong once.
 
 **And it fits the Mac you own.** First run reads the chip, the memory, the cores
 and the free disk, then proposes the models that fit and shows you the figure that
