@@ -40,28 +40,16 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers.git", exact: "1.0.0"),
     ],
     targets: [
-        // whisper.cpp — il terzo motore (2026-08-05), come XCFramework già
-        // compilato preso dalla loro release. Non è una dipendenza sorgente
-        // perché whisper.cpp non pubblica un `Package.swift`, e NON è il binario
-        // `whisper-cli`: un'app che lancia un eseguibile esterno deve spedirlo,
-        // firmarlo e tenerlo su un percorso, mentre l'API C sta qui dentro.
-        //
-        // Il checksum è ciò che trasforma una URL in una dipendenza invece che in
-        // uno scaricamento. Si ricalcola con `swift package compute-checksum`
-        // quando il tag si muove.
-        //
-        // Licenza MIT, letta dal loro repo il 2026-08-05, quindi può stare dentro
-        // un'app a sua volta pubblica.
-        .binaryTarget(
-            name: "whisper",
-            url: "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-v1.9.2-xcframework.zip",
-            checksum: "af74fed13ea7f2d5ca2a39d9f58ec177713fafd7cab63aef4e27b79f3ceca80b"
-        ),
+        // Qui stava il `binaryTarget` di whisper.cpp, tolto il 2026-08-19 insieme
+        // al motore: era un XCFramework di terzi scaricato in fase di build dentro
+        // un'app pubblica che promette di essere tutta locale e verificabile, e il
+        // confronto sulle dettature vere non gli aveva trovato nessun vantaggio.
+        // Per rimetterlo: `git log -- Package.swift`, e il checksum si ricalcola con
+        // `swift package compute-checksum`.
         .executableTarget(
             name: "Kalamos",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
-                "whisper",
                 // ── Phase 2 ──
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),

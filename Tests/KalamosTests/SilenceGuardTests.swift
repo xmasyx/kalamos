@@ -158,6 +158,31 @@ import Testing
                 "l'ultima parola detta piano è stata tagliata via")
     }
 
+    /// **Il polo che diventa rosso se qualcuno rimette il pavimento assoluto.**
+    ///
+    /// Numeri presi dal caso vero `20260818-022802` (18/08, 02:28), non inventati:
+    /// registrazione detta piano, picco RMS **0,0148**, e la coda parlata fra
+    /// **0,0025 e 0,0031**, cioè tutta sotto `AudioRecorder.speechFloor` (0,004).
+    /// Finché il pavimento era un termine della soglia, la soglia usciva 0,0040 su
+    /// quel file e l'ultima parola spariva: consegnava «come l'hai fatto» invece di
+    /// «come l'hai fatta adesso». Tolto il pavimento, la soglia scende a
+    /// picco × 0,15 = 0,0022 e la parola resta.
+    ///
+    /// Un seno di ampiezza A ha RMS A/√2, quindi le ampiezze qui sotto sono i
+    /// valori misurati moltiplicati per √2.
+    @Test func unaRegistrazioneDettaPianoTieneLaSuaUltimaParola() {
+        let forte = tone(seconds: 1.0, amplitude: 0.0209)    // RMS ≈ 0,0148, il picco vero
+        let pausa = [Float](repeating: 0, count: Self.rate / 4)
+        let piano = tone(seconds: 0.4, amplitude: 0.0040)    // RMS ≈ 0,0028, sotto speechFloor
+        let quiete = [Float](repeating: 0, count: Self.rate / 2)
+        let parlato = forte.count + pausa.count + piano.count
+        let out = WhisperKitTranscriber.trimSilence(forte + pausa + piano + quiete)
+        #expect(out.count >= parlato,
+                "ultima parola tagliata: tenuti \(out.count) campioni su \(parlato) di parlato")
+        #expect(out.count < forte.count + pausa.count + piano.count + quiete.count,
+                "la quiete finale non è stata tolta: il taglio non ha fatto niente")
+    }
+
     /// La forma del difetto vero, in laboratorio: 4 secondi di registrazione, il
     /// parlato finisce a 3,6 s, il resto è fruscio.
     ///

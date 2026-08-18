@@ -50,13 +50,11 @@ import Testing
         // is for. Anything else that joins this list has to justify itself the
         // same way.
         //
-        // `WhisperCppTranscriber.swift` joined on 2026-08-05 and the guard fired
-        // again, on cue: it pulls 1,62 GB of GGML weights on first use, over a
-        // real URLSession transfer with real progress. It belongs here for the
-        // same reason Parakeet does, and for no other.
+        // `WhisperCppTranscriber.swift` è stato in questa lista dal 2026-08-05 al
+        // 2026-08-19, quando il motore è uscito: scaricava 1,62 GB di pesi GGML al
+        // primo uso, ed era qui per la stessa ragione di Parakeet.
         let allowed: Set<String> = [
             "MLXEngine.swift", "WhisperKitTranscriber.swift", "ParakeetTranscriber.swift",
-            "WhisperCppTranscriber.swift",
         ]
         var producers: Set<String> = []
         for file in try Self.swiftFiles() where file.text.contains("report(.downloading") {
@@ -326,7 +324,8 @@ import Testing
     /// Questa è una guardia di sorgente e non un test di comportamento, perché
     /// il comportamento vero pretende un modello da 1,6 GB e audio: quello è
     /// misurato al banco (`03-Plans/kalamos-whispercpp/REFERTO-20260808.md`,
-    /// dove il vocabolario porta `Kalamos` da 0/5 a 5/5 su entrambi i motori).
+    /// dove il vocabolario porta `Kalamos` da 0/5 a 5/5). Il banco nominava due
+    /// motori; dal 2026-08-19 ne resta uno, e la guardia vale su quello.
     /// Quello che una guardia può fare è impedire che il collegamento sparisca
     /// in silenzio: senza di lei nessun test diventerebbe rosso togliendolo, e
     /// l'unica traccia sarebbe una parola che ricomincia a uscire sbagliata.
@@ -334,9 +333,9 @@ import Testing
     /// Le tre cose che devono restare vere insieme, perché una sola non basta:
     /// il motore accetta la lista, sceglie i termini con `VocabularyPrompt`
     /// invece di riversarla tutta, e sa buttare via il secondo giro.
-    @Test func whisperKitUsesTheVocabularyLikeWhisperCpp() throws {
+    @Test func whisperKitUsesTheVocabulary() throws {
         let files = try Self.swiftFiles()
-        for engine in ["WhisperKitTranscriber.swift", "WhisperCppTranscriber.swift"] {
+        for engine in ["WhisperKitTranscriber.swift"] {
             guard let f = files.first(where: { $0.name == engine }) else { throw Failure.noSources }
             #expect(f.text.contains("func setVocabulary"),
                     "\(engine) non accetta più il vocabolario")

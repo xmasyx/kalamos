@@ -218,11 +218,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
             let whisper: WhisperKitTranscriber? = engine == .whisper
                 ? WhisperKitTranscriber(modelName: modello)
                 : nil
-            let cpp: WhisperCppTranscriber? = engine == .whispercpp
-                ? WhisperCppTranscriber()
-                : nil
             whisper?.initialPrompt = promptText
-            cpp?.initialPrompt = promptText
             // `--senza-copertura` spegne la riparazione ISC-174 per la durata di
             // questo banco. Serve a misurare il TAGLIO da solo: con le forbici
             // accese quella riparazione si riaccende dentro ogni pezzo, e i due
@@ -244,7 +240,6 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                             $0.trimmingCharacters(in: .whitespaces) }
                         : nil
                 } ?? Vocabulary.terms
-                cpp?.setVocabulary(voci)
                 // Dal 2026-08-08 anche WhisperKit ha questo canale, quindi il
                 // banco deve poterlo esercitare: senza questa riga il confronto
                 // fra i due motori misurerebbe uno col vocabolario e uno senza.
@@ -260,7 +255,6 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
             let transcriber: Transcriber
             switch engine {
             case .whisper: transcriber = whisper!
-            case .whispercpp: transcriber = cpp!
             case .parakeet: transcriber = ParakeetTranscriber()
             }
             FileHandle.standardError.write(Data(
@@ -290,6 +284,10 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                         forced: forced)
                     let seconds = Date().timeIntervalSince(t0)
                     let empties = whisper?.takeEmptyBeforeRecovery() ?? 0
+                    // Quale anello ha salvato la dettatura: senza questa riga il
+                    // banco vede «non è più vuota» e non sa se merito del ricarico
+                    // del modello (ISC-108) o della ridecodifica senza taglio.
+                    let senzaTaglio = whisper?.takeRecoveredWithoutTrim() ?? 0
                     rows.append(EngineRow(clip: clip.name, engine: engine.rawValue, pass: pass,
                                           text: out.text, seconds: seconds,
                                           language: out.detectedLanguage?.rawValue,
@@ -297,14 +295,13 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-engine") {
                                           vuotaPrimaDelRecupero: empties > 0,
                                           lingua: forced?.rawValue ?? "auto",
                                           prompt: promptText != nil))
-                    print(String(format: "[p%d %@] %.3fs lang=%@%@ %@", pass, clip.name, seconds,
+                    print(String(format: "[p%d %@] %.3fs lang=%@%@%@ %@", pass, clip.name, seconds,
                                  out.detectedLanguage?.rawValue ?? "?",
                                  empties > 0 ? " VUOTA-PRIMA-DEL-RECUPERO" : "",
+                                 senzaTaglio > 0 ? " RECUPERATA-SENZA-TAGLIO" : "",
                                  out.text.isEmpty ? "*** VUOTA ***" : out.text))
                 }
             }
-            // Prima di qualunque uscita: vedi `WhisperCppTranscriber.shutdown()`.
-            cpp?.shutdown()
             if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

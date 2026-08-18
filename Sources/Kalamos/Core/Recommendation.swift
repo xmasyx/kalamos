@@ -50,7 +50,6 @@ extension Recommendation {
     /// I pesi GGML, presi dalla costante che il motore usa già per verificare che lo scaricamento
     /// sia arrivato intero. Riscriverla qui a mano sarebbe stato un numero che invecchia da solo il
     /// giorno che il modello cambia.
-    static let whispercppBytes = UInt64(WhisperCppTranscriber.modelBytes)
     static let cleanup7BBytes: UInt64 = 4_300_000_000
     static let cleanup3BBytes: UInt64 = 1_800_000_000
 
@@ -114,7 +113,6 @@ extension Recommendation {
             let engineBytes: UInt64
             switch engine {
             case .whisper:    engineBytes = whisperBytes
-            case .whispercpp: engineBytes = whispercppBytes
             case .parakeet:   engineBytes = parakeetBytes
             }
 

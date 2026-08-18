@@ -298,9 +298,23 @@ final class AppState: ObservableObject {
         // — l'oscillazione scende a Δ2 e Δ0, perché il prefill del secondo giro fa da ancoraggio.
         //
         // Chi ha già scelto un motore non viene toccato: questo vale per chi non ha scelto niente.
-        // Referto: `03-Plans/kalamos-whispercpp/REFERTO-LUNGO-20260808.md`.
-        speechEngine = SpeechEngine(rawValue: defaults.string(forKey: "speechEngine") ?? "")
-            ?? .whisper
+        // Referto: `03-Plans/kalamos-whispercpp/REFERTO-LUNGO-20260808.md`
+        // (banco storico: quel motore è stato tolto il 2026-08-19).
+        // **Chi aveva scelto whisper.cpp atterra su Whisper, e la riga lo DICE**
+        // (2026-08-19). Il ripiego copriva già il caso, ma in silenzio: un motore
+        // che sparisce dalle impostazioni senza una parola è il guasto che l'utente
+        // scopre chiedendosi perché il menu è cambiato. Non è una perdita di
+        // qualità, i due portavano le stesse weights large-v3-turbo, ed è per
+        // questo che si migra invece di chiedere.
+        let motoreSalvato = defaults.string(forKey: "speechEngine") ?? ""
+        if !motoreSalvato.isEmpty, SpeechEngine(rawValue: motoreSalvato) == nil {
+            Log.write("motore «\(motoreSalvato)» non esiste più — passo a Whisper, stesse weights")
+            // Riscritto sul disco, così la migrazione avviene UNA volta e non a
+            // ogni avvio: un ripiego che si ripete per sempre è una chiave morta
+            // che nessuno toglie mai.
+            defaults.set(SpeechEngine.whisper.rawValue, forKey: "speechEngine")
+        }
+        speechEngine = SpeechEngine(rawValue: motoreSalvato) ?? .whisper
         whisperModel = defaults.string(forKey: "whisperModel") ?? "openai_whisper-large-v3-v20240930_turbo"
         cleanupPromptOverride = defaults.string(forKey: "cleanupPromptOverride")
 

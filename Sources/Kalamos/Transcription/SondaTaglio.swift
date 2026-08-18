@@ -11,10 +11,11 @@ import Foundation
 // banco ha la risposta esatta invece di un giudizio.
 //
 // **Perché una sonda e non una lettura del codice.** Il difetto è in un NUMERO,
-// non in un ramo: la soglia nasce da quattro termini in competizione — pavimento,
-// frazione del picco, tetto preso in prestito, tetto sulla mediana — e quale
-// comandi dipende dalla registrazione. Dal sorgente si vedono quattro candidati
-// ugualmente plausibili; misurando si vede quale ha tagliato, e su quanti file.
+// non in un ramo: la soglia nasce da tre termini in competizione — frazione del
+// picco, tetto proprio del taglio, tetto sulla mediana — e quale comandi dipende
+// dalla registrazione. (Erano quattro: il pavimento assoluto è uscito il
+// 2026-08-18, vedi `trimSoglia`.) Dal sorgente si vedono candidati ugualmente
+// plausibili; misurando si vede quale ha tagliato, e su quanti file.
 // La colonna «termine» del referto esiste per questo.
 //
 // **E la risposta è stata: nessuno dei quattro.** Sul file delle 00:29:45 la
@@ -106,9 +107,13 @@ enum SondaTaglio {
         // Il tetto qui è quello che trimSoglia ha DAVVERO usato, manopola compresa:
         // una sonda che nomina un termine diverso da quello vivo mente sul referto.
         let tetto = WhisperKitTranscriber.probeTrimTetto ?? WhisperKitTranscriber.trimTetto
-        if soglia <= AudioRecorder.speechFloor { termine = "pavimento speechFloor" }
-        else if mediana > 0, tettoMediana < min(relativa, tetto) { termine = "tetto mediana" }
-        else if relativa >= tetto { termine = "tetto trimTetto" }
+        // Il pavimento NON è più un termine della soglia primaria (2026-08-18), e
+        // il ramo che lo nominava è stato tolto: rispondeva a «la soglia è bassa?»
+        // invece che a «chi ha vinto», quindi appena la riparazione ha abbassato le
+        // soglie stampava «pavimento speechFloor» accanto a 0,0027 — un termine che
+        // non partecipava più. I tre rami qui sotto esauriscono il `min` vero.
+        if mediana > 0, tettoMediana <= min(relativa, tetto) { termine = "tetto mediana" }
+        else if tetto <= relativa { termine = "tetto trimTetto" }
         else { termine = "relativa al picco" }
 
         let dopo = WhisperKitTranscriber.trimSilence(s)

@@ -94,6 +94,16 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
         emptyBox.withLock { n in let v = n; n = 0; return v }
     }
 
+    /// Quante volte l'ultimo anello — ridecodifica SENZA il taglio di coda — ha
+    /// riportato indietro del testo. Contato per lo stesso motivo di `emptyBox`:
+    /// una rete che scatta e non lascia traccia contabile è indistinguibile da una
+    /// che non è mai servita, e il banco non può misurarla dal registro.
+    private let senzaTaglioBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    /// Recuperi senza taglio dall'ultima chiamata, e azzera il contatore.
+    func takeRecoveredWithoutTrim() -> Int {
+        senzaTaglioBox.withLock { n in let v = n; n = 0; return v }
+    }
+
     init(modelName: String) { self.nameBox = OSAllocatedUnfairLock(initialState: modelName) }
 
     /// Switch the speech model. Unloads the current pipeline; the new variant
@@ -442,6 +452,44 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
                 text = Self.stripHallucinations(raw)
                 Log.write(raw.isEmpty ? "still empty after reloading — giving up"
                                       : "recovered after reloading: \"\(text)\"")
+            }
+        }
+
+        // **L'ultimo anello: se è ancora vuota, si ridecodifica SENZA il taglio di
+        // coda** (2026-08-18, sua parola «costruisci la rete»).
+        //
+        // Il caso che l'ha aperta: `20260818-020906`, 5,59 s di cui ne restano 2,20
+        // dopo il taglio, esce **vuota 2 volte su 3** — e l'audio intero dà il testo
+        // giusto 3 volte su 3. Non è una soglia sbagliata: è un dirupo del decoder
+        // sulle clip cortissime, l'unica dei 120 file dell'archivio che resti sotto
+        // i 5 secondi.
+        //
+        // Perché è l'ULTIMO anello e non il primo: l'audio intero è esattamente ciò
+        // che il taglio esiste per evitare, perché Whisper inventa «grazie» sulla
+        // quiete in coda. Quindi si prova solo quando l'alternativa è consegnargli
+        // niente, che è il peggiore degli esiti — lui ha parlato e non riceve nulla.
+        // La difesa contro l'invenzione è già in casa: il risultato passa da
+        // `stripHallucinations` come ogni altro, e se esce vuoto anche di là non si
+        // è perso niente.
+        //
+        // La condizione sul taglio non è cosmetica: se il taglio non aveva tolto
+        // nulla, `grezzi` E `samples` sono lo stesso audio e la ridecodifica sarebbe
+        // la stessa domanda fatta due volte — cioè il difetto che ISC-108 ha già
+        // pagato una volta.
+        if raw.isEmpty, samples.count != grezzi.count,
+           let pipe = pipeBox.withLock({ $0 }) {
+            Log.write("ancora vuota — ridecodifico senza il taglio di coda")
+            let intero = try await decodeCovering(
+                grezzi, options: options, pipe: pipe, allowed: allowedLanguages)
+            let testoIntero = Self.stripHallucinations(intero.raw)
+            if !testoIntero.isEmpty {
+                senzaTaglioBox.withLock { $0 += 1 }
+                decoded = intero
+                raw = intero.raw
+                text = testoIntero
+                Log.write("recuperata senza taglio: \"\(text)\"")
+            } else {
+                Log.write("vuota anche senza taglio — non c'era niente da recuperare")
             }
         }
 
@@ -810,7 +858,8 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// Drop near-silent TRAILING samples (keeps a small pad). The head is left
     /// exactly where the recorder put it, and that is deliberate.
     //
-    // `internal`, not `private`, since 2026-08-05: `WhisperCppTranscriber` calls it.
+    // `internal`, not `private`: `SegmentedDecode`, `SondaTaglio`, `ParakeetTranscriber`
+    // and `DictationController` call it. (`WhisperCppTranscriber` did too, until 2026-08-19.)
     // Copying the body into the new engine would have been the worse move — the
     // trim and the silence gate are the two places where this project has
     // already been wrong twice, and two copies drift apart without a test noticing.
@@ -1038,24 +1087,44 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// contenuto, non di soglia.
     static let trimTetto: Float = 0.006
 
-    /// La soglia, dai tre termini che la governano.
+    /// La soglia, dai termini che la governano.
     ///
-    /// · pavimento `speechFloor` — sotto, niente è parlato per definizione dell'app;
     /// · frazione del picco — la taratura sulla registrazione stessa;
-    /// · tetto sulla mediana — il vincolo «mai sopra il parlato tipico».
+    /// · tetto sulla mediana — il vincolo «mai sopra il parlato tipico»;
+    /// · tetto assoluto `trimTetto` — il limite proprio del taglio.
     ///
     /// La mediana arriva da fuori invece di essere ricalcolata qui: chi chiama ha
     /// già il profilo d'energia in mano, e rifarlo sarebbe la funzione che riscrive
     /// la misura che deve usare.
+    ///
+    /// **Il pavimento `speechFloor` NON è più fra i termini (2026-08-18).** Era il
+    /// gemello del prestito tolto ieri dal tetto: `AudioRecorder.speechFloor` è la
+    /// soglia con cui il registratore decide dal vivo se c'è voce, non una
+    /// proprietà di questo taglio, ed essendo ASSOLUTA (0,004) strozzava proprio le
+    /// registrazioni dette piano. Misurato sull'archivio: comandava la soglia su
+    /// **75 file su 120**. Il caso che l'ha aperta è `20260818-022802` — picco
+    /// 0,0148, coda parlata fra 0,0012 e 0,0025, cioè tutta sotto il pavimento:
+    /// consegnava «come l'hai fatto» invece di «come l'hai fatta adesso».
+    ///
+    /// Il pavimento sopravvive dove ha senso, cioè nel RIPIEGO qui sotto: là serve
+    /// a non consegnare intera una registrazione di sola quiete, che è il caso in
+    /// cui il decoder inventa «grazie».
+    ///
+    /// Perché questo taglia solo dove deve: sui file governati dal tetto il
+    /// pavimento non partecipava già prima, quindi restano identici per
+    /// costruzione — `20260816-145026`, il fruscio che perde «Vedo di là» se non lo
+    /// si taglia, ha soglia 0,006 dal tetto ed è fuori da questa modifica. Il
+    /// rimedio scartato è il cuscino globale: 0,30 s riportava «adesso» ma su
+    /// `145026` faceva sparire il taglio (0,15 s in tutto) e con esso la frase,
+    /// 0 volte su 3.
     static func trimSoglia(_ picco: Float, mediana: Float = 0) -> Float {
         let tetto = probeTrimTetto ?? trimTetto
-        let base = max(AudioRecorder.speechFloor, picco * trimFraction)
+        let base = picco * trimFraction
         // Mediana zero significa «non misurata», non «zero». Un valore mancante non
         // deve poter passare per un valore: senza, si ricade sul comportamento di
         // prima invece di far finta che il vincolo ci sia.
         guard mediana > 0 else { return min(tetto, base) }
-        return max(AudioRecorder.speechFloor,
-                   min(tetto, base, mediana * trimQuotaMediana))
+        return min(tetto, base, mediana * trimQuotaMediana)
     }
 
     /// La mediana delle finestre che portano parlato, cioè quelle sopra il
@@ -1070,7 +1139,8 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     /// Drop near-silent TRAILING samples (keeps a small pad). The head is left
     /// exactly where the recorder put it, and that is deliberate.
     //
-    // `internal`, not `private`, since 2026-08-05: `WhisperCppTranscriber` calls it.
+    // `internal`, not `private`: `SegmentedDecode`, `SondaTaglio`, `ParakeetTranscriber`
+    // and `DictationController` call it. (`WhisperCppTranscriber` did too, until 2026-08-19.)
     // Copying the body into the new engine would have been the worse move — the
     // trim and the silence gate are the two places where this project has
     // already been wrong twice, and two copies drift apart without a test noticing.
@@ -1213,6 +1283,13 @@ final class WhisperKitTranscriber: Transcriber, @unchecked Sendable {
     ]
 
     /// Strip a trailing standalone hallucination phrase (e.g. "… 3. Grazie.").
+    ///
+    /// Tornata `private` il 2026-08-19. Era diventata `internal` il giorno prima
+    /// per il motore whisper.cpp, che non filtrava le allucinazioni da nessuna
+    /// parte e la cui rete sull'uscita vuota avrebbe altrimenti trasformato
+    /// «niente» in «grazie»; uscito quel motore, l'unico chiamante è di nuovo
+    /// questo file, e una visibilità larga con la sua ragione scaduta è solo un
+    /// invito ad appoggiarcisi per sbaglio.
     private static func stripHallucinations(_ text: String) -> String {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var changed = true

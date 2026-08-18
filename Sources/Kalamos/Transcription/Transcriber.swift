@@ -31,7 +31,7 @@ protocol Transcriber: Sendable {
     /// guesses — but never as a whole list: see `VocabularyPrompt`, a long prompt
     /// damages the very terms it contains.
     ///
-    /// Two engines answer it, `WhisperCppTranscriber` since 2026-08-05 and
+    /// Two engines answer it,
     /// `WhisperKitTranscriber` since 2026-08-08, when WhisperKit 1.1.0 was
     /// measured to have fixed the defect that made this channel return an empty
     /// transcription 48 times out of 48 (upstream issue #372). Parakeet has no

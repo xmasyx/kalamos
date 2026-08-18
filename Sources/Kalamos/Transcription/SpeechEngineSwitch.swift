@@ -7,24 +7,37 @@ import os
 /// difference is measured, not a matter of taste. Whisper keeps his jargon,
 /// Parakeet is ten times faster and better on ordinary Italian.
 ///
-/// Three since 2026-08-05, and the third is not a third model: `whispercpp`
-/// carries the SAME Whisper large-v3-turbo weights as `whisper`, on a different
-/// machine (C and Metal instead of Core ML). It is here because two things are
-/// only possible there — a vocabulary that reaches the decoder BEFORE it guesses
-/// (WhisperKit returns an empty transcription with its prompt on, 48 times out of
-/// 48, upstream issue #372), and a decode that does not drift on long audio (200
-/// passes, 200 identical texts, against swings of 11 and 31 words on the same
-/// files the same afternoon). Bench: `03-Plans/kalamos-whispercpp/REFERTO.md`.
+/// **Erano tre. `whispercpp` è stato tolto il 2026-08-19, e i numeri che lo
+/// farebbero tornare sono scritti qui perché fra sei mesi l'idea non si
+/// ridiscuta a memoria.**
+///
+/// Portava le STESSE identiche weights large-v3-turbo di `whisper`, su un'altra
+/// macchina (C e Metal invece di Core ML), ed era entrato il 2026-08-05 per due
+/// capacità che WhisperKit non ha: un vocabolario che arriva al decoder PRIMA che
+/// tiri a indovinare (WhisperKit col suo prompt acceso torna vuoto **48 volte su
+/// 48**, issue upstream #372), e un decode che non deriva sull'audio lungo (**200
+/// passate, 200 testi identici**, contro scarti di 11 e 31 parole sugli stessi
+/// file lo stesso pomeriggio).
+///
+/// Perché è uscito lo stesso: il confronto testa a testa sulle 20 dettature VERE
+/// del 2026-08-10 si chiude con «impressione **non confermata**», cioè nessun
+/// vantaggio misurato sul materiale che lui detta davvero; non è mai stato il
+/// motore selezionato; e il suo costo non era il codice ma un **XCFramework
+/// binario di terzi scaricato in fase di build** dentro un'app pubblica che
+/// promette di essere tutta locale e verificabile.
+///
+/// Il giorno che serve davvero il vocabolario-prima-dell'errore, il numero da
+/// battere è quel 48/48: si riapre `git log -- Sources/Kalamos/Transcription/`.
+/// Banchi: `03-Plans/kalamos-whispercpp/REFERTO.md` e il testa a testa in
+/// `MEMORY/WORK/20260810-kalamos-motori-dettature-vere/`.
 enum SpeechEngine: String, CaseIterable, Sendable {
     case whisper
     case parakeet
-    case whispercpp
 
     var title: String {
         switch self {
         case .whisper: return "Whisper"
         case .parakeet: return "Parakeet"
-        case .whispercpp: return "Whisper.cpp"
         }
     }
 
@@ -50,37 +63,13 @@ enum SpeechEngine: String, CaseIterable, Sendable {
     /// 150/150 of his terms. A chip that claims an advantage the measurement has
     /// since erased is worse than a chip that says nothing. Seconds are the
     /// in-app figures with the language forced, which is his configuration.
-    /// Whisper.cpp reads its real size off the disk once the file is there, and
-    /// falls back to the download size before that. Not decoration: this engine
-    /// is the one whose model can sit NEXT TO the Core ML one, so the number the
-    /// user needs is the one that is actually on their disk right now.
     @MainActor var note: String {
         switch self {
         case .whisper: return "1,5 GB"
         case .parakeet: return "461 MB"
-        case .whispercpp:
-            let path = WhisperCppTranscriber.modelPath.path
-            let onDisk = (try? FileManager.default
-                .attributesOfItem(atPath: path)[.size] as? Int64) ?? nil
-            return Self.gb(onDisk ?? WhisperCppTranscriber.modelBytes)
         }
     }
 
-    /// **La lingua dell'app, non quella del Mac.** `ByteCountFormatter` prende il separatore
-    /// decimale dalla lingua di sistema, quindi su un Mac italiano scriveva «1,62 GB» in mezzo a una
-    /// frase inglese. Non è un dettaglio da niente: quella riga sta nella pagina che il primo avvio
-    /// mostra a chiunque installi l'app, e la virgola in inglese si legge come un errore di chi ha
-    /// tradotto a metà.
-    @MainActor
-    private static func gb(_ bytes: Int64) -> String {
-        let nf = NumberFormatter()
-        nf.locale = Locale(identifier: L.t("it_IT", "en_US", "fr_FR"))
-        nf.maximumFractionDigits = 2
-        nf.minimumFractionDigits = 0
-        // Stile file, come faceva `ByteCountFormatter`: mille alla terza, non 1024.
-        let value = Double(bytes) / 1_000_000_000
-        return (nf.string(from: NSNumber(value: value)) ?? "\(value)") + " GB"
-    }
 }
 
 /// Holds both engines and speaks for whichever one is selected.
@@ -97,14 +86,11 @@ final class SpeechEngineSwitch: Transcriber, @unchecked Sendable {
     private let selected: OSAllocatedUnfairLock<SpeechEngine>
     private let whisper: Transcriber
     private let parakeet: Transcriber
-    private let whispercpp: Transcriber
 
-    init(engine: SpeechEngine, whisper: Transcriber, parakeet: Transcriber,
-         whispercpp: Transcriber) {
+    init(engine: SpeechEngine, whisper: Transcriber, parakeet: Transcriber) {
         self.selected = OSAllocatedUnfairLock(initialState: engine)
         self.whisper = whisper
         self.parakeet = parakeet
-        self.whispercpp = whispercpp
     }
 
     var engine: SpeechEngine { selected.withLock { $0 } }
@@ -116,7 +102,6 @@ final class SpeechEngineSwitch: Transcriber, @unchecked Sendable {
         switch selected.withLock({ $0 }) {
         case .whisper: return whisper
         case .parakeet: return parakeet
-        case .whispercpp: return whispercpp
         }
     }
 
@@ -140,9 +125,8 @@ final class SpeechEngineSwitch: Transcriber, @unchecked Sendable {
     /// the setting would show a model nobody had been told about.
     func setModel(_ name: String) async { await whisper.setModel(name) }
 
-    /// Al motore ATTIVO, non a tutti. Dal 2026-08-08 i motori che rispondono
-    /// sono due, whisper.cpp e WhisperKit, e Parakeet resta senza questo canale:
-    /// mandarglielo sarebbe scrivere in un campo che nessuno legge, cioè la
-    /// premessa perfetta per credere un domani che sia acceso quando non lo è.
+    /// Al motore ATTIVO, non a tutti. Il canale lo legge solo WhisperKit —
+    /// Parakeet resta senza — e mandarlo a chi non lo legge sarebbe la premessa
+    /// perfetta per credere un domani che sia acceso quando non lo è.
     func setVocabulary(_ terms: [String]) { active.setVocabulary(terms) }
 }

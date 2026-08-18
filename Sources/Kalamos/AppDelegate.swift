@@ -23,7 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var cancellables = Set<AnyCancellable>()
     /// Tenuto per una ragione sola: liberarlo prima che l'app esca. Vedi
     /// `applicationWillTerminate`.
-    private var whisperCpp: WhisperCppTranscriber?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -31,18 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observeStatus()
         observeLanguage()
 
-        // All three engines from launch, none loaded until used, and one switch
+        // Both engines from launch, neither loaded until used, and one switch
         // between them. `speechSwitch` is kept so Preferences can change the
         // choice without rebuilding the controller.
         let transcriber: Transcriber
         #if canImport(WhisperKit) && canImport(FluidAudio)
-        let cppEngine = WhisperCppTranscriber()
-        whisperCpp = cppEngine
         let bothEngines = SpeechEngineSwitch(
             engine: state.speechEngine,
             whisper: WhisperKitTranscriber(modelName: state.whisperModel),
-            parakeet: ParakeetTranscriber(),
-            whispercpp: cppEngine)
+            parakeet: ParakeetTranscriber())
         speechSwitch = bothEngines
         transcriber = bothEngines
         #elseif canImport(WhisperKit)
@@ -119,14 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// ggml distrugge la sua collezione di Metal residency set nei distruttori
-    /// statici e asserisce che sia vuota (`ggml-metal-device.m:657`). Con il
-    /// contesto whisper.cpp ancora vivo l'asserzione salta e l'app **aborta
-    /// mentre esce**: exit 134, dopo aver funzionato benissimo. Misurato il
-    /// 2026-08-05 sul percorso headless, che è l'unico posto dove si vedeva.
-    func applicationWillTerminate(_ notification: Notification) {
-        whisperCpp?.shutdown()
-    }
+    // `applicationWillTerminate` è stato tolto col motore whisper.cpp
+    // (2026-08-19): esisteva solo per chiudere il contesto ggml prima dei
+    // distruttori statici, che altrimenti facevano abortire l'app in uscita con
+    // exit 134. Senza quel motore non resta niente da spegnere a mano.
 
     // MARK: Main menu (only visible while a window of ours is up)
 
