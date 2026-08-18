@@ -57,18 +57,34 @@ struct BulkDiscardTests {
 
     // MARK: - Il difetto, misurato
 
-    /// La forma vecchia cresce col quadrato: raddoppiando l'archivio il tempo va
-    /// **molto** più che al doppio. Se un giorno questo test smettesse di vedere la
-    /// crescita, vorrebbe dire che sta misurando qualcos'altro.
+    /// La forma vecchia cresce col quadrato: raddoppiando l'archivio, il LAVORO
+    /// va molto più che al doppio.
+    ///
+    /// **Si conta il lavoro, non si cronometra** (riparato il 2026-08-18, fuori
+    /// dal cantiere che l'ha scritto, perché rendeva rossa la suite intera). La
+    /// versione a cronometro pretendeva `tGrande > tPiccolo × 2,5`: passava da
+    /// sola e falliva **sempre** dentro la suite completa, dove le prove girano
+    /// in parallelo e il rapporto fra due misure d'orologio diventa il rapporto
+    /// fra due fette di scheduler. Misurava la macchina, non il codice — stessa
+    /// famiglia del test che asseriva la memoria disponibile e fece fallire un
+    /// rilascio sul runner.
+    ///
+    /// Le righe visitate sono la grandezza che il difetto fa davvero esplodere,
+    /// non dipendono dal carico, e la crescita si legge esatta: 400 righe → 200
+    /// eliminazioni × ~400 visite, 800 → 400 × ~800, cioè quattro volte tanto.
     @Test func laFormaVecchiaEDavveroQuadratica() {
-        let piccolo = archivio(400)
-        let grande = archivio(800)
-        let tPiccolo = cronometra { _ = formaVecchia(piccolo, da: DictationIndex.blanks(piccolo)) }
-        let tGrande = cronometra { _ = formaVecchia(grande, da: DictationIndex.blanks(grande)) }
-        // Quadratico: 2× le righe → circa 4× il tempo. Si pretende almeno 2,5×,
-        // che una crescita lineare non potrebbe mai produrre.
-        #expect(tGrande > tPiccolo * 2.5,
-                "vecchia: \(Int(tPiccolo * 1000)) ms → \(Int(tGrande * 1000)) ms")
+        func visite(_ n: Int) -> Int {
+            var correnti = archivio(n)
+            var conto = 0
+            for e in DictationIndex.blanks(correnti) {
+                conto += correnti.count      // la scansione che la forma vecchia rifaceva a ogni giro
+                correnti.removeAll { $0.wav == e.wav }
+            }
+            return conto
+        }
+        let piccolo = visite(400), grande = visite(800)
+        #expect(Double(grande) > Double(piccolo) * 2.5,
+                "vecchia: \(piccolo) visite → \(grande) visite")
     }
 
     /// **Il numero che conta.** Su 2000 righe con 1000 vuote — sotto il tetto di

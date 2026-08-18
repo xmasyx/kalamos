@@ -5,11 +5,30 @@ import Foundation
 /// capitalization. Multilingual for IT / EN / FR.
 struct RuleBasedFormatter: TextFormatter {
 
-    // Filler words per language (lowercased, word-boundary matched).
+    /// Filler words per language (lowercased, word-boundary matched).
+    ///
+    /// **Only sounds that are never words.** Until 2026-08-18 this list also
+    /// held `cioè`, `tipo`, `insomma`, `praticamente`, `diciamo` — and in
+    /// English `like`, `you know`, `i mean`, `sort of`, `kind of`. They were
+    /// deleted on sight, with no look at what surrounded them, and two real
+    /// dictations came back mutilated the same evening: *«Allora diciamo che il
+    /// 15…»* lost its verb, *«…perché? cioè noi avevamo…»* lost its connective.
+    /// In English the same list eats the verb in "I like this".
+    ///
+    /// This is **exactly** the class the punctuation-word guard below was built
+    /// for, and that guard's comment already stated the general rule: *a guard
+    /// that covers one member of a class is a guard someone has to remember to
+    /// copy*. Nobody had copied it here.
+    ///
+    /// Italian reads from `SpeechRepairs.fillerPuri` instead of keeping a second
+    /// copy: two lists that disagreed are how this happened, and the one that
+    /// had been measured on the real archive lost to the one that had not.
+    /// English and French are trimmed by the same principle but **without
+    /// measurement** — conservative, not tuned, and that is the honest word.
     private static let fillers: [Language: [String]] = [
-        .english: ["um", "uh", "erm", "hmm", "like", "you know", "i mean", "sort of", "kind of"],
-        .italian: ["ehm", "eh", "cioè", "tipo", "insomma", "praticamente", "diciamo"],
-        .french:  ["euh", "bah", "ben", "genre", "tu vois", "enfin", "du coup", "quoi"],
+        .english: ["um", "uh", "erm", "hmm"],
+        .italian: SpeechRepairs.fillerPuri.sorted(),
+        .french:  ["euh"],
     ]
 
     // Spoken commands → literal output. Order matters (longest first).
@@ -117,6 +136,17 @@ struct RuleBasedFormatter: TextFormatter {
         // Don't strip filler / re-capitalize inside code — preserve verbatim.
         if !context.isCodeEditor {
             text = removeFillers(from: text, lang: lang)
+            // **Le riparazioni del parlato girano ANCHE qui, ed è la riparazione
+            // che conta.** Fino al 2026-08-18 `SpeechRepairs.rAgg` era chiamata
+            // solo da `L1Formatter`, cioè solo sul parlato lungo e non
+            // punteggiato. Le sue dettature corte e già punteggiate da Whisper
+            // prendono questa strada, quindi la risoluzione delle
+            // autocorrezioni — «il 15, anzi no il 17» — non veniva **mai
+            // eseguita** su di loro. Tre casi di campo consecutivi lo dicono:
+            // zero autocorrezioni risolte, perché la regola non era in questo
+            // percorso. Solo italiano: i marcatori e le locuzioni sono parole
+            // italiane, e applicarli altrove sarebbe indovinare.
+            if lang == .italian { text = SpeechRepairs.rAgg(text) }
             text = capitalizeSentences(text)
             text = ensureTerminalPunctuation(text)
         }
