@@ -105,9 +105,8 @@ paragraph.
 
 **It also gave you 4 GB of memory back.** Dictating used to hold Whisper *and* a 4 GB
 language model resident, about 5.5 GB of weights. Today dictation loads Whisper
-alone: **1.5 GB**, measured as Activity Monitor measures it. Both speech engines cost
-the same, 1.5 GB of weights each, so this is not a WhisperKit-versus-whisper.cpp
-saving — it is the 7B not being there. The language model is
+alone: **1.5 GB**, measured as Activity Monitor measures it. That saving is the 7B
+not being there, not a change of speech engine. The language model is
 still there for the two jobs only it can do, rewriting a selection and translating as
 you dictate, and it is loaded when you ask for those and not before. [How the 28 ms path is put together,
 and the two alternatives measured and thrown away](docs/engines-and-models.md).
@@ -160,14 +159,14 @@ Three speech engines, switchable in Preferences, all on device.
 
 | Engine | What it runs | Pick it when |
 |---|---|---|
-| **Whisper** (WhisperKit, Core ML) — default | four model sizes from a menu | the default since 1.3.0: it keeps the most words on a long dictation, and it learns your words like the others do |
-| **Whisper.cpp** | large-v3-turbo, 1.62 GB | you want the same audio to give the same text every pass. Worth knowing: on long audio it can drop a whole sentence, always the same one |
+| **Whisper** (WhisperKit, Core ML) — default | four model sizes from a menu | the default: it keeps the most words on a long dictation, and it learns your words before it guesses |
 | **Parakeet** (FluidAudio) | one model, 461 MB | you want the smallest download and the fastest answer |
 
-Both Whisper engines learn your words before they guess; until 1.3.0 only whisper.cpp
-could. Which cleanup model your Mac can hold, why whisper.cpp took the default in
-1.2.0 and lost it a day later, and the measurements behind both:
-[engines and models](docs/engines-and-models.md).
+There was a third, a **whisper.cpp** engine, from 5 to 19 August 2026. It was added
+for two things Core ML could not do then, both were fixed somewhere else, and a
+head-to-head on twenty real dictations found nothing left to prefer. Which cleanup
+model your Mac can hold, and the measurements behind all of it, including what would
+bring that engine back: [engines and models](docs/engines-and-models.md).
 
 ## Documentation
 
@@ -199,8 +198,8 @@ Bug reports and pull requests are welcome. For a cleanup problem, attach the
 
 ## Credits
 
-Built on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and
-[WhisperKit](https://github.com/argmaxinc/WhisperKit) for on-device speech, and
+Built on [WhisperKit](https://github.com/argmaxinc/WhisperKit) and
+[FluidAudio](https://github.com/FluidInference/FluidAudio) for on-device speech, and
 [MLX](https://github.com/ml-explore/mlx-swift-examples) for the on-device language
 model. None of those projects are affiliated with this one.
 

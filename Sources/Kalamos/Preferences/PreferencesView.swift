@@ -56,14 +56,25 @@ struct PreferencesView: View {
     }
 
     enum Section: String, CaseIterable, Identifiable {
-        case dictation, wave, cleanup, words, advanced
+        // **L'ordine è quello che si vede nella colonna, e conta** (sua richiesta,
+        // 2026-08-18): Dettatura, Trascrizione, Onda, Vocabolario, Avanzate. «Onda»
+        // è la TERZA, non la seconda: «Trascrizione» le passa davanti.
+        //
+        // `transcription` non è `cleanup` rinominata: la sezione nasce nuova e
+        // raccoglie le tre macchine — chi ascolta, chi punteggia, chi ripulisce —
+        // mentre prima il motore stava sotto «Dettatura», che è il GESTO. Il
+        // criterio: Dettatura è come la fai partire, Trascrizione è chi ascolta e
+        // cosa ripulisce. Il contenitore non si chiama «Motori» perché avrebbe
+        // dentro una voce «Motore», e un contenitore non può chiamarsi come un
+        // suo figlio.
+        case dictation, transcription, wave, words, advanced
         var id: String { rawValue }
 
         @MainActor var title: String {
             switch self {
             case .dictation: return L.t("Dettatura", "Dictation", "Dictée")
+            case .transcription: return L.t("Trascrizione", "Transcription", "Transcription")
             case .wave:      return L.t("Onda", "Wave", "Onde")
-            case .cleanup:   return L.t("Pulizia", "Cleanup", "Nettoyage")
             case .words:     return L.t("Vocabolario e correzioni", "Words & corrections",
                                         "Vocabulaire et corrections")
             case .advanced:  return L.t("Avanzate", "Advanced", "Avancé")
@@ -73,8 +84,8 @@ struct PreferencesView: View {
         var symbol: String {
             switch self {
             case .dictation: return "mic"
+            case .transcription: return "text.bubble"
             case .wave:      return "waveform"
-            case .cleanup:   return "wand.and.sparkles"
             case .words:     return "character.book.closed"
             case .advanced:  return "gearshape"
             }
@@ -90,8 +101,8 @@ struct PreferencesView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         switch section {
                         case .dictation: DictationSection(draft: $draft)
+                        case .transcription: TranscriptionSection(draft: $draft, state: state)
                         case .wave:      WaveSection(state: state)
-                        case .cleanup:   CleanupSection(draft: $draft, state: state)
                         case .words:     WordsSection()
                         case .advanced:  AdvancedSection(draft: $draft, actions: actions)
                         }

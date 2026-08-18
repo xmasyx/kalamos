@@ -949,3 +949,66 @@ import Testing
         #expect(loud > quiet * 5)
     }
 }
+
+@Suite struct AperturaPillolaTests {
+    /// **Il seme parte da un cerchio esatto, e non è un numero scelto a occhio.**
+    /// La capsula ha raggio pari a metà altezza, quindi larghezza = altezza È un
+    /// cerchio: la base del seme deve essere esattamente altezza/larghezza.
+    @Test func ilSemePartteDaUnCerchioEsatto() {
+        let base = IslandEntrance.baseSeme
+        #expect(abs(base - BubbleGeometry.height / BubbleGeometry.width) < 1e-9)
+        let primo = IslandEntrance.traiettoria(for: .bubble, progresso: 0,
+                                               entrando: true, apertura: .seme)
+        #expect(abs(primo.larghezza - base) < 1e-6,
+                "il seme non parte dal cerchio: \(primo.larghezza)")
+        let ultimo = IslandEntrance.traiettoria(for: .bubble, progresso: 1,
+                                                entrando: true, apertura: .seme)
+        #expect(abs(ultimo.larghezza - 1) < 1e-6, "il seme non arriva intero: \(ultimo.larghezza)")
+    }
+
+    /// **Il contenuto non si stira col guscio.** Le aperture nuove muovono SOLO la
+    /// maschera: scala e opacità restano ferme, altrimenti l'onda dentro si
+    /// deformerebbe insieme alla capsula, che è il difetto che separa il
+    /// professionale dal cheap.
+    @Test func ilContenutoNonSiStiraColGuscio() {
+        for apertura in [AperturaPillola.seme, .respiro] {
+            for i in 0...20 {
+                let e = IslandEntrance.traiettoria(for: .bubble, progresso: Double(i) / 20,
+                                                   entrando: true, apertura: apertura)
+                #expect(e.scaleX == 1 && e.scaleY == 1,
+                        "\(apertura) scala il contenuto: \(e.scaleX)×\(e.scaleY)")
+                #expect(e.opacity == 1, "\(apertura) sfuma invece di aprirsi: \(e.opacity)")
+            }
+        }
+    }
+
+    /// **Il respiro passa oltre, e di quanto è misurato sulla curva vera.**
+    @Test func ilRespiroSuperaDelQuattroEMezzoPerCento() {
+        let picco = IslandEntrance.respiroPicco
+        #expect(picco > 1, "il respiro non respira: picco \(picco)")
+        #expect(abs(picco - 1.045) < 0.006, "sovraelongazione fuori taratura: \(picco)")
+        // E il seme NON deve superare: è la sua differenza dal respiro.
+        var massimoSeme: CGFloat = 0
+        for i in 0...200 {
+            let e = IslandEntrance.traiettoria(for: .bubble, progresso: Double(i) / 200,
+                                               entrando: true, apertura: .seme)
+            massimoSeme = max(massimoSeme, e.larghezza)
+        }
+        #expect(massimoSeme <= 1.0001, "il seme supera la sua larghezza: \(massimoSeme)")
+    }
+
+    /// L'uscita è l'entrata rovesciata, anche per le aperture nuove.
+    @Test func ancheLeApertureNuoveSonoInvertibili() {
+        for apertura in [AperturaPillola.seme, .respiro] {
+            for i in 0...20 {
+                let p = Double(i) / 20
+                let entrando = IslandEntrance.traiettoria(for: .bubble, progresso: p,
+                                                          entrando: true, apertura: apertura)
+                let uscendo = IslandEntrance.traiettoria(for: .bubble, progresso: 1 - p,
+                                                         entrando: false, apertura: apertura)
+                #expect(abs(entrando.larghezza - uscendo.larghezza) < 1e-6,
+                        "\(apertura) non è invertibile a \(p): \(entrando.larghezza) vs \(uscendo.larghezza)")
+            }
+        }
+    }
+}

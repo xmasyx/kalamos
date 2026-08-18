@@ -125,11 +125,29 @@ struct DictationSection: View {
                 }
             }
 
+        }
+    }
+}
+
+// MARK: - Trascrizione
+
+/// **Le tre macchine in un posto solo** (2026-08-18, sua richiesta).
+///
+/// Chi ascolta (il motore e la sua taglia), chi punteggia, chi ripulisce. Il motore
+/// arriva da «Dettatura», che è il gesto — il tasto, il modo, la lingua — e non il
+/// meccanismo. Le altre righe erano già qui sotto il nome «Pulizia», che era il
+/// nome di UNA delle tre e non del contenitore.
+struct TranscriptionSection: View {
+    @Binding var draft: SettingsDraft
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        Group {
             PrefRow(title: L.t("Motore che ti ascolta", "The engine that hears you",
                                "Le moteur qui vous écoute"),
-                    note: L.t("Sulla precisione non si distinguono. Whisper indovina meglio i nomi che non gli hai insegnato. Whisper.cpp usa lo stesso modello di Whisper in un altro formato, ed è l'unico a cui le tue parole arrivano PRIMA che indovini: se tieni tutti e due, sul disco sono circa 3 GB.",
-                              "Indistinguishable on accuracy. Whisper guesses better at names you have not taught it. Whisper.cpp runs the same model as Whisper in another format, and is the only one your words reach BEFORE it guesses: keeping both costs about 3 GB on disk.",
-                              "Indiscernables en précision. Whisper devine mieux les noms que vous ne lui avez pas appris. Whisper.cpp exécute le même modèle dans un autre format, et vos mots lui parviennent AVANT qu'il devine : garder les deux coûte environ 3 Go.")) {
+                    note: L.t("Whisper indovina meglio i nomi che non gli hai insegnato e ti lascia scegliere la taglia del modello. Parakeet scarica 461 MB invece di 1,5 GB e risponde prima.",
+                              "Whisper guesses better at names you have not taught it, and lets you pick the model size. Parakeet downloads 461 MB instead of 1.5 GB and answers sooner.",
+                              "Whisper devine mieux les noms que vous ne lui avez pas appris et laisse choisir la taille du modèle. Parakeet télécharge 461 Mo au lieu de 1,5 Go et répond plus vite.")) {
                 ChipRow(options: SpeechEngine.allCases.map { ($0.rawValue, $0.title, $0.note) },
                         isOn: { draft.speechEngine.rawValue == $0 },
                         pick: { draft.speechEngine = SpeechEngine(rawValue: $0) ?? .whisper })
@@ -150,6 +168,8 @@ struct DictationSection: View {
                     .opacity(draft.speechEngine == .whisper ? 1 : 0.4)
                     .disabled(draft.speechEngine != .whisper)
             }
+
+            CleanupSection(draft: $draft, state: state)
         }
     }
 }
@@ -917,6 +937,17 @@ struct WaveSection: View {
                               "Elle apparaît quand le micro s'ouvre et disparaît à la fin de la dictée. Elle suit votre voix à partir de l'audio déjà enregistré."),
                     toggle: $state.waveEnabled) {
                 preview
+            }
+
+            PrefRow(title: L.t("Come si apre e si chiude la pillola",
+                               "How the pill opens and closes",
+                               "Comment la pastille s'ouvre et se ferme"),
+                    note: L.t("Vale solo quando l'onda sta fuori dal notch. La chiusura è l'apertura al contrario, sempre.",
+                              "Only when the wave sits outside the notch. Closing is opening in reverse, always.",
+                              "Uniquement hors du notch. La fermeture est l'ouverture à l'envers, toujours.")) {
+                ChipRow(options: AperturaPillola.allCases.map { ($0.rawValue, $0.titolo, $0.nota) },
+                        isOn: { state.aperturaPillola.rawValue == $0 },
+                        pick: { state.aperturaPillola = AperturaPillola(rawValue: $0) ?? .corrente })
             }
 
             PrefRow(title: L.t("Colore dell'onda", "Wave colour", "Couleur de l'onde")) {

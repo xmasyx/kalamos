@@ -262,8 +262,17 @@ final class WaveIsland: ObservableObject {
     /// a worse failure than one that skips its animation.
     nonisolated static let entranceAttempts = 10
 
-    nonisolated static var entranceAnimation: Animation { IslandEntrance.animation(entrando: true) }
-    nonisolated static var exitAnimation: Animation { IslandEntrance.animation(entrando: false) }
+    /// L'apertura scelta, letta una volta al gesto invece che a ogni fotogramma.
+    /// `MainActor.assumeIsolated` non serve: `AppState.shared` è già letto così
+    /// dalle due chiamate qui sotto, che girano sul main.
+    @MainActor static var aperturaScelta: AperturaPillola { AppState.shared.aperturaPillola }
+
+    @MainActor static var entranceAnimation: Animation {
+        IslandEntrance.animation(entrando: true, apertura: aperturaScelta)
+    }
+    @MainActor static var exitAnimation: Animation {
+        IslandEntrance.animation(entrando: false, apertura: aperturaScelta)
+    }
 
     private init() {}
 
@@ -763,11 +772,58 @@ struct Inviluppo: Sendable, Equatable {
 /// that made them differ (a spring one side, an eased curve the other, and a delay
 /// on the width) are gone; what is left of the delay is `attesaLarghezza`, kept at
 /// zero as the negative pole of the test that checks all this.
+/// **Come nasce la pillola.** Tre modi, e quello di oggi resta il predefinito
+/// finché non sceglie lui (sua condizione, 18/08).
+///
+/// La pillola non ha una sorgente fisica come l'isola nel notch, che pende dal
+/// hardware: nasce da sé stessa. Oggi entra con scala 0,92→1 più opacità, cioè
+/// apparizione più ingrandimento, e a lui sembra «un fantasma».
+enum AperturaPillola: String, CaseIterable, Sendable {
+    /// Scala 0,92→1 più opacità. Il comportamento storico.
+    case corrente
+    /// **Il seme.** Parte da un CERCHIO grande quanto l'altezza e cresce solo in
+    /// larghezza. La proprietà che lo rende la scelta pulita è geometrica, non
+    /// estetica: la pillola è una capsula con raggio pari a metà altezza, quindi
+    /// larghezza = altezza **è** un cerchio esatto. La forma resta una capsula
+    /// valida in ogni fotogramma, non si schiaccia niente, e l'animazione ha un
+    /// parametro solo.
+    case seme
+    /// **Il respiro.** Il seme più il 4,5% di sovraelongazione in larghezza: è il
+    /// carattere di una molla senza usare una molla, quindi senza perdere
+    /// l'invertibilità nel tempo da cui dipende `symmetry`.
+    case respiro
+
+    @MainActor var titolo: String {
+        switch self {
+        case .corrente: return L.t("Come adesso", "As it is now", "Comme aujourd'hui")
+        case .seme:     return L.t("Il seme", "The seed", "La graine")
+        case .respiro:  return L.t("Il respiro", "The breath", "Le souffle")
+        }
+    }
+
+    @MainActor var nota: String {
+        switch self {
+        case .corrente: return L.t("compare e si ingrandisce", "appears and grows", "apparaît et grandit")
+        case .seme:     return L.t("da un cerchio, si apre in larghezza", "from a circle, opens sideways", "d'un cercle, s'ouvre en largeur")
+        case .respiro:  return L.t("come il seme, con un respiro", "the seed, with a breath", "la graine, avec un souffle")
+        }
+    }
+}
+
 struct IslandEntrance: Equatable {
     var scaleX: CGFloat
     var scaleY: CGFloat
     var anchor: UnitPoint
     var opacity: Double
+    /// La larghezza del guscio come frazione di quella a riposo, per le aperture
+    /// che aprono invece di ingrandire. **1 vuol dire nessuna maschera.**
+    ///
+    /// È una MASCHERA e non una scala perché il vincolo che separa il
+    /// professionale dal cheap è che **il contenuto non si stira col guscio**:
+    /// una `scaleEffect` sull'asse X allargherebbe anche l'onda dentro, che è
+    /// esattamente l'effetto da evitare. La capsula che cresce ritaglia, e l'onda
+    /// compare via via che c'è spazio, alla sua dimensione vera.
+    var larghezza: CGFloat = 1
 
     /// The scale a free island starts from. Small on purpose: below about 0.9 it
     /// stops reading as "arriving" and starts reading as "zooming".
@@ -872,6 +928,13 @@ struct IslandEntrance: Equatable {
 
     static func curva(entrando: Bool) -> Curva { entrando ? curvaEntrata : curvaUscita }
 
+    /// La curva per una data apertura. Il respiro ha la sua, le altre due no, e in
+    /// entrambi i casi l'entrata resta il rovescio dell'uscita per costruzione.
+    static func curva(entrando: Bool, apertura: AperturaPillola) -> Curva {
+        guard apertura == .respiro else { return curva(entrando: entrando) }
+        return entrando ? curvaRespiroUscita.rovesciata : curvaRespiroUscita
+    }
+
     /// **How long the width waits before it opens, as a fraction of the movement
     /// — and it is zero.**
     ///
@@ -886,7 +949,14 @@ struct IslandEntrance: Equatable {
     /// The animation SwiftUI draws, built from the same four numbers the test
     /// samples. One clock for both axes and both directions.
     static func animation(entrando: Bool) -> Animation {
-        let c = curva(entrando: entrando)
+        animation(entrando: entrando, apertura: .corrente)
+    }
+
+    /// La stessa, con la curva dell'apertura scelta: il respiro passa oltre l'1 e
+    /// torna, e `timingCurve` accetta punti di controllo fuori da [0,1] proprio per
+    /// questo. Una molla darebbe lo stesso carattere e toglierebbe l'invertibilità.
+    static func animation(entrando: Bool, apertura: AperturaPillola) -> Animation {
+        let c = curva(entrando: entrando, apertura: apertura)
         return .timingCurve(c.x1, c.y1, c.x2, c.y2, duration: WaveIsland.durataTransizione)
     }
 
@@ -900,6 +970,7 @@ struct IslandEntrance: Equatable {
     static func traiettoria(for position: WavePosition,
                             progresso: Double,
                             entrando: Bool,
+                            apertura: AperturaPillola = .corrente,
                             attesaLarghezza: Double = attesaLarghezza) -> IslandEntrance {
         let chiusa = state(for: position, shown: false)
         let aperta = state(for: position, shown: true)
@@ -914,13 +985,81 @@ struct IslandEntrance: Equatable {
             ? c.frazione(a: (progresso - attesaLarghezza) / (1 - attesaLarghezza))
             : f
         func fra(_ da: CGFloat, _ a: CGFloat, _ f: Double) -> CGFloat { da + (a - da) * CGFloat(f) }
+
+        // **Le aperture nuove valgono solo per la pillola**, e il perché non è una
+        // limitazione: l'isola nel notch ha già la sua nascita, che pende dal
+        // hardware e cresce verso il basso. Un seme là sarebbe una forma che nasce
+        // staccata dal bordo da cui dovrebbe uscire.
+        if position == .bubble, apertura != .corrente {
+            // L'APERTURA, non il progresso: entrando sale da 0 a 1, uscendo scende
+            // da 1 a 0. Così l'uscita è la stessa funzione percorsa al contrario,
+            // che è ciò che `symmetry` pretende.
+            let fr = curva(entrando: entrando, apertura: apertura).frazione(a: progresso)
+            let aperta = entrando ? fr : 1 - fr
+            return IslandEntrance(
+                scaleX: 1, scaleY: 1, anchor: .center,
+                // Opaca dal primo fotogramma, come la goccia del notch: una forma
+                // che sfuma mentre si apre torna a essere il fantasma che queste
+                // due aperture esistono per togliere.
+                opacity: 1,
+                larghezza: larghezza(aperta: aperta, base: baseSeme))
+        }
+
         return IslandEntrance(scaleX: fra(da.scaleX, a.scaleX, fLarghezza),
                               scaleY: fra(da.scaleY, a.scaleY, f),
                               anchor: da.anchor,
                               opacity: da.opacity + (a.opacity - da.opacity) * f)
     }
 
-    static func state(for position: WavePosition, shown: Bool) -> IslandEntrance {
+    /// **Il seme è una riga sola, e il respiro è la stessa riga con un'altra
+    /// curva.** Qui non c'è nessuna seconda descrizione del movimento: se ce ne
+    /// fossero due, quella disegnata e quella misurata potrebbero divergere in
+    /// silenzio, che è il difetto che questo file ha già pagato altrove.
+    ///
+    /// La base è geometrica e non scelta: la capsula ha raggio pari a metà
+    /// altezza, quindi larghezza = altezza **è** un cerchio esatto.
+    static func larghezza(aperta f: Double, base: CGFloat) -> CGFloat {
+        base + (1 - base) * CGFloat(f)
+    }
+
+    /// La base del seme per la pillola, cioè la frazione di larghezza a cui il
+    /// guscio è un cerchio.
+    static var baseSeme: CGFloat { BubbleGeometry.height / BubbleGeometry.width }
+
+    /// **La sovraelongazione del respiro, e dove vive.** La curva del respiro passa
+    /// oltre l'1 e torna: è il carattere di una molla senza usare una molla, quindi
+    /// **resta invertibile nel tempo** e `symmetry` continua a valere. Una molla no,
+    /// ed è il motivo per cui le presets di sistema sono state scartate.
+    ///
+    /// I quattro numeri sono tarati perché il picco della LARGHEZZA cada al
+    /// **+4,5%**, che è la sovraelongazione che l'onda usa già. Il valore non è
+    /// scritto a mano: `respiroPicco` lo ricalcola dalla curva vera, e il test lo
+    /// confronta con 1,045. Sta dentro il `bounceSlack` di 0,14 della finestra,
+    /// quindi non viene rasato dal bordo.
+    static let curvaRespiroUscita = Curva(x1: 0.30, y1: -0.3626, x2: 0.58, y2: 1)
+
+    /// Il picco vero della larghezza, misurato sulla curva che viene disegnata.
+    static var respiroPicco: CGFloat {
+        let c = curvaRespiroUscita.rovesciata
+        var massimo: CGFloat = 0
+        for i in 0...1000 {
+            let f = c.frazione(a: Double(i) / 1000)
+            massimo = max(massimo, larghezza(aperta: f, base: baseSeme))
+        }
+        return massimo
+    }
+
+    static func state(for position: WavePosition, shown: Bool,
+                      apertura: AperturaPillola = .corrente) -> IslandEntrance {
+        // Le aperture nuove muovono UNA sola quantità, la larghezza della maschera,
+        // e lasciano ferme scala e opacità. È il motivo per cui possono essere date
+        // a SwiftUI come due stati da interpolare: con un valore solo non esiste il
+        // difetto dei due orologi che il 17/08 aveva prodotto «scende dritto e si
+        // apre».
+        if position == .bubble, apertura != .corrente {
+            return .init(scaleX: 1, scaleY: 1, anchor: .center, opacity: 1,
+                         larghezza: shown ? 1 : baseSeme)
+        }
         switch position {
         case .notch:
             // `.top`: the drop hangs from the hardware and grows DOWNWARD, so the
@@ -939,6 +1078,66 @@ struct IslandEntrance: Equatable {
                          anchor: .center,
                          opacity: shown ? 1 : 0)
         }
+    }
+}
+
+/// La capsula che cresce in larghezza e ritaglia quello che c'è sotto.
+///
+/// Un modificatore invece di un `.mask` scritto in linea perché deve poter essere
+/// **assente**: a larghezza piena non aggiunge nessun livello di composizione, e
+/// un livello in più su una finestra che si ridisegna a ogni fotogramma dell'onda
+/// non è gratis.
+/// **`attiva` è costante per tutta l'animazione, e non è un dettaglio.** La prima
+/// versione decideva il ramo guardando `larghezza >= 1`, cioè un valore che si
+/// muove: SwiftUI vedeva due alberi diversi fra un fotogramma e l'altro, cambiava
+/// identità alla vista e **saltava l'interpolazione**. Misurato sul filmato — le
+/// tre aperture davano fotogrammi identici, larghezza 292→300 px in tutte e tre,
+/// cioè la maschera non entrava mai in scena. Il ramo si decide fuori, dove
+/// dipende solo dall'impostazione e dalla posizione, e dentro si muove un numero
+/// solo.
+private struct MascheraApertura: ViewModifier {
+    let attiva: Bool
+    let larghezza: CGFloat
+    let dimensione: CGSize
+
+    func body(content: Content) -> some View {
+        if attiva {
+            content.clipShape(CapsulaApertura(apertura: larghezza))
+        } else {
+            content
+        }
+    }
+}
+
+/// La capsula che si apre, come **forma** e non come cornice.
+///
+/// `animatableData` è tutto il punto: una `Capsule().frame(width:)` dentro una
+/// maschera SwiftUI non la interpola, e il filmato lo ha mostrato senza margini di
+/// interpretazione — la larghezza passava da 72 a 272 px in **un fotogramma solo**
+/// a 60 al secondo, cioè l'apertura non esisteva, c'era uno scatto. Una `Shape`
+/// con `animatableData` è l'unico modo per cui il ritaglio ha davvero dei
+/// fotogrammi intermedi.
+///
+/// La forma resta una capsula valida a ogni apertura, ed è la ragione geometrica
+/// per cui il seme è la scelta pulita: il raggio è metà altezza, quindi quando la
+/// larghezza scende fino all'altezza la capsula **è** un cerchio esatto, senza
+/// nessuno schiacciamento.
+private struct CapsulaApertura: Shape {
+    var apertura: CGFloat
+
+    var animatableData: CGFloat {
+        get { apertura }
+        set { apertura = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        // Mai più stretta dell'altezza: sotto quella soglia non sarebbe più una
+        // capsula ma un ovale schiacciato, che è la deformazione che questa
+        // apertura esiste per evitare.
+        let larghezza = max(rect.height, rect.width * apertura)
+        let riquadro = CGRect(x: rect.midX - larghezza / 2, y: rect.minY,
+                              width: larghezza, height: rect.height)
+        return Capsule(style: .continuous).path(in: riquadro)
     }
 }
 
@@ -1266,6 +1465,21 @@ struct IslandView: View {
             // `IslandEntrance.animation(entrando:)`, and one source for the curve
             // is the same argument as one clock for the axes.
             .scaleEffect(x: entrance.scaleX, y: entrance.scaleY, anchor: entrance.anchor)
+            // **Il guscio si apre, il contenuto si ritaglia.** È il vincolo che
+            // separa il professionale dal cheap, e il motivo per cui questa è una
+            // maschera e non una `scaleEffect` sull'asse X: quest'ultima
+            // allargherebbe anche l'onda dentro, che è precisamente l'effetto da
+            // evitare. La capsula cresce, l'onda resta della sua dimensione vera e
+            // compare via via che c'è spazio.
+            //
+            // Inerte quando l'apertura è quella storica (`larghezza` è 1) e sul
+            // notch, che ha già la sua nascita: mascherare una forma con sé stessa
+            // non fa niente, ma costa un livello di composizione, quindi non si
+            // applica affatto.
+            .modifier(MascheraApertura(
+                attiva: position == .bubble && state.aperturaPillola != .corrente,
+                larghezza: entrance.larghezza,
+                dimensione: IslandPanel.shellSize(for: position)))
             // The island sits in its place inside the window, with the slack the
             // bounce needs left free around it: hanging from the notch that means
             // all of it underneath, so the island keeps touching the screen edge.
@@ -1366,6 +1580,7 @@ struct IslandView: View {
     }
 
     private var entrance: IslandEntrance {
-        IslandEntrance.state(for: position, shown: island.shown)
+        IslandEntrance.state(for: position, shown: island.shown,
+                             apertura: state.aperturaPillola)
     }
 }

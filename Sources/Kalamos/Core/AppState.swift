@@ -191,6 +191,10 @@ final class AppState: ObservableObject {
 
     /// Hanging from the notch, or a free island. See `WavePosition`.
     @Published var wavePosition: WavePosition { didSet { persist("wavePosition", wavePosition.rawValue) } }
+    /// Come nasce e come si chiude la pillola fluttuante. **Il comportamento di
+    /// oggi resta il predefinito** finché non sceglie lui: una variante che si
+    /// installa da sola cambierebbe sotto le mani di chi non l'ha chiesta.
+    @Published var aperturaPillola: AperturaPillola { didSet { persist("aperturaPillola", aperturaPillola.rawValue) } }
 
     /// Where the free island was last dropped: **its centre**, `"x y"` in screen
     /// points.
@@ -369,6 +373,7 @@ final class AppState: ObservableObject {
         waveShell = (defaults.object(forKey: "waveShell") as? Bool) ?? true
         playbackGainQuota = (defaults.object(forKey: "playbackGainQuota") as? Double) ?? 0
         wavePosition = WavePosition(rawValue: defaults.string(forKey: "wavePosition") ?? "") ?? .notch
+        aperturaPillola = AperturaPillola(rawValue: defaults.string(forKey: "aperturaPillola") ?? "") ?? .corrente
         waveCenter = defaults.string(forKey: "waveCenter") ?? ""
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
         // 0x3F == Fn / Globe — default Edit-Mode modifier. Distinct from the

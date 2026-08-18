@@ -1,78 +1,62 @@
-# The three engines, and the models your Mac can run
+# The two engines, and the models your Mac can run
 
-## Three engines, and why you would pick each
-
-The same words can be heard by three different engines. They are not three
-qualities — two of them run the **same** Whisper large-v3-turbo weights — they are
-three machines carrying a model, and the machine turns out to matter.
+## Two engines, and why you would pick each
 
 | Engine | What it runs | Pick it when |
 |---|---|---|
-| **Whisper** (WhisperKit, Core ML) | four model sizes you choose from a menu | you want to swap model size, or you want the fastest answer on short dictations |
+| **Whisper** (WhisperKit, Core ML) | four model sizes you choose from a menu | the default. You want to swap model size, or the best accuracy on names and jargon |
 | **Parakeet** (FluidAudio) | one model, 461 MB | you want the smallest download and the fastest answer, and your vocabulary has no unusual names in it |
-| **Whisper.cpp** (C and Metal) | the same large-v3-turbo, 1.62 GB | you want the same audio to give the same text every time, especially on long dictations |
 
-### Why Whisper.cpp was added
-
-Two things the app could not do, and neither was about the app.
-
-**Your vocabulary could only repair, never prevent.** Whisper accepts an *initial
-prompt* — words handed to the decoder before it guesses. Through WhisperKit that
-channel returns an empty transcription: measured on 16 real recordings, 48 times
-out of 48, and it is a known upstream defect (WhisperKit issue #372). So the word
-list could only fix a mistake after it was made, and a word missing from the list
-had nobody to fix it. Through whisper.cpp the channel works: terms that came out
-wrong 8 times out of 8 come out right 5 times out of 5.
-
-Upstream has since fixed it: WhisperKit 1.1.0, released on 6 August 2026, lists
-`promptTokens` among its bug fixes, and Kalamos moved to that version on 8 August.
-It was re-measured on 8 August and the channel is open on this side too: 0 empty
-transcriptions out of 160, ordinary Italian untouched, and your word list takes
-`Kalamos` from 0/5 to 5/5 exactly as it does through whisper.cpp. **Both Whisper
-engines now learn your words**, with the same discipline: decode once, then decode
-again with only the terms that came out wrong, at most five.
-
-**And long audio drifted.** The same file, decoded eight times, gave word counts
-that swung by 11 and by 31. Whisper.cpp gave 200 identical texts over 200 passes
-of the same five files. If you have ever watched a sentence go missing from a long
-dictation, that is what this fixes.
-
-One measured surprise, written down because it is counterintuitive: **a long
-prompt damages the very words it contains.** With sixteen terms in the prompt,
-`endomidollare` — present in the prompt — came out `endomi-dollare`. With three, it
-came out right. So Kalamos does not hand over your whole list: it decodes once,
-looks at what came back, and re-decodes with only the words that look wrong, at
-most five. The second pass costs about a third of a second, and only on the
-dictations that need it.
-
-### Why Whisper is the default again
-
-Whisper.cpp took the default in 1.2.0 and lost it a day later, because the long-audio
-measurement that had won it the job was incomplete. It compared how much the two
-engines *wobble* between passes and never asked whether the text was *complete*. On
-the 82-second reference file whisper.cpp failed to write one whole scripted sentence
-in sixteen decodes out of sixteen; WhisperKit wrote it sixteen times out of sixteen.
-Stable, and stably missing a sentence.
-
-The cause was ours rather than the library's: Kalamos trimmed the silence at the
-*start* of a recording before decoding, which shifts everything said afterwards
-against whisper.cpp's 30-second windows — by however long you waited before
-speaking, so a different amount every time — and a sentence landing on a seam
-disappears. Feed the same file to `whisper-cli` untrimmed and it comes back whole.
-
-**Fixed on 16 August 2026:** only the silence at the *end* is trimmed now, which is
-the half that had a reason (Whisper invents captions on it). On that same reference
-file whisper.cpp went from writing the sentence 0 times out of 8 to 7 out of 8, and
-its best passes now match `whisper-cli` on the untouched file word for word.
-
-Whisper.cpp is still worth choosing when you want the same audio to give byte-identical
-text every time, and it remains the engine that never drifts. WhisperKit also has the
-**model picker**, which whisper.cpp ignores because it ships one size.
-
-Nothing is locked in: the choice is one row in **Preferences ▸ Dictation**, and
-switching takes effect on your next dictation.
+Nothing is locked in: the choice is one row in Preferences, and switching takes
+effect on your next dictation.
 
 ![Preferences, Dictation: the trigger key, how dictation starts, the dictation language, and on-device translation](screenshots/preferences-dictation.png)
+
+## There used to be a third, and why it is gone
+
+Kalamos shipped a **whisper.cpp** engine from 5 August to 19 August 2026. It ran the
+*same* Whisper large-v3-turbo weights as the default engine, on a different machine
+(C and Metal instead of Core ML), and it was added for two specific things Core ML
+could not do at the time. Both were then solved somewhere else, which is the whole
+reason it could leave.
+
+**One: your vocabulary could only repair, never prevent.** Whisper accepts an
+*initial prompt* — words handed to the decoder before it guesses. Through WhisperKit
+that channel returned an empty transcription: 48 times out of 48 on 16 real
+recordings, a known upstream defect (WhisperKit issue #372). Through whisper.cpp it
+worked. **Upstream then fixed it:** WhisperKit 1.1.0, 6 August 2026, lists
+`promptTokens` among its bug fixes; Kalamos moved to that version on 8 August and
+re-measured — 0 empty transcriptions out of 160, and the word list takes `Kalamos`
+from 0/5 to 5/5 through Core ML exactly as it did through whisper.cpp.
+
+**Two: long audio drifted.** The same file, decoded eight times through WhisperKit,
+gave word counts swinging by 11 and by 31; whisper.cpp gave 200 identical texts over
+200 passes. But the drift was **ours**, not the library's: Kalamos trimmed the silence
+at the *start* of a recording, which shifts everything said afterwards against the
+30-second decode windows, by a different amount every time, and a sentence landing on
+a seam disappears. Only the trailing silence is trimmed since 16 August, and the
+reference sentence came back.
+
+**And when both reasons were gone, the head-to-head said nothing was left.** Twenty
+real dictations, both engines, same vocabulary and same forced language: verdict
+*not confirmed* — no measured advantage either way on ordinary use.
+
+So it was removed on 19 August. Not because it was bad, but because a third engine
+that wins nothing still costs something specific: it arrived as a **prebuilt binary
+framework downloaded at build time**, which is a strange thing to carry in an app
+whose whole claim is that you can see what runs on your machine.
+
+**What would bring it back** is written next to the code that used to call it: that
+48-out-of-48. If the Core ML prompt channel ever regresses, the vocabulary stops
+being able to prevent mistakes, and the engine that could is one `git revert` away.
+
+One measured surprise from that period, kept because it still governs how the
+vocabulary works today: **a long prompt damages the very words it contains.** With
+sixteen terms in the prompt, `endomidollare` — present in the prompt — came out
+`endomi-dollare`. With three, it came out right. So Kalamos does not hand over your
+whole list: it decodes once, looks at what came back, and re-decodes with only the
+words that look wrong, at most five. The second pass costs about a third of a second,
+and only on the dictations that need it.
 
 ## Which models your Mac can run
 
