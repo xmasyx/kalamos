@@ -578,7 +578,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Corrections.add(wrong: wrong, correct: correct)
             Log.write("correction ⌃⌥K: added \"\(wrong)\" → \"\(correct)\"")
             Self.markLastDictation(teaching: correct)
-            Sounds.ok()
+            // **Niente suono su ⌃⌥K** (sua richiesta, 2026-08-19): «già lì è un
+            // tasto che io seleziono e quindi so che me lo conferma quello lì».
+            // Questo gesto apre `CorrectionWindow` e si chiude premendo un
+            // bottone, quindi la conferma è già nel gesto e negli occhi; il suono
+            // era una seconda conferma per qualcosa che non ne aveva bisogno.
+            //
+            // La riga che stava qui aveva una premessa **sbagliata**: diceva che
+            // ⌃⌥L e ⌃⌥K sono «gesti senza finestra». ⌃⌥L lo è davvero — impara la
+            // parola selezionata e non mostra niente, quindi il suono è il suo
+            // unico segnale e resta. ⌃⌥K una finestra ce l'ha sempre avuta.
             _ = self
         }
     }
@@ -634,8 +643,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             TrainingCorpus.exportIfBatchFull()
             // Niente suono qui (sua richiesta, 2026-08-16): il bottone si
             // disabilita e compare «Salvata.», la conferma è già negli occhi.
-            // Il suono resta su ⌃⌥L e ⌃⌥K, gesti senza finestra dove è l'unico
-            // segnale che qualcosa è successo.
+            // Il suono resta **solo su ⌃⌥L**, che è l'unico gesto senza finestra e
+            // quindi l'unico dove il suono è il solo segnale che è successo
+            // qualcosa. Su ⌃⌥K è stato tolto il 2026-08-19: anche quello ha una
+            // finestra e un bottone, quindi valeva la stessa ragione.
         }
     }
 

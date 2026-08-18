@@ -954,16 +954,50 @@ import Testing
     /// **Il seme parte da un cerchio esatto, e non è un numero scelto a occhio.**
     /// La capsula ha raggio pari a metà altezza, quindi larghezza = altezza È un
     /// cerchio: la base del seme deve essere esattamente altezza/larghezza.
-    @Test func ilSemePartteDaUnCerchioEsatto() {
+    @Test func ilSemeNasceDalNienteEPassaPerIlCerchio() {
         let base = IslandEntrance.baseSeme
         #expect(abs(base - BubbleGeometry.height / BubbleGeometry.width) < 1e-9)
         let primo = IslandEntrance.traiettoria(for: .bubble, progresso: 0,
                                                entrando: true, apertura: .seme)
-        #expect(abs(primo.larghezza - base) < 1e-6,
-                "il seme non parte dal cerchio: \(primo.larghezza)")
+        #expect(abs(primo.larghezza) < 1e-6, "il seme non parte dal niente: \(primo.larghezza)")
         let ultimo = IslandEntrance.traiettoria(for: .bubble, progresso: 1,
                                                 entrando: true, apertura: .seme)
         #expect(abs(ultimo.larghezza - 1) < 1e-6, "il seme non arriva intero: \(ultimo.larghezza)")
+        // Il cerchio è una FASE, non un capolinea: la corsa ci passa attraverso.
+        var attraversato = false
+        for i in 0...400 {
+            let l = IslandEntrance.traiettoria(for: .bubble, progresso: Double(i) / 400,
+                                               entrando: true, apertura: .seme).larghezza
+            if abs(l - base) < 0.02 { attraversato = true }
+        }
+        #expect(attraversato, "la corsa non passa mai per il cerchio")
+    }
+
+    /// **Il difetto che ha segnalato lui il 19/08, con la registrazione dello
+    /// schermo: «quel tondino resta lì troppo».** La chiusura finiva sul cerchio, e
+    /// la curva d'uscita decelera verso la fine, quindi ci si sedeva sopra.
+    /// Il falsificatore è preciso: l'ultimo fotogramma della chiusura deve essere
+    /// NIENTE, non il cerchio.
+    @Test func laChiusuraSpariscInveceDiFermarsiSulCerchio() {
+        for apertura in [AperturaPillola.seme, .respiro] {
+            let fine = IslandEntrance.traiettoria(for: .bubble, progresso: 1,
+                                                  entrando: false, apertura: apertura)
+            #expect(abs(fine.larghezza) < 1e-6,
+                    "\(apertura) finisce la chiusura su una forma larga \(fine.larghezza)")
+            // E la sparizione deve avere una DURATA, non essere l'ultimo
+            // fotogramma: si misura quanta parte della chiusura sta sotto il
+            // cerchio. Misurato il 19/08 sulle curve vere — seme **17,2%**,
+            // respiro **34,1%** — mentre col fondo a `baseSeme` di prima era
+            // **0%** per costruzione, ed è quello il polo negativo di questa riga.
+            var sotto = 0
+            for i in 0...1000 {
+                let l = IslandEntrance.traiettoria(for: .bubble, progresso: Double(i) / 1000,
+                                                   entrando: false, apertura: apertura).larghezza
+                if l <= IslandEntrance.baseSeme { sotto += 1 }
+            }
+            #expect(Double(sotto) / 1001 > 0.12,
+                    "\(apertura) sta sotto il cerchio solo per il \(Double(sotto) / 10)% della chiusura")
+        }
     }
 
     /// **Il contenuto non si stira col guscio.** Le aperture nuove muovono SOLO la
@@ -986,7 +1020,7 @@ import Testing
     @Test func ilRespiroSuperaDelQuattroEMezzoPerCento() {
         let picco = IslandEntrance.respiroPicco
         #expect(picco > 1, "il respiro non respira: picco \(picco)")
-        #expect(abs(picco - 1.045) < 0.006, "sovraelongazione fuori taratura: \(picco)")
+        #expect(abs(picco - 1.045) < 0.004, "sovraelongazione fuori taratura: \(picco)")
         // E il seme NON deve superare: è la sua differenza dal respiro.
         var massimoSeme: CGFloat = 0
         for i in 0...200 {

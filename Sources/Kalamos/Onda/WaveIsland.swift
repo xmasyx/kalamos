@@ -1002,7 +1002,7 @@ struct IslandEntrance: Equatable {
                 // che sfuma mentre si apre torna a essere il fantasma che queste
                 // due aperture esistono per togliere.
                 opacity: 1,
-                larghezza: larghezza(aperta: aperta, base: baseSeme))
+                larghezza: larghezza(aperta: aperta))
         }
 
         return IslandEntrance(scaleX: fra(da.scaleX, a.scaleX, fLarghezza),
@@ -1018,12 +1018,15 @@ struct IslandEntrance: Equatable {
     ///
     /// La base è geometrica e non scelta: la capsula ha raggio pari a metà
     /// altezza, quindi larghezza = altezza **è** un cerchio esatto.
-    static func larghezza(aperta f: Double, base: CGFloat) -> CGFloat {
-        base + (1 - base) * CGFloat(f)
-    }
+    static func larghezza(aperta f: Double) -> CGFloat { CGFloat(f) }
 
-    /// La base del seme per la pillola, cioè la frazione di larghezza a cui il
-    /// guscio è un cerchio.
+    /// La frazione di larghezza a cui il guscio **è** un cerchio: la capsula ha
+    /// raggio pari a metà altezza, quindi larghezza = altezza è un cerchio esatto.
+    ///
+    /// Dal 19/08 non è più il fondo della corsa ma una **fase di passaggio**: la
+    /// corsa va da 0 (niente) a 1 (pillola intera) e attraversa questo valore in
+    /// mezzo. Il fondo a `baseSeme` faceva finire la chiusura sul cerchio, e la
+    /// curva d'uscita decelera verso la fine, quindi ci si sedeva sopra.
     static var baseSeme: CGFloat { BubbleGeometry.height / BubbleGeometry.width }
 
     /// **La sovraelongazione del respiro, e dove vive.** La curva del respiro passa
@@ -1036,15 +1039,14 @@ struct IslandEntrance: Equatable {
     /// scritto a mano: `respiroPicco` lo ricalcola dalla curva vera, e il test lo
     /// confronta con 1,045. Sta dentro il `bounceSlack` di 0,14 della finestra,
     /// quindi non viene rasato dal bordo.
-    static let curvaRespiroUscita = Curva(x1: 0.30, y1: -0.3626, x2: 0.58, y2: 1)
+    static let curvaRespiroUscita = Curva(x1: 0.30, y1: -0.3002, x2: 0.58, y2: 1)
 
     /// Il picco vero della larghezza, misurato sulla curva che viene disegnata.
     static var respiroPicco: CGFloat {
         let c = curvaRespiroUscita.rovesciata
         var massimo: CGFloat = 0
         for i in 0...1000 {
-            let f = c.frazione(a: Double(i) / 1000)
-            massimo = max(massimo, larghezza(aperta: f, base: baseSeme))
+            massimo = max(massimo, larghezza(aperta: c.frazione(a: Double(i) / 1000)))
         }
         return massimo
     }
@@ -1057,8 +1059,20 @@ struct IslandEntrance: Equatable {
         // difetto dei due orologi che il 17/08 aveva prodotto «scende dritto e si
         // apre».
         if position == .bubble, apertura != .corrente {
+            // **Chiusa vuol dire NIENTE, non «il cerchio»** (19/08, suo referto di
+            // campo con la registrazione dello schermo: «quel tondino resta lì
+            // troppo, nella chiusura dovrebbe scomparire completamente e non
+            // soffermarsi su quel cerchio»).
+            //
+            // Prima il fondo della corsa era `baseSeme`, cioè il cerchio: la curva
+            // d'uscita DECELERA verso la fine, quindi rallentava proprio dentro il
+            // cerchio e ci si sedeva sopra. Portando il fondo a zero la stessa
+            // curva decelera verso il niente, che è il gesto che voleva, e il
+            // cerchio torna a essere una fase di passaggio invece che un
+            // capolinea — su tutti e due i lati, quindi **senza rompere la
+            // simmetria**: resta una funzione sola percorsa nei due versi.
             return .init(scaleX: 1, scaleY: 1, anchor: .center, opacity: 1,
-                         larghezza: shown ? 1 : baseSeme)
+                         larghezza: shown ? 1 : 0)
         }
         switch position {
         case .notch:
@@ -1131,10 +1145,18 @@ private struct CapsulaApertura: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        // Mai più stretta dell'altezza: sotto quella soglia non sarebbe più una
-        // capsula ma un ovale schiacciato, che è la deformazione che questa
-        // apertura esiste per evitare.
-        let larghezza = max(rect.height, rect.width * apertura)
+        let larghezza = max(0, rect.width * apertura)
+        // **Sotto l'altezza non si schiaccia: si rimpicciolisce.** Una capsula più
+        // stretta che alta sarebbe un ovale schiacciato, cioè la deformazione che
+        // questa apertura esiste per evitare; un CERCHIO di diametro pari alla
+        // larghezza è invece una forma sana a ogni misura, e scendendo verso zero
+        // sparisce del tutto invece di fermarsi su un tondino.
+        if larghezza <= rect.height {
+            let riquadro = CGRect(x: rect.midX - larghezza / 2,
+                                  y: rect.midY - larghezza / 2,
+                                  width: larghezza, height: larghezza)
+            return Path(ellipseIn: riquadro)
+        }
         let riquadro = CGRect(x: rect.midX - larghezza / 2, y: rect.minY,
                               width: larghezza, height: rect.height)
         return Capsule(style: .continuous).path(in: riquadro)
