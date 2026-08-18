@@ -761,11 +761,20 @@ import Testing
     /// the animation exists to remove, at the other end. Written as numbers
     /// precisely so this can be checked: an `Animation` cannot be asked how long
     /// it lasts.
-    @Test func theWindowClosesOnlyAfterTheExitHasFinished() {
+    @MainActor @Test func theWindowClosesOnlyAfterTheExitHasFinished() {
         #expect(WaveIsland.closeDelay > WaveIsland.exitDuration,
                 "the window would close mid-exit: \(WaveIsland.closeDelay) ≤ \(WaveIsland.exitDuration)")
         // And not so long after it that a dead window sits between two dictations.
         #expect(WaveIsland.closeDelay < WaveIsland.exitDuration + 0.25)
+        // **E lo stesso vale per OGNI apertura, non solo per quella storica.**
+        // Il 19/08 la durata del seme è passata a 0,42 s mentre il ritardo restava
+        // a 0,30: la finestra spariva a metà uscita e il filmato mostrava la
+        // pillola svanire di colpo. Un margine misurato su una sola configurazione
+        // non è un margine.
+        for apertura in AperturaPillola.allCases {
+            #expect(WaveIsland.closeDelay(for: apertura) > IslandEntrance.durata(apertura),
+                    "\(apertura): la finestra si chiude a metà uscita")
+        }
     }
 
     /// Fast enough not to be waited for, slow enough to be seen — and now ONE

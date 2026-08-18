@@ -256,6 +256,16 @@ final class WaveIsland: ObservableObject {
     /// the last frames of the exit would be cut off by the window disappearing —
     /// the same abrupt thing at the other end.
     nonisolated static let closeDelay: TimeInterval = 0.30
+
+    /// Lo stesso ritardo, per l'apertura scelta. **Non è una comodità: il 19/08 la
+    /// costante fissa ha troncato l'uscita del seme.** Portata la durata delle
+    /// aperture a maschera a 0,42 s, la finestra continuava a sparire a 0,30 s e il
+    /// filmato mostrava la pillola svanire di colpo a metà corsa — esattamente il
+    /// guasto che il commento qui sopra descriveva come ipotesi. Un ritardo che
+    /// nomina un'attesa deve derivare dalla cosa che aspetta, non affiancarla.
+    @MainActor static func closeDelay(for apertura: AperturaPillola) -> TimeInterval {
+        IslandEntrance.durata(apertura) + (closeDelay - durataTransizione)
+    }
     /// How many run-loop turns to wait for the window to be really on screen
     /// before animating anyway. `orderFrontRegardless` is a request, not a fact,
     /// and an island that stayed invisible because the request was slow would be
@@ -493,7 +503,8 @@ final class WaveIsland: ObservableObject {
         withAnimation(Self.exitAnimation) { shown = false }
         let work = DispatchWorkItem { [weak self] in self?.tearDown() }
         closing = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.closeDelay, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.closeDelay(for: Self.aperturaScelta),
+                                      execute: work)
     }
 
     /// Everything the island held, released — after the last frame, never before.
@@ -957,7 +968,24 @@ struct IslandEntrance: Equatable {
     /// questo. Una molla darebbe lo stesso carattere e toglierebbe l'invertibilità.
     static func animation(entrando: Bool, apertura: AperturaPillola) -> Animation {
         let c = curva(entrando: entrando, apertura: apertura)
-        return .timingCurve(c.x1, c.y1, c.x2, c.y2, duration: WaveIsland.durataTransizione)
+        return .timingCurve(c.x1, c.y1, c.x2, c.y2, duration: durata(apertura))
+    }
+
+    /// **Le aperture a maschera durano di più, e il motivo è che muovono una cosa
+    /// diversa** (19/08, suo referto: «si chiude troppo rapidamente adesso, però
+    /// almeno non si sofferma sul cerchio»).
+    ///
+    /// I 0,24 s storici erano tarati su una scala del 8% più un'opacità: un
+    /// movimento piccolo, che in un quarto di secondo si legge. Il seme e il
+    /// respiro percorrono invece **tutta** la larghezza, dal niente alla pillola
+    /// intera, e nello stesso tempo quel percorso diventa uno scatto.
+    ///
+    /// Vale per tutti e due i versi, quindi la simmetria regge: è la stessa
+    /// funzione, percorsa più lentamente. E rende leggibile anche la fase del
+    /// cerchio, che a 0,24 s durava così poco da rendere seme e respiro
+    /// indistinguibili a occhio — la sua seconda osservazione della stessa sera.
+    static func durata(_ apertura: AperturaPillola) -> TimeInterval {
+        apertura == .corrente ? WaveIsland.durataTransizione : 0.42
     }
 
     /// **Where the island is at a given fraction of the movement** — the half a
