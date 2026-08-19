@@ -490,6 +490,76 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-numeri") {
     }
 }
 
+// `Kalamos --selftest-pipeline <corpus.json> --terms a,b,c [--out coppie.json]`
+//
+// La pipeline di riparazione COME LA VEDE UNA DETTATURA VERA, in un comando
+// solo: vocabolario, poi numeri. Esiste perché misurare i due pezzi separati e
+// sommarne i guadagni è un conto che non torna — il secondo lavora sul testo
+// che il primo ha già cambiato — e perché il referto deve poter dire «questo è
+// il testo che gli arriva», non «questi sono due miglioramenti che si
+// sommano».
+//
+// Quello che NON contiene, e va detto: `Corrections`, cioè le regole che ha
+// scritto lui a mano, perché vivono nei suoi defaults e un banco che le legge
+// misura il dominio in cui è finito. E la ripulitura del formatter, che tocca
+// la punteggiatura, che la WER non guarda.
+//
+// `--numeri` accende la passata dei numeri, che in produzione gira solo su
+// Parakeet: qui è un flag perché il corpus non dice da quale motore viene.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-pipeline") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-pipeline <corpus.json> [--terms …] [--numeri] [--out coppie.json]")
+        exit(2)
+    }
+    let terms: [String]
+    if let i = args.firstIndex(of: "--terms"), i + 1 < args.count {
+        terms = args[i + 1].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    } else {
+        terms = Vocabulary.terms
+    }
+    let conNumeri = args.contains("--numeri")
+    struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
+    do {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let entries = try JSONDecoder().decode([Entry].self, from: data)
+        let testi = entries.flatMap {
+            [$0.raw, $0.text, $0.clean].compactMap { $0 }.filter { !$0.isEmpty }
+        }
+        func pipeline(_ t: String) -> String {
+            var out = VocabularyRepair.apply(to: t, terms: terms)
+            if conNumeri { out = ItalianNumberSpans.apply(to: out) }
+            return out
+        }
+        print("vocabolario (\(terms.count)) · numeri: \(conNumeri ? "sì" : "no")")
+        print("corpus: \(testi.count) testi da \(path)\n")
+        var cambiati = 0
+        for testo in testi {
+            let out = pipeline(testo)
+            guard out != testo else { continue }
+            cambiati += 1
+            let (a, b) = finestraDelCambio(testo, out)
+            print("PRIMA: \(a)")
+            print("DOPO : \(b)\n")
+        }
+        print("— \(cambiati) testi cambiati su \(testi.count) —")
+        print("Ogni riga qui sopra va LETTA: un tasso non è una prova.")
+        if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
+            struct Pair: Codable { let before: String; let after: String }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            try encoder.encode(testi.map { Pair(before: $0, after: pipeline($0)) })
+                .write(to: URL(fileURLWithPath: args[i + 1]))
+            print("scritto \(args[i + 1]) — \(testi.count) coppie")
+        }
+    } catch {
+        FileHandle.standardError.write(Data("selftest-pipeline: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
 // `Kalamos --selftest-combo <corpus.json>` — the negative pole for KeyCombos.
 //
 // Same shape as --selftest-vocab and for the same reason: the failure that costs
