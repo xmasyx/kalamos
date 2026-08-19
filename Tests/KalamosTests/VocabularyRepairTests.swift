@@ -226,3 +226,45 @@ import Testing
         #expect(SpeechEngine(rawValue: "qualcosa-che-non-esiste") == nil)
     }
 }
+
+/// Il plurale del termine non è il termine.
+///
+/// Trovato il 19/08 sul banco della parità, leggendo i cambi del cancello sulle
+/// sue dettature vere: «le dettature brevi» tornava «le dettatura brevi». Il
+/// difetto girava in produzione su entrambi i motori.
+@Suite struct VocabularyInflectionTests {
+
+    static let terms = ["dettatura", "Kalamos", "notch", "Anthropic"]
+
+    @Test func ilPluraleDelTermineRestaAlPlurale() {
+        for f in ["sono delle dettature in cui io ho aperto il pannello",
+                  "Kalamos serve per le dettature brevi"] {
+            #expect(VocabularyRepair.apply(to: f, terms: Self.terms) == f, "toccata: \(f)")
+        }
+    }
+
+    /// Il polo positivo: la guardia nuova non deve spegnere le riparazioni vere,
+    /// e nessuna di quelle misurate ha la firma dell'inflessione.
+    @Test func leRiparazioniVereRestanoVive() {
+        #expect(VocabularyRepair.apply(to: "Calamos serve per questo", terms: Self.terms)
+                == "Kalamos serve per questo")
+        #expect(VocabularyRepair.apply(to: "il click per aprire notce se vado", terms: Self.terms)
+                == "il click per aprire notch se vado")
+        #expect(VocabularyRepair.apply(to: "utilizzare Antropic o altro", terms: Self.terms)
+                == "utilizzare Anthropic o altro")
+        // Differisce in mezzo, non in fondo: resta una riparazione.
+        #expect(VocabularyRepair.apply(to: "una dentatura di prova", terms: Self.terms)
+                == "una dettatura di prova")
+    }
+
+    @Test func laFirmaDellInflessioneRiconosceSoloLaVocaleFinale() {
+        #expect(VocabularyRepair.èSoloUnaDesinenza("dettature", "dettatura"))
+        #expect(VocabularyRepair.èSoloUnaDesinenza("acte", "acta"))
+        // Differisce a METÀ, non in fondo: non è una desinenza, ed è il caso
+        // che ha bocciato la prima versione di questo test.
+        #expect(!VocabularyRepair.èSoloUnaDesinenza("otiam", "otium"))
+        #expect(!VocabularyRepair.èSoloUnaDesinenza("notce", "notch"))   // consonante
+        #expect(!VocabularyRepair.èSoloUnaDesinenza("calamos", "kalamos")) // prima lettera
+        #expect(!VocabularyRepair.èSoloUnaDesinenza("dettatura", "dettatura")) // identiche
+    }
+}

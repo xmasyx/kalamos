@@ -67,25 +67,61 @@ enum VocabularyRepair {
     /// For a four-letter term, the right tool is a `Corrections` rule.
     static let minFuzzyLength = 5
 
+    /// **Il budget più largo per Parakeet è stato provato e BOCCIATO** (19/08).
+    ///
+    /// L'idea era buona sulla carta: i due motori sbagliano a distanze diverse.
+    /// WhisperKit manca il termine di poco («Calamos» per «Kalamos», un edit) e
+    /// il budget stretto lo prende; Parakeet lo manca di più — «noce» e
+    /// «noccia» per «notch», «mitli» per «Meetly» — e con budget 1 su un
+    /// termine di cinque lettere resta fuori. Da qui `extraBudget`, che allarga
+    /// il budget di uno sui termini corti.
+    ///
+    /// Il cancello sulla metà di taratura ha prodotto 16 cambi in più, e
+    /// leggerli — che è l'unica prova che conta — ne ha bocciati **dieci**:
+    ///
+    ///     la narrativa reale     → la narrativa README
+    ///     quando si chiude       → quando si Claude
+    ///     rilasciato ieri        → rilasciato iTerm
+    ///     le note generate       → le notch generate
+    ///     del colore e del toggle → del colore excel toggle
+    ///     un numero reale        → un numero README
+    ///
+    /// Contro sei riparazioni giuste. È esattamente il vandalismo del 31/07,
+    /// e la regola è che ne basta uno. Il difetto non è il numero scelto: è che
+    /// un budget più largo mangia **parole italiane vere**, e la frenata che lo
+    /// impediva era proprio quella. Nessun ritocco lo salva, perché le parole
+    /// mangiate («reale», «note», «ieri», «chiude») sono più comuni dei termini
+    /// che si volevano riparare.
+    ///
+    /// Il parametro resta, e `--selftest-vocab --budget-extra N` lo esercita:
+    /// serve a poter **rimisurare** la bocciatura invece di ricordarsela. In
+    /// produzione nessun motore lo alza — `apply` è chiamata senza.
     /// Apply the vocabulary to a raw transcription.
     static func apply(to text: String, terms: [String] = Vocabulary.terms,
-                      minFuzzyLength: Int = minFuzzyLength) -> String {
+                      minFuzzyLength: Int = minFuzzyLength,
+                      extraBudget: Int = 0) -> String {
         guard !terms.isEmpty, !text.isEmpty else { return text }
         var result = text
         // Longest terms first: "Claude Desktop" must win over "Claude", or the
         // single-word term consumes the first half and the pair never matches.
         for term in terms.sorted(by: { $0.count > $1.count }) {
-            result = applyOne(term, to: result, minFuzzyLength: minFuzzyLength)
+            result = applyOne(term, to: result, minFuzzyLength: minFuzzyLength,
+                              extraBudget: extraBudget)
         }
         return result
     }
 
     // MARK: - One term
 
-    private static func applyOne(_ term: String, to text: String, minFuzzyLength: Int) -> String {
+    private static func applyOne(_ term: String, to text: String, minFuzzyLength: Int,
+                                 extraBudget: Int) -> String {
         let target = fold(term)
         guard !target.isEmpty else { return text }
-        let budget = max(1, target.count / 5)
+        // Il supplemento vale solo per i termini corti, ed è lì che serve: su
+        // «notch» (5) porta il budget da 1 a 2 e raggiunge «noce». Su
+        // «endomidollare» (13) il budget è già 2, e portarlo a 3 vorrebbe dire
+        // riaprire proprio il caso che la frenata esiste per chiudere.
+        let budget = max(1, target.count / 5) + (target.count <= 7 ? extraBudget : 0)
 
         var tokens = tokenize(text)
         let termWords = term.split(separator: " ").count
@@ -162,6 +198,28 @@ enum VocabularyRepair {
                     guard distance(core, target, cap: target.count) <
                             distance(head, target, cap: target.count) else { continue }
                 }
+                // Il plurale del termine NON è il termine.
+                //
+                // Trovato il 19/08 leggendo il cancello sulle sue dettature:
+                // «le **dettature** brevi» tornava «le **dettatura** brevi», e
+                // «sono delle dettature» tornava «delle dettatura». Il termine
+                // «dettatura» è un sostantivo italiano comunissimo, il suo
+                // plurale dista un edit, e il budget di un termine di nove
+                // lettere è esattamente uno: la riparazione non poteva non
+                // scattare. Girava in produzione su ENTRAMBI i motori, e il
+                // danno è invisibile — un plurale sbagliato in un testo che
+                // nessuno rilegge non somiglia a un errore di trascrizione.
+                //
+                // La firma dell'inflessione italiana è precisa: stessa
+                // lunghezza, differenza SOLO nell'ultima lettera, e le due
+                // ultime lettere sono vocali (-a/-e/-i/-o). Nessuna
+                // riparazione misurata la incrocia: «Calamos» differisce sulla
+                // prima lettera, «notce» finisce per consonante, «Antropic» ha
+                // lunghezza diversa, «dentatura» differisce in mezzo e resta
+                // riparata. Quello che si perde è un termine dettato davvero al
+                // singolare quando la lista lo ha al plurale, che è un caso da
+                // `Corrections`, non da indovinare.
+                if èSoloUnaDesinenza(candidate, target) { continue }
                 if distance(candidate, target, cap: budget) <= budget {
                     tokens.replaceSubrange(from...to, with: [.word(term)])
                     advanced = true
@@ -222,6 +280,18 @@ enum VocabularyRepair {
             .filter { CharacterSet.alphanumerics.contains($0) }
             .map(String.init)
             .joined()
+    }
+
+    /// Le due parole differiscono solo per la vocale finale?
+    ///
+    /// È la firma dell'inflessione italiana, e serve a non far passare per
+    /// riparazione ciò che è una declinazione: `dettature` → `dettatura`.
+    static func èSoloUnaDesinenza(_ a: String, _ b: String) -> Bool {
+        guard a.count == b.count, a.count >= 2, a != b else { return false }
+        let x = Array(a), y = Array(b)
+        guard x.dropLast() == y.dropLast() else { return false }
+        let vocali: Set<Character> = ["a", "e", "i", "o", "u"]
+        return vocali.contains(x[x.count - 1]) && vocali.contains(y[y.count - 1])
     }
 
     /// Levenshtein, abandoned as soon as every cell in a row exceeds `cap`.

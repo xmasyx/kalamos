@@ -350,18 +350,26 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
     let minFuzzy = args.firstIndex(of: "--min-fuzzy").flatMap {
         $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
     } ?? VocabularyRepair.minFuzzyLength
+    // Il supplemento di budget che il motore chiede. In produzione lo decide
+    // `VocabularyRepair.extraBudget(for:)`; qui si passa a mano perché un banco
+    // che legge le impostazioni misura il dominio dei defaults in cui è
+    // finito, non quello dell'app.
+    let extra = args.firstIndex(of: "--budget-extra").flatMap {
+        $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
+    } ?? 0
     struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
     do {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let entries = try JSONDecoder().decode([Entry].self, from: data)
         print("vocabolario (\(terms.count)): \(terms.joined(separator: ", "))")
-        print("corpus: \(entries.count) voci da \(path) · min-fuzzy=\(minFuzzy)\n")
+        print("corpus: \(entries.count) voci da \(path) · min-fuzzy=\(minFuzzy) · budget+\(extra)\n")
         var changed = 0, seen = 0
         for entry in entries {
             for field in [entry.raw, entry.text, entry.clean].compactMap({ $0 }) where !field.isEmpty {
                 seen += 1
                 let out = VocabularyRepair.apply(to: field, terms: terms,
-                                                 minFuzzyLength: minFuzzy)
+                                                 minFuzzyLength: minFuzzy,
+                                                 extraBudget: extra)
                 guard out != field else { continue }
                 changed += 1
                 print("PRIMA: \(field)")
@@ -378,7 +386,8 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
             let pairs = entries.flatMap { entry in
                 [entry.raw, entry.text, entry.clean].compactMap { $0 }.filter { !$0.isEmpty }
                     .map { Pair(before: $0, after: VocabularyRepair.apply(
-                        to: $0, terms: terms, minFuzzyLength: minFuzzy)) }
+                        to: $0, terms: terms, minFuzzyLength: minFuzzy,
+                        extraBudget: extra)) }
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted]
