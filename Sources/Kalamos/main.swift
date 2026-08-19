@@ -1339,6 +1339,15 @@ func sondaIsola() -> (posizione: WavePosition, livello: Double) {
     // per fotografare uno stato deve METTERCI l'app lascia l'app com'era nella
     // fotografia.
     if CommandLine.arguments.contains("--senza-bolla") { WaveIsland.probeShell = false }
+    // `--forma=<0…1>` ferma la trasformazione notch↔pillola a metà strada, per
+    // fotografarla. Passa dallo stato di scena e non dalle impostazioni, come
+    // tutto il resto qui: una sonda che per vedere uno stato deve METTERCI l'app
+    // lascia l'app com'era nella fotografia.
+    if let f = CommandLine.arguments
+        .first(where: { $0.hasPrefix("--forma=") })
+        .flatMap({ $0.split(separator: "=", maxSplits: 1).last.flatMap { Double($0) } }) {
+        MainActor.assumeIsolated { WaveIsland.shared.progressoForma = min(max(f, 0), 1) }
+    }
     return (posizione, livello)
 }
 
@@ -1606,6 +1615,11 @@ if CommandLine.arguments.contains("--sonda-trascinamento") {
         // una somma di scarti lascia un errore permanente, e quindi l'unico che
         // misura davvero la riparazione della deriva.
         let andataRitorno = CommandLine.arguments.contains("--bersaglio=andata-ritorno")
+        // `--lento` fa lo STESSO percorso con molti più passi piccoli. Serve a
+        // riprodurre «se mi avvicino lentamente viene respinto»: se il gesto
+        // dipende dal NUMERO di eventi invece che dal percorso, i due giri
+        // finiscono in due posti diversi, e la differenza è tutta la diagnosi.
+        let lento = CommandLine.arguments.contains("--lento")
         let bersaglio = alto ? CGPoint(x: sf.midX, y: sf.maxY - 6)
                              : CGPoint(x: sf.midX - 300, y: 500)
         posta(.mouseMoved, partenza); Thread.sleep(forTimeInterval: 0.15)
@@ -1625,13 +1639,15 @@ if CommandLine.arguments.contains("--sonda-trascinamento") {
         // che ha attraversato mezzo schermo.
         var corsaMax: CGFloat = 0
         var saltaUno = false
-        for i in 1...45 {
+        var derivaInSosta: CGFloat = 0
+        let passi = lento ? 400 : 45
+        for i in 1...passi {
             // Andata e ritorno: 0 → 1 → 0 sul percorso, contro il bordo e indietro.
-            let g = Double(i) / 45
+            let g = Double(i) / Double(passi)
             let f = andataRitorno ? (g <= 0.5 ? g * 2 : (1 - g) * 2) : g
             posta(.leftMouseDragged, CGPoint(x: partenza.x + (bersaglio.x - partenza.x) * f,
                                              y: partenza.y + (bersaglio.y - partenza.y) * f))
-            Thread.sleep(forTimeInterval: 0.016)
+            Thread.sleep(forTimeInterval: lento ? 0.004 : 0.016)
             DispatchQueue.main.sync {
                 let m = NSEvent.mouseLocation, o = pannello.frame.origin
                 let scarto = CGPoint(x: m.x - o.x, y: m.y - o.y)
@@ -1639,20 +1655,27 @@ if CommandLine.arguments.contains("--sonda-trascinamento") {
                 // afferrato: si riazzera il riferimento, altrimenti si misura la
                 // trasformazione e la si chiama deriva.
                 corsaMax = max(corsaMax, hypot(o.x - origineIniziale.x, o.y - origineIniziale.y))
+                // **Dentro il magnete la deriva è VOLUTA**, non un difetto: vicino
+                // all'ancora l'isola viene tirata dentro e smette di stare sotto il
+                // dito, ed è esattamente ciò che gli serve per agganciarsi. La
+                // misura vale quindi solo dove la forma è la pillola a riposo, cioè
+                // dove il magnete non tira. Senza questa riga la sonda misurerebbe
+                // il rimedio e lo chiamerebbe difetto.
+                let fuoriDalMagnete = pannello.frame.size == IslandPanel.size(progresso: 1)
                 if let t = tagliaPrec, t != pannello.frame.size {
                     trasformazioni += 1
                     scartoIniziale = nil
                     saltaUno = true          // il ridimensionamento si posa un fotogramma dopo
                 }
                 tagliaPrec = pannello.frame.size
-                if let s0 = scartoIniziale {
+                if let s0 = scartoIniziale, fuoriDalMagnete {
                     derivaMax = max(derivaMax, hypot(scarto.x - s0.x, scarto.y - s0.y))
                 } else if saltaUno {
                     saltaUno = false
-                } else if i > 3 {
+                } else if i > 3, fuoriDalMagnete {
                     scartoIniziale = scarto   // dopo i primi eventi, quando il gesto è avviato
                 }
-                if i % 9 == 0 { veli.append(contentsOf: veliDiSistema()) }
+                    if i % max(1, passi / 5) == 0 { veli.append(contentsOf: veliDiSistema()) }
             }
         }
         Thread.sleep(forTimeInterval: 0.3)
@@ -1660,6 +1683,10 @@ if CommandLine.arguments.contains("--sonda-trascinamento") {
         posta(.leftMouseUp, bersaglio)
         Thread.sleep(forTimeInterval: 0.4)
         DispatchQueue.main.async {
+            let ancoraNotch = Ancore.centroNotch(schermo: sf,
+                                                 altezzaGuscio: IslandPanel.shellSize(for: .notch).height)
+            let centroFinale = pannello.islandCentre
+            let restaLontana = hypot(centroFinale.x - ancoraNotch.x, centroFinale.y - ancoraNotch.y)
             let origineFinale = pannello.frame.origin
             let spostata = max(corsaMax, hypot(origineFinale.x - origineIniziale.x, origineFinale.y - origineIniziale.y))
             let taglia = pannello.frame.size
@@ -1671,6 +1698,11 @@ if CommandLine.arguments.contains("--sonda-trascinamento") {
                 print(taglia.width == attesa.width ? "✓ uscendo dal notch la banda è diventata pillola"
                                                    : "✗ la banda non si è trasformata: il magnete non molla")
             }
+            print(String(format: "passi: %d%@ · distanza finale dall'ancora del notch: %.0f pt",
+                         passi, lento ? " (lento)" : "", restaLontana))
+            print(String(format: "movimento a puntatore FERMO: %.0f pt", derivaInSosta))
+            print(derivaInSosta <= 2 ? "✓ ferma la mano, ferma l'isola"
+                                     : "✗ l'isola si muove da sola: la forma influenza il centro che decide la forma")
             print(String(format: "deriva massima puntatore↔finestra: %.0f pt (trasformazioni di forma: %d, escluse dalla misura)", derivaMax, trasformazioni))
             print("veli di sistema visti: \(veli.count)\(veli.isEmpty ? "" : " → \(Set(veli).joined(separator: ", "))")")
             let seguita = spostata > 50

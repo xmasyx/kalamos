@@ -226,6 +226,14 @@ final class WaveIsland: ObservableObject {
     /// dettatura. `hide()` lo azzera.
     @Published var posizioneEffimera: WavePosition?
 
+    /// **Dove sta la trasformazione, mentre la mano si muove**: 0 è la banda del
+    /// notch, 1 è la pillola, e in mezzo c'è la forma interpolata.
+    ///
+    /// `nil` fuori dal gesto, e allora comanda la posizione discreta. Vive qui e
+    /// non in `AppState` perché è un valore di scena: non deve sopravvivere né
+    /// alla dettatura né alla chiusura dell'app.
+    @Published var progressoForma: Double?
+
     private let state = AppState.shared
     private var panel: IslandPanel?
 
@@ -333,6 +341,7 @@ final class WaveIsland: ObservableObject {
         // Dove la mano l'aveva lasciata muore con la dettatura, che è tutto il
         // significato di «vale per questa registrazione».
         posizioneEffimera = nil
+        progressoForma = nil
         dismiss()
     }
 
@@ -355,6 +364,14 @@ final class WaveIsland: ObservableObject {
     @MainActor
     static func posizioneCorrente(_ state: AppState) -> WavePosition {
         probePosition ?? shared.posizioneEffimera ?? state.wavePosition
+    }
+
+    /// **Il progresso che vale adesso**, e non c'è nessun ramo: fuori dal gesto la
+    /// posizione discreta è semplicemente il progresso agli estremi. Un `if` qui
+    /// sarebbe la stessa cosa scritta due volte, e prima o poi le due divergono.
+    @MainActor
+    static func progressoCorrente(_ state: AppState) -> Double {
+        shared.progressoForma ?? (posizioneCorrente(state) == .notch ? 0 : 1)
     }
 
     /// Whether to draw the bubble behind the wave, regardless of what is saved.
@@ -1085,6 +1102,38 @@ final class IslandPanel: NSPanel {
         }
     }
 
+    /// **La forma a metà strada**, come funzione di un progresso solo.
+    ///
+    /// Ai due capi restituisce ESATTAMENTE le due forme discrete — non qualcosa
+    /// che ci somiglia — così la transizione e le due posizioni ferme non possono
+    /// divergere: sono la stessa funzione valutata in 0 e in 1.
+    nonisolated static func shellSize(progresso p: Double) -> CGSize {
+        let banda = shellSize(for: .notch), pillola = shellSize(for: .libera)
+        return CGSize(width: banda.width + (pillola.width - banda.width) * p,
+                      height: banda.height + (pillola.height - banda.height) * p)
+    }
+
+    nonisolated static func size(progresso p: Double) -> CGSize {
+        let guscio = shellSize(progresso: p)
+        return CGSize(width: guscio.width + (guscio.width * bounceSlack).rounded(),
+                      height: guscio.height + (guscio.height * bounceSlack).rounded())
+    }
+
+    /// Dove sta il guscio dentro la finestra, a metà trasformazione.
+    ///
+    /// Nel notch il gioco della rimbalzata sta tutto sotto (il guscio tocca il
+    /// bordo fisico); nella pillola è diviso a metà. Anche questo interpola,
+    /// altrimenti il guscio salterebbe dentro la finestra nell'istante in cui la
+    /// finestra smette di essere appesa.
+    nonisolated static func shellFrame(progresso p: Double) -> CGRect {
+        let finestra = size(progresso: p), guscio = shellSize(progresso: p)
+        let x = (finestra.width - guscio.width) / 2
+        let alto = finestra.height - guscio.height
+        let centrato = (finestra.height - guscio.height) / 2
+        return CGRect(x: x, y: alto + (centrato - alto) * p,
+                      width: guscio.width, height: guscio.height)
+    }
+
     /// The window: the island plus the room its bounce needs.
     nonisolated static func size(for position: WavePosition) -> CGSize {
         let shell = shellSize(for: position)
@@ -1121,8 +1170,7 @@ final class IslandPanel: NSPanel {
     private var monitorGesto: Any?
     private var monitorLocale: Any?
     private var trascinando = false
-    private var ancoraPuntatore: NSPoint = .zero
-    private var ancoraOrigine: NSPoint = .zero
+    private var scartoDalCentro: CGPoint = .zero
     private var mossaAvvenuta = false
 
     /// **Come l'isola sopravvive al cambio di schermata**, e i tre flag servono
@@ -1293,32 +1341,56 @@ final class IslandPanel: NSPanel {
                 .offsetBy(dx: frame.origin.x, dy: frame.origin.y)
             guard isVisible, guscio.contains(punto) else { return }
             trascinando = true
-            ancoraPuntatore = punto
-            ancoraOrigine = frame.origin
+            // **Lo scarto fra il dito e il CENTRO dell'isola**, non fra il dito e
+            // l'angolo della finestra. Il centro è l'unico punto che significa la
+            // stessa cosa per la banda e per la pillola, quindi è l'unico
+            // riferimento che sopravvive alla trasformazione che avviene durante
+            // il gesto.
+            scartoDalCentro = CGPoint(x: punto.x - islandCentre.x, y: punto.y - islandCentre.y)
             mossaAvvenuta = false
+            // Il gesto comincia da dove la forma sta ADESSO, così il primo
+            // fotogramma non salta.
+            WaveIsland.shared.progressoForma = WaveIsland.progressoCorrente(state)
         case .leftMouseDragged:
             guard trascinando else { return }
             let ora = NSEvent.mouseLocation
-            // **Posizione ASSOLUTA dal punto in cui l'hai afferrata, non somma di
-            // scarti** (suo difetto dal campo, 19/08: «si sta allontanando, non
-            // tiene il puntatore»). Sommare gli scarti sembra equivalente e non lo
-            // è: appena AppKit rifiuta un'origine — contro il bordo alto lo fa —
-            // la finestra resta indietro, e da lì in poi ogni scarto si somma a una
-            // base sbagliata. L'errore non si recupera più e cresce a ogni
-            // rifiuto, che è esattamente la deriva che si vede nel filmato.
-            // Ricalcolando dall'ancora, un rifiuto costa un fotogramma e basta.
-            let voluta = NSPoint(x: ancoraOrigine.x + (ora.x - ancoraPuntatore.x),
-                                 y: ancoraOrigine.y + (ora.y - ancoraPuntatore.y))
-            guard voluta != frame.origin else { return }
+            // **Tutto si calcola dal CENTRO voluto dal dito**, in un colpo solo, e
+            // in quest'ordine preciso.
+            //
+            // Il difetto che questo ripara è suo, dal campo del 19/08: avvicinando
+            // il notch **lentamente** l'isola veniva respinta e non si agganciava,
+            // mentre avvicinandolo di scatto funzionava. La causa è che la finestra
+            // CRESCE mentre si avvicina — da 46 a 146 punti di altezza — e
+            // crescendo attorno a un centro fermo il suo bordo alto sale: sopra il
+            // bordo dello schermo AppKit rifiuta l'origine e la ributta giù. Piano
+            // si resta in quella zona per decine di eventi e non si arriva mai; di
+            // scatto la si attraversa e l'aggancio al rilascio fa il resto.
+            //
+            // La riparazione è anche il modello che voleva lui, «un magnete»: il
+            // progresso decide la forma **e** la posizione. Vicino all'ancora
+            // l'isola è tirata dentro invece di essere lasciata dove capita, quindi
+            // a progresso zero la finestra sta esattamente dove `place()` la
+            // metterebbe, che è una posizione valida e non una che il sistema
+            // rifiuta.
+            //
+            // Nessun ritorno di fiamma: il progresso si calcola dal centro VOLUTO
+            // dal dito, non da quello dove l'isola è finita. Se dipendesse dalla
+            // posizione raggiunta, la forma cambierebbe la posizione che decide la
+            // forma, ed è il modo classico per far oscillare una cosa che dovrebbe
+            // stare ferma.
+            guard let screen = NSScreen.main else { return }
+            let centroVoluto = NSPoint(x: ora.x - scartoDalCentro.x, y: ora.y - scartoDalCentro.y)
+            let p = Ancore.progressoForma(centro: centroVoluto, schermo: screen.frame,
+                                          altezzaGuscioNotch: Self.shellSize(for: .notch).height)
+            let ancora = Ancore.centroNotch(schermo: screen.frame,
+                                            altezzaGuscio: Self.shellSize(for: .notch).height)
+            let centroFinale = NSPoint(x: ancora.x + (centroVoluto.x - ancora.x) * p,
+                                       y: ancora.y + (centroVoluto.y - ancora.y) * p)
+            WaveIsland.shared.progressoForma = p
+            let prima = frame
+            ridimensionaAttorno(centro: centroFinale)
+            guard frame != prima else { return }
             mossaAvvenuta = true
-            setFrameOrigin(voluta)
-            // La forma può cambiare sotto le dita, e allora la finestra ha una
-            // taglia nuova: l'ancora si riprende da lì, altrimenti il salto della
-            // trasformazione diventa un offset permanente.
-            if aggiornaFormaDurante() {
-                ancoraPuntatore = ora
-                ancoraOrigine = frame.origin
-            }
         default:
             guard trascinando else { return }
             trascinando = false
@@ -1357,6 +1429,7 @@ final class IslandPanel: NSPanel {
                                visibile: screen.visibleFrame,
                                altezzaGuscioNotch: Self.shellSize(for: .notch).height) {
         case .nome(let ancora):
+            WaveIsland.shared.progressoForma = nil
             // Il nome, non i numeri. L'effimero cade perché adesso c'è una scelta
             // vera, e l'assegnazione fa ripartire `place()` attraverso il
             // publisher: è quello che porta l'isola ESATTAMENTE sull'ancora e le
@@ -1366,6 +1439,7 @@ final class IslandPanel: NSPanel {
             WaveIsland.shared.posizioneEffimera = nil
             state.wavePosition = ancora
         case .coordinate(let punto), .lontano(let punto):
+            WaveIsland.shared.progressoForma = nil
             // **Lasciata lontano da ogni ancora, diventa libera e ci RESTA**
             // (sua correzione del 19/08, dal campo): «di base è ancorata in basso
             // al centro oppure nel notch, ma è sempre movibile», e «a meno che io
@@ -1390,22 +1464,6 @@ final class IslandPanel: NSPanel {
     /// magnete visto da dentro il gesto, ed è la cosa che gli piaceva del
     /// trascinamento vecchio. Non si scrive niente sul disco qui — la forma di
     /// adesso vive in `posizioneEffimera`, e la decisione la prende il rilascio.
-    @discardableResult
-    private func aggiornaFormaDurante() -> Bool {
-        guard let screen = NSScreen.main else { return false }
-        let centro = islandCentre
-        let vicina = Ancore.aggancio(centro: centro, schermo: screen.frame,
-                                     visibile: screen.visibleFrame,
-                                     altezzaGuscioNotch: Self.shellSize(for: .notch).height)
-        // Vicino al notch è banda; ovunque altro è pillola. `bassoCentro` e
-        // `libera` disegnano la stessa cosa, quindi qui basta distinguere il notch.
-        let forma: WavePosition = (vicina == .notch) ? .notch : .libera
-        guard WaveIsland.posizioneCorrente(state) != forma else { return false }
-        WaveIsland.shared.posizioneEffimera = forma
-        ridimensionaAttorno(centro: centro)
-        return true
-    }
-
     /// Cambia la taglia della finestra tenendo fermo il CENTRO dell'isola.
     ///
     /// Serve al solo caso effimero, che è l'unico in cui la forma cambia senza che
@@ -1414,9 +1472,9 @@ final class IslandPanel: NSPanel {
     /// 400×128 e una pillola 150×40 l'angolo significa due punti diversi, e
     /// tenerlo fermo farebbe saltare l'isola nel momento in cui la lasci.
     func ridimensionaAttorno(centro: NSPoint) {
-        let posizione = WaveIsland.posizioneCorrente(state)
-        let size = Self.size(for: posizione)
-        let shell = Self.shellFrame(for: posizione)
+        let p = WaveIsland.progressoCorrente(state)
+        let size = Self.size(progresso: p)
+        let shell = Self.shellFrame(progresso: p)
         setFrame(NSRect(x: centro.x - shell.midX, y: centro.y - shell.midY,
                         width: size.width, height: size.height), display: true)
     }
@@ -1457,7 +1515,7 @@ final class IslandPanel: NSPanel {
     /// shape changed, which is the exact class of silent drift the centre was
     /// chosen to remove.
     var islandCentre: NSPoint {
-        let shell = Self.shellFrame(for: WaveIsland.posizioneCorrente(state))
+        let shell = Self.shellFrame(progresso: WaveIsland.progressoCorrente(state))
         return NSPoint(x: frame.origin.x + shell.midX, y: frame.origin.y + shell.midY)
     }
 
@@ -1602,98 +1660,123 @@ struct IslandView: View {
             // `IslandEntrance.animation(entrando:)`, and one source for the curve
             // is the same argument as one clock for the axes.
             .scaleEffect(x: entrance.scaleX, y: entrance.scaleY, anchor: entrance.anchor)
-            // The island sits in its place inside the window, with the slack the
-            // bounce needs left free around it: hanging from the notch that means
-            // all of it underneath, so the island keeps touching the screen edge.
-            .frame(width: size.width, height: size.height,
-                   alignment: inNotch ? .top : .center)
+            // L'isola sta al suo posto dentro la finestra, col gioco della
+            // rimbalzata libero intorno: appesa al notch è tutto sotto, così
+            // l'isola continua a toccare il bordo dello schermo; sulla pillola è
+            // diviso a metà.
+            //
+            // **Uno scostamento e non un allineamento**, perché `Alignment` è un
+            // valore discreto: sceglierlo con un ternario sul progresso
+            // rimetterebbe esattamente il ramo che questa vista esiste per non
+            // avere. Lo scarto fra le due posizioni è metà del gioco, e si
+            // percorre con lo stesso progresso di tutto il resto.
+            .offset(y: -(size.height - shellSize.height) / 2 * (1 - progresso))
+            .frame(width: size.width, height: size.height)
             // Last resort. Nothing should reach here — that is what the slack is
             // for — but a window that draws over its own edge is a defect nobody
             // sees on the machine where it fits.
             .clipped()
     }
 
-    @ViewBuilder
-    private var drawing: some View {
-        if inNotch { notch } else { bubble }
-    }
-
-    /// Aria sopra e sotto il blocco dell'onda.
+    /// Aria sopra e sotto il blocco dell'onda, nella banda.
     static let respiro: CGFloat = 6
 
     /// Quanto hardware c'è da scansare su questo schermo.
     private var striscia: CGFloat { IslandEntrance.strisciaHardware(NSScreen.main) }
 
-    /// **Quello che resta all'onda**: il guscio, meno l'hardware, meno l'aria.
-    /// Pubblica e pura così la prova può chiederlo per qualunque taglia di banda
-    /// senza costruire una vista.
+    /// **Quello che resta all'onda nella banda**: il guscio, meno l'hardware,
+    /// meno l'aria. Pura, così la prova può chiederla per qualunque taglia senza
+    /// costruire una vista.
     static func altezzaOnda(guscio: CGFloat, striscia: CGFloat) -> CGFloat {
         max(24, guscio - striscia - respiro * 2)
     }
 
-    private var altezzaOnda: CGFloat {
-        Self.altezzaOnda(guscio: shellSize.height, striscia: striscia)
-    }
-
-    /// The band under the hardware.
-    private var notch: some View {
-        VStack(spacing: 0) {
-            // Only the physical height of the notch, so the wave starts
-            // immediately below it instead of hanging low in the shell.
-            Spacer().frame(height: striscia)
-            // Taller than it was, by exactly what the caption used to take.
-            // Keeping the old height would have left the same shell with a hole in
-            // the bottom of it: the line under the wave is gone, so the wave takes
-            // the room back rather than the shell keeping an empty band nobody can
-            // explain (MacAppRules §2 — the page is judged whole, not by the piece
-            // that was removed).
-            // La tela è larga quanto il guscio — il filo deve toccare i due
-            // bordi — e i nastri si spengono nelle ultime frazioni di ciascun
-            // capo invece di essere tranciati contro il nero.
-            // **Calcolata, non scritta a mano.** Era 72, e con la banda a 96 la
-            // somma faceva 18 + 72 + 12 = 102 punti dentro un guscio di 96: sei
-            // punti finivano sotto `.clipped()`, e i primi 14 stavano comunque
-            // dietro il notch. Adesso l'onda prende esattamente quello che resta
-            // sotto l'hardware, quindi stringendo ancora la banda si assottiglia
-            // invece di essere tranciata.
-            wave(profilo: WaveCanvas.profiloSfumato()).frame(height: altezzaOnda)
-        }
-        // The 22 points of side margin went on 2026-08-16, and with them the last
-        // reason the thread stopped short of the ends. The shell is a rectangle
-        // here, so there is no arc to keep clear and nothing the margin was
-        // protecting — it was simply holding the wave away from its own edges.
-        // Centra l'onda nella banda SOTTO il notch invece che nel guscio: il
-        // blocco è centrato nel riquadro e la striscia dell'hardware sta dentro,
-        // quindi il centro dell'onda cade a metà di ciò che si vede davvero.
-        .padding(.vertical, Self.respiro)
-        .frame(width: shellSize.width, height: shellSize.height)
-        .background {
-            UnevenRoundedRectangle(
-                cornerRadii: .init(bottomLeading: 24, bottomTrailing: 24),
-                style: .continuous
-            )
-            .fill(.black)
-        }
-    }
-
-    /// The pill.
+    /// **UNA forma sola, funzione di un progresso solo** — la banda del notch a 0,
+    /// la pillola a 1, e in mezzo la stessa figura valutata a metà strada.
     ///
-    /// The wave runs the WHOLE length of it and is kept off the two rounded ends
-    /// by `BubbleGeometry.profile`, which lowers the ceiling where the pill closes
-    /// instead of moving the wave inward. `clipShape` behind it is the guarantee
-    /// rather than the method — nothing can spill even if the maths one day says
-    /// otherwise.
-    private var bubble: some View {
-        ZStack {
-            if WaveIsland.probeShell ?? state.waveShell {
-                Capsule(style: .continuous)
-                    .fill(WaveTint.color(from: state.waveShellTint).opacity(0.94))
-            }
-            wave(profilo: BubbleGeometry.profile(box: waveBox, in: shellSize))
-                .frame(width: waveBox.width, height: waveBox.height)
+    /// **Qui NON c'è nessun `if` sul progresso, ed è la regola che questa vista
+    /// esiste per rispettare** (pagata il 18/08): un ramo deciso su un valore che
+    /// si muove cambia l'identità della vista, SwiftUI salta l'interpolazione, e
+    /// il difetto è invisibile nel sorgente perché il codice sembra giusto. I due
+    /// aspetti — il nero squadrato dell'hardware e la capsula colorata — sono
+    /// quindi **due strati sempre presenti** che si scambiano per opacità, non due
+    /// viste che si sostituiscono.
+    ///
+    /// Il ramo che resta è sull'interruttore del guscio, che durante il gesto è
+    /// una costante: quello si può decidere, perché non si muove.
+    private var drawing: some View {
+        let p = progresso
+        let guscio = IslandPanel.shellSize(progresso: p)
+        let riquadro = riquadroOnda(p: p, guscio: guscio)
+        let sagoma = Self.sagoma(p: p, guscio: guscio)
+        let mostraGuscio = (WaveIsland.probeShell ?? state.waveShell) ? 1.0 : 0.0
+        return ZStack(alignment: .top) {
+            // Il nero che continua l'hardware: pieno nel notch, spento sulla
+            // pillola.
+            sagoma.fill(Color.black).opacity(1 - p)
+            // La capsula colorata: assente nel notch, piena sulla pillola — e
+            // solo se lui tiene acceso il guscio.
+            sagoma.fill(WaveTint.color(from: state.waveShellTint).opacity(0.94))
+                .opacity(p * mostraGuscio)
+            wave(profilo: Self.profiloMisto(p: p, riquadro: riquadro, guscio: guscio))
+                .frame(width: riquadro.width, height: riquadro.height)
+                .padding(.top, insetSuperiore(p: p, guscio: guscio, riquadro: riquadro))
         }
-        .frame(width: shellSize.width, height: shellSize.height)
-        .clipShape(Capsule(style: .continuous))
+        .frame(width: guscio.width, height: guscio.height)
+        // La garanzia, non il metodo: niente può debordare nemmeno se un giorno
+        // l'aritmetica dicesse altro.
+        .clipShape(sagoma)
+    }
+
+    /// La sagoma a metà strada. Il notch ha gli angoli alti squadrati, perché in
+    /// cima c'è l'hardware da continuare; la pillola è una capsula, cioè un
+    /// rettangolo con tutti i raggi a metà altezza. Interpolando i quattro raggi
+    /// si passa dall'una all'altra senza che nessun fotogramma sia una forma
+    /// impossibile.
+    static func sagoma(p: Double, guscio: CGSize) -> UnevenRoundedRectangle {
+        // Il tetto è metà altezza, e non è una cautela: un raggio più grande di
+        // metà lato è una forma che non esiste. Serve perché i due estremi si
+        // muovono insieme — mentre il raggio in basso scende da 24 verso la
+        // capsula, l'altezza cala da 96 a 40, e verso la fine del percorso metà
+        // altezza passa SOTTO 24. Trovato dalla prova, non a occhio: fra il 90% e
+        // il 100% il raggio superava il tetto di frazioni di punto.
+        let capsula = guscio.height / 2
+        let alto = min(capsula, capsula * p)
+        let basso = min(capsula, 24 + (capsula - 24) * p)
+        return UnevenRoundedRectangle(
+            cornerRadii: .init(topLeading: alto, bottomLeading: basso,
+                               bottomTrailing: basso, topTrailing: alto),
+            style: .continuous)
+    }
+
+    /// Il riquadro dell'onda: largo quanto il guscio nella banda, quello di
+    /// `BubbleGeometry` sulla pillola.
+    private func riquadroOnda(p: Double, guscio: CGSize) -> CGSize {
+        let banda = CGSize(width: guscio.width,
+                           height: Self.altezzaOnda(guscio: guscio.height, striscia: striscia))
+        let pillola = BubbleGeometry.waveSize(in: guscio)
+        return CGSize(width: banda.width + (pillola.width - banda.width) * p,
+                      height: banda.height + (pillola.height - banda.height) * p)
+    }
+
+    /// Quanto scende l'onda dal bordo alto: sotto l'hardware nella banda, al
+    /// centro sulla pillola.
+    private func insetSuperiore(p: Double, guscio: CGSize, riquadro: CGSize) -> CGFloat {
+        let banda = striscia + Self.respiro
+        let pillola = (guscio.height - riquadro.height) / 2
+        return banda + (pillola - banda) * p
+    }
+
+    /// I due profili dell'onda, mescolati dallo stesso progresso.
+    ///
+    /// Non sono intercambiabili: quello della banda si spegne solo sulle due code,
+    /// quello della pillola abbassa il soffitto dove la capsula si chiude. Mescolarli
+    /// invece di sceglierne uno è ciò che evita lo scatto anche nel disegno interno,
+    /// che è la metà del passaggio che nessuno guarda.
+    static func profiloMisto(p: Double, riquadro: CGSize, guscio: CGSize) -> @Sendable (Double) -> Double {
+        let dellaBanda = WaveCanvas.profiloSfumato()
+        let dellaPillola = BubbleGeometry.profile(box: riquadro, in: guscio)
+        return { u in dellaBanda(u) * (1 - p) + dellaPillola(u) * p }
     }
 
     private var wave: some View { wave(profilo: WaveCanvas.profiloPieno) }
@@ -1708,20 +1791,20 @@ struct IslandView: View {
     }
 
     private var position: WavePosition { WaveIsland.posizioneCorrente(state) }
-    private var inNotch: Bool { position == .notch }
+    /// 0 la banda, 1 la pillola. È l'unico valore da cui dipende tutto il disegno.
+    private var progresso: Double { WaveIsland.progressoCorrente(state) }
     /// The window, and the island inside it: the first is bigger by the room the
     /// bounce needs, and everything drawn is measured against the second.
-    private var size: CGSize { IslandPanel.size(for: position) }
-    private var shellSize: CGSize { IslandPanel.shellSize(for: position) }
-    /// Only the pill asks for this, and it is measured from the shell it is drawn
-    /// in rather than from a second copy of the pill's numbers.
-    private var waveBox: CGSize { BubbleGeometry.waveSize(in: shellSize) }
-
-    /// The island's outline: what can be grabbed, and what the veil is painted on.
-    /// The whole pill, ends included — he grabs it wherever he lands.
-    private var shape: AnyShape {
-        inNotch ? AnyShape(Rectangle()) : AnyShape(Capsule(style: .continuous))
-    }
+    private var size: CGSize { IslandPanel.size(progresso: progresso) }
+    private var shellSize: CGSize { IslandPanel.shellSize(progresso: progresso) }
+    /// Il contorno dell'isola: quello che si afferra, e su cui è steso il velo
+    /// cliccabile. Tutta la pillola, capi compresi — la prende dove capita.
+    ///
+    /// È la **stessa** sagoma del disegno, valutata allo stesso progresso, e non
+    /// una seconda copia: un contorno che restasse rettangolare mentre il disegno
+    /// è già capsula darebbe un'area cliccabile che non coincide con ciò che si
+    /// vede, ed è il difetto che non si nota finché non si clicca di striscio.
+    private var shape: AnyShape { AnyShape(Self.sagoma(p: progresso, guscio: shellSize)) }
 
     private var entrance: IslandEntrance {
         IslandEntrance.state(for: position, shown: island.shown)

@@ -715,6 +715,93 @@ import Testing
         #expect(IslandEntrance.strisciaHardware(nil) == IslandEntrance.strisciaPredefinita)
     }
 
+    /// **La transizione notch↔pillola è UNA funzione di UN progresso.**
+    ///
+    /// Il falsificatore di ISC-18, preso alla lettera: nessun fotogramma in cui la
+    /// forma non sia né la banda, né la capsula, né un punto della curva fra le
+    /// due; e nessuna seconda durata che si possa cambiare da sola.
+    @Test func theShapeIsOneFunctionOfOneProgress() {
+        let banda = IslandPanel.shellSize(for: .notch)
+        let pillola = IslandPanel.shellSize(for: .libera)
+
+        // Agli estremi coincide ESATTAMENTE con le due forme discrete: sono la
+        // stessa funzione valutata in 0 e in 1, non due cose che si somigliano.
+        #expect(IslandPanel.shellSize(progresso: 0) == banda)
+        #expect(IslandPanel.shellSize(progresso: 1) == pillola)
+        #expect(IslandPanel.shellFrame(progresso: 0) == IslandPanel.shellFrame(for: .notch))
+        #expect(IslandPanel.shellFrame(progresso: 1) == IslandPanel.shellFrame(for: .libera))
+
+        // Monotona, e senza salti: fra due passi vicini la taglia cambia di poco.
+        var precedente = banda
+        var saltoMax: CGFloat = 0
+        for i in 1...100 {
+            let g = IslandPanel.shellSize(progresso: Double(i) / 100)
+            #expect(g.width <= precedente.width && g.height <= precedente.height,
+                    "la forma torna indietro a \(i)%")
+            saltoMax = max(saltoMax, precedente.width - g.width)
+            precedente = g
+        }
+        #expect(saltoMax < (banda.width - pillola.width) / 20,
+                "un passo dell'1% muove più di un ventesimo del percorso: è uno scatto travestito")
+
+        // Ogni fotogramma è una forma VALIDA: i raggi non superano mai metà
+        // altezza, che è la condizione perché una capsula sia una capsula.
+        for i in 0...100 {
+            let p = Double(i) / 100
+            let g = IslandPanel.shellSize(progresso: p)
+            let raggi = IslandView.sagoma(p: p, guscio: g).cornerRadii
+            #expect(raggi.topLeading <= g.height / 2 + 1e-9 && raggi.bottomLeading <= g.height / 2 + 1e-9,
+                    "a \(i)% il raggio supera metà altezza: la forma non esiste")
+            #expect(g.width >= g.height, "a \(i)% la 'pillola' sarebbe più alta che larga")
+        }
+        // E i due capi sono le due forme volute: in cima squadrato nel notch,
+        // capsula piena sulla pillola.
+        #expect(IslandView.sagoma(p: 0, guscio: banda).cornerRadii.topLeading == 0)
+        #expect(IslandView.sagoma(p: 1, guscio: pillola).cornerRadii.topLeading == pillola.height / 2)
+    }
+
+    /// **Il progresso viene dalla distanza, e da niente altro.**
+    @Test func theProgressComesFromTheDistanceAlone() {
+        let schermo = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let h = IslandPanel.shellSize(for: .notch).height
+        let ancora = Ancore.centroNotch(schermo: schermo, altezzaGuscio: h)
+        func p(_ d: CGFloat) -> Double {
+            Ancore.progressoForma(centro: NSPoint(x: ancora.x, y: ancora.y - d),
+                                  schermo: schermo, altezzaGuscioNotch: h)
+        }
+        // Dentro il raggio dell'aggancio è banda piena; oltre il distacco è
+        // pillola piena. Gli estremi sono esatti, non «quasi».
+        #expect(p(0) == 0)
+        #expect(p(Ancore.raggioAggancio) == 0)
+        #expect(p(Ancore.raggioDistacco) == 1)
+        #expect(p(Ancore.raggioDistacco + 500) == 1)
+        // In mezzo cresce, e a metà strada sta a metà: `smoothstep` è simmetrica.
+        let mezzo = (Ancore.raggioAggancio + Ancore.raggioDistacco) / 2
+        #expect(abs(p(mezzo) - 0.5) < 1e-9)
+        #expect(p(mezzo - 20) < p(mezzo) && p(mezzo) < p(mezzo + 20))
+        // Derivata nulla ai capi: è ciò che toglie lo scatto in partenza e in
+        // arrivo anche se i numeri sono già continui.
+        #expect(p(Ancore.raggioAggancio + 1) < 0.001)
+        #expect(p(Ancore.raggioDistacco - 1) > 0.999)
+    }
+
+    /// **Anche il disegno dentro si mescola**, che è la metà del passaggio che
+    /// nessuno guarda: i due profili dell'onda non sono intercambiabili.
+    @Test func theWaveProfileBlendsToo() {
+        let guscio = IslandPanel.shellSize(for: .libera)
+        let riquadro = BubbleGeometry.waveSize(in: guscio)
+        let banda = WaveCanvas.profiloSfumato()
+        let pillola = BubbleGeometry.profile(box: riquadro, in: guscio)
+        for u in stride(from: -1.0, through: 1.0, by: 0.1) {
+            #expect(abs(IslandView.profiloMisto(p: 0, riquadro: riquadro, guscio: guscio)(u) - banda(u)) < 1e-12)
+            #expect(abs(IslandView.profiloMisto(p: 1, riquadro: riquadro, guscio: guscio)(u) - pillola(u)) < 1e-12)
+        }
+        // Il polo che tiene onesto il resto: i due profili sono DIVERSI, altrimenti
+        // mescolarli non vorrebbe dire niente.
+        #expect(stride(from: -1.0, through: 1.0, by: 0.1).contains { abs(banda($0) - pillola($0)) > 0.05 },
+                "i due profili coincidono: la mescolanza non sta facendo niente")
+    }
+
     // MARK: - Le ancore
 
     /// **Un rilascio vicino a un'ancora salva il NOME; lontano da tutte, no.**

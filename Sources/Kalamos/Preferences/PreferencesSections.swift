@@ -957,13 +957,16 @@ struct WaveSection: View {
             }
 
             PrefRow(title: L.t("Dove compare", "Where it appears", "Où elle apparaît"),
-                    note: L.t("Dal notch sta in cima allo schermo. In basso al centro è una pillola piccola sopra il Dock. Libera è dove l'hai lasciata tu. La trascini sempre, da qualunque suo punto: se la lasci vicino a una delle prime due ci si aggancia e la scelta resta; se la lasci altrove vale per questa dettatura e basta, e la prossima riparte da qui.",
-                              "From the notch it sits at the top of the screen. Bottom centre is a small pill above the Dock. Free is wherever you left it. You can always drag it, from anywhere on it: dropped near one of the first two it snaps there and the choice sticks; dropped elsewhere it lasts for this dictation only, and the next one starts from here again.",
-                              "Sous l'encoche, elle reste en haut de l'écran. En bas au centre, c'est une petite pastille au-dessus du Dock. Libre, c'est là où vous l'avez laissée. Vous pouvez toujours la faire glisser : déposée près des deux premières elle s'y accroche et le choix reste ; déposée ailleurs, elle ne vaut que pour cette dictée.")) {
+                    note: notaPosizione) {
+                // **Due sole posizioni di PARTENZA**, sua decisione del 19/08:
+                // «togli la possibilità di scegliere libera, tanto la mettiamo dove
+                // vogliamo». `libera` resta uno stato — ci si finisce lasciandola
+                // lontano dalle ancore — ma non è più una scelta da fare, perché
+                // sceglierla non avrebbe fatto niente che il trascinamento non
+                // faccia già.
                 ChipRow(options: [
                     (WavePosition.notch, L.t("Dal notch", "From the notch", "Sous l'encoche"), ""),
                     (WavePosition.bassoCentro, L.t("In basso al centro", "Bottom centre", "En bas au centre"), ""),
-                    (WavePosition.libera, L.t("Libera", "Free", "Libre"), ""),
                 ], isOn: { state.wavePosition == $0 }, pick: { state.wavePosition = $0 })
             }
         }
@@ -987,6 +990,24 @@ struct WaveSection: View {
     @ViewBuilder
     private var preview: some View {
         if posizione == .notch { notchPreview } else { bubblePreview }
+    }
+
+    /// **La nota dice dov'è ADESSO, non solo dove può stare.**
+    ///
+    /// Con due sole pastiglie, una pillola lasciata in un punto suo non è
+    /// rappresentata da nessuna delle due, e la riga resterebbe senza niente
+    /// acceso: un pannello che non dice dove sta la cosa che governa. Invece di
+    /// aggiungere una terza pastiglia che lui ha tolto apposta, lo dice la nota,
+    /// e sceglierne una la riporta lì.
+    private var notaPosizione: String {
+        if state.wavePosition == .libera {
+            return L.t("Adesso è dove l'hai lasciata tu. Scegli qui sopra per riportarla al notch o in basso al centro; da lì la trascini di nuovo dove vuoi, e ci resta.",
+                       "Right now it is where you left it. Pick one above to bring it back to the notch or to the bottom centre; from there you can drag it wherever you like again, and it stays.",
+                       "Elle est là où vous l'avez laissée. Choisissez ci-dessus pour la ramener sous l'encoche ou en bas au centre ; ensuite vous pouvez la déplacer de nouveau, et elle y reste.")
+        }
+        return L.t("Dal notch sta in cima allo schermo, in basso al centro è una pillola piccola sopra il Dock. È il punto di partenza: la trascini sempre, da qualunque suo punto, e avvicinandola a uno dei due ci si aggancia da sola.",
+                   "From the notch it sits at the top of the screen; bottom centre is a small pill above the Dock. That is the starting point: you can always drag it, from anywhere on it, and bringing it near either one makes it snap there on its own.",
+                   "Sous l'encoche elle reste en haut de l'écran ; en bas au centre, c'est une petite pastille au-dessus du Dock. C'est le point de départ : vous pouvez toujours la déplacer, et en l'approchant de l'un des deux elle s'y accroche d'elle-même.")
     }
 
     /// La forma da mostrare, con la sonda che può scavalcare l'impostazione.

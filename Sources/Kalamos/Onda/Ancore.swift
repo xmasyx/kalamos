@@ -36,6 +36,31 @@ enum Ancore {
     /// schermo venga risucchiato da qualcosa che non hai chiesto.
     static let raggioAggancio: CGFloat = 60
 
+    /// Quanto lontano dall'ancora del notch la forma è ormai tutta pillola.
+    ///
+    /// Fra `raggioAggancio` e questo valore la forma **interpola**: sotto è banda
+    /// piena, sopra è pillola piena. Non è una seconda soglia con una sua vita —
+    /// è l'altro capo dello stesso intervallo, e per questo sta accanto al raggio.
+    static let raggioDistacco: CGFloat = 160
+
+    /// **Il progresso della trasformazione: 0 è la banda, 1 è la pillola.**
+    ///
+    /// Una funzione sola di una distanza sola, ed è tutto ciò che serve per non
+    /// avere due animazioni che vanno d'accordo per fortuna. Continua per
+    /// costruzione: agli estremi vale esattamente 0 e 1, quindi la forma
+    /// interpolata coincide con le due forme discrete invece di somigliarci.
+    ///
+    /// L'addolcimento è `smoothstep`, che ha derivata nulla ai due capi: senza,
+    /// la forma partirebbe e si fermerebbe di scatto pur cambiando con continuità,
+    /// e lo scatto si vede anche quando i numeri sono continui.
+    static func progressoForma(centro: NSPoint, schermo: NSRect, altezzaGuscioNotch: CGFloat) -> Double {
+        let ancora = centroNotch(schermo: schermo, altezzaGuscio: altezzaGuscioNotch)
+        let d = hypot(centro.x - ancora.x, centro.y - ancora.y)
+        let t = (d - raggioAggancio) / (raggioDistacco - raggioAggancio)
+        let q = min(max(Double(t), 0), 1)
+        return q * q * (3 - 2 * q)
+    }
+
     /// Il centro dell'ancora «in basso al centro».
     static func centroBasso(visibile: NSRect) -> NSPoint {
         NSPoint(x: visibile.midX, y: visibile.minY + scostamentoBasso)
