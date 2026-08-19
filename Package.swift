@@ -31,7 +31,7 @@ let package = Package(
         // add next to the pair above precisely because FluidAudio declares
         // `dependencies: []`: it cannot pull swift-transformers into the
         // resolution and cannot disturb the 0.1.x line WhisperKit and MLX share.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.6"),
         // Tokenizer del modello di punteggiatura L1 (XLM-RoBERTa). La 1.0.0 è
         // già nel grafo via mlx-swift-examples 2.29.1 (Package.resolved):
         // dichiararla `exact` non muove niente, dà solo accesso al product
