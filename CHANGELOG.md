@@ -7,6 +7,32 @@ an estimate.
 
 ## Unreleased
 
+### The notch↔pill transition is one curve, and the magnet pulls the position too
+
+Pulled out of the notch, the band no longer switches to the pill in a single frame:
+it travels through the shapes in between. One number from 0 to 1, computed from the
+distance to the notch anchor alone, drives width, height, all four corner radii, the
+shell colour, and both the position and the profile of the wave inside. There is no
+branch on that number anywhere in the drawing — a branch on a moving value changes
+the view's identity and SwiftUI skips the interpolation, which is the very jump being
+removed — so the square black of the hardware and the tinted capsule are two layers
+that are always present and trade places by opacity.
+
+At the two ends the interpolated shape equals the two discrete ones exactly; they are
+the same function evaluated at 0 and 1.
+
+- **Approached slowly, the island used to be pushed away from the notch; approached
+  briskly it snapped.** The window GROWS as it nears the anchor, from 46 to 146 points
+  tall, and growing around a fixed centre pushes its top edge past the top of the
+  screen, where AppKit refuses the origin and drops it back. Slowly you stay in that
+  band for dozens of events and never arrive. Now the same progress that shapes the
+  island also places it: near the anchor it is pulled in, so at progress zero the
+  window sits exactly where `place()` would put it. Measured with `--lento` (400 steps
+  instead of 45): **0 pt from the anchor either way, against 42 pt without it.**
+- **Where it appears is now two starting points**, from the notch or bottom centre.
+  "Free" stopped being something to choose — dragging already does it — and remains
+  only as a state you land in.
+
 ### The wave island: two anchors, a magnet, and a drag that belongs to the app
 
 Where the wave appears is now a named place — `notch`, `bottom centre`, or `free` —
