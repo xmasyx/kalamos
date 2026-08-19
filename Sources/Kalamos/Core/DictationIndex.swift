@@ -42,7 +42,12 @@ struct DictationDetails: Hashable, Sendable {
 
 /// Which recordings the list is showing.
 enum DictationFilter: String, CaseIterable, Sendable {
-    case all, todo, done
+    /// `check` è un sottoinsieme di `todo`, non un suo fratello: sono le
+    /// registrazioni marcate «da verificare», cioè quelle che erano finite
+    /// nell'allenamento senza la sua parola. Sta accanto agli altri tre perché
+    /// la domanda che fa è diversa — non «cosa non ho ancora guardato» ma «cosa
+    /// è stato usato al posto mio» — e mescolarle era la sua obiezione.
+    case all, todo, check, done
 }
 
 /// Reading the archive as a list, and deciding what belongs in it.
@@ -334,6 +339,7 @@ enum DictationIndex {
         // uncorrected, so a row still loading is one of them until it says
         // otherwise. The opposite default would empty this filter on open.
         case .todo: return e.details?.corrected != true
+        case .check: return e.details?.needsCheck == true && e.details?.corrected != true
         case .done: return e.details?.corrected == true
         }
     }

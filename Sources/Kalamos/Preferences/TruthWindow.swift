@@ -257,7 +257,6 @@ struct TruthBrowser: View {
     /// per **tre cifre**, che è quanto basta per sempre: non ci saranno mai mille
     /// dettature da confermare in una volta. Il numero fisso serve proprio a
     /// questo, che il bordo destro non balli mentre il contatore cambia.
-    static let larghezzaBottoniCorpus: CGFloat = 176
 
     @StateObject private var store = ArchiveStore()
     @State private var selection: URL?
@@ -271,7 +270,10 @@ struct TruthBrowser: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 260)
+                // 300 e non 260 (2026-08-20): quattro filtri su due file e i
+                // bottoni del piede a tutta larghezza hanno bisogno di respiro,
+                // e la pagina di destra ne aveva da prestare.
+                .frame(width: 300)
                 .background(Theme.paperEdge)
 
             Divider().overlay(Theme.rule)
@@ -340,14 +342,25 @@ struct TruthBrowser: View {
             PrefField(placeholder: L.t("Cerca nel testo", "Search the text", "Chercher dans le texte"),
                       text: $query)
 
-            HStack(spacing: 6) {
-                // "Da guardare", not "da correggere": the filter has never known
-                // that a dictation is wrong, only that nobody has said either way.
-                // The old label made an accusation the app could not support, and
-                // turned an archive of good dictations into a list of chores.
-                filterButton(.all, L.t("Tutte", "All", "Toutes"))
-                filterButton(.todo, L.t("Da guardare", "To review", "À revoir"))
-                filterButton(.done, L.t("Sistemate", "Settled", "Réglées"))
+            // Due file da due invece di una fila da quattro, e non è una
+            // rinuncia: a una riga sola «Da verificare» non ci starebbe senza
+            // rimpicciolire il testo, e quattro bottoni di larghezza diversa
+            // erano proprio il difetto che lui ha visto (tutto a sinistra, un
+            // vuoto a destra). Su due file ognuno prende metà barra esatta.
+            //
+            // "Da guardare", not "da correggere": the filter has never known
+            // that a dictation is wrong, only that nobody has said either way.
+            // The old label made an accusation the app could not support, and
+            // turned an archive of good dictations into a list of chores.
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    filterButton(.all, L.t("Tutte", "All", "Toutes"))
+                    filterButton(.todo, L.t("Da guardare", "To review", "À revoir"))
+                }
+                HStack(spacing: 6) {
+                    filterButton(.check, L.t("Da verificare", "To check", "À vérifier"))
+                    filterButton(.done, L.t("Sistemate", "Settled", "Réglées"))
+                }
             }
 
             if rows.isEmpty {
@@ -386,7 +399,13 @@ struct TruthBrowser: View {
             Text(title)
                 .font(Theme.font(11.5, .medium))
                 .foregroundStyle(filter == f ? Theme.paper : Theme.pen)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 8).padding(.vertical, 4)
+                // Dentro l'etichetta, come il riempimento: fuori dal `Button`
+                // allargherebbe una cornice vuota e il rettangolo cliccabile
+                // resterebbe grande quanto la parola (MacAppRules §3).
+                .frame(maxWidth: .infinity)
                 .background(RoundedRectangle(cornerRadius: 6)
                     .fill(filter == f ? Theme.pen : Theme.penWash))
                 .contentShape(RoundedRectangle(cornerRadius: 6))
@@ -412,8 +431,8 @@ struct TruthBrowser: View {
             // Solo finché ce ne sono: una riga che dice «0 da verificare» è
             // rumore permanente per un lavoro che finisce.
             if store.checkCount > 0 {
-                Text(L.t("\(store.checkCount) da verificare ◌", "\(store.checkCount) to check ◌",
-                         "\(store.checkCount) à vérifier ◌"))
+                Text(L.t("\(store.checkCount) da verificare", "\(store.checkCount) to check",
+                         "\(store.checkCount) à vérifier"))
                     .font(Theme.font(11))
                     .foregroundStyle(Theme.pen)
                     .fixedSize(horizontal: false, vertical: true)
@@ -438,7 +457,7 @@ struct TruthBrowser: View {
                     PrefButton(title: L.t("Conferma tutte (\(unsettled.count))",
                                           "Confirm all (\(unsettled.count))",
                                           "Tout confirmer (\(unsettled.count))"),
-                               width: Self.larghezzaBottoniCorpus) { confirmVisible() }
+                               stretch: true) { confirmVisible() }
                 }
                 // Shown only when there are any, like the button above it: a
                 // count of zero on a button is a button that says the archive is
@@ -447,7 +466,7 @@ struct TruthBrowser: View {
                     PrefButton(title: L.t("Elimina vuote (\(blanks.count))",
                                           "Delete the empty ones (\(blanks.count))",
                                           "Supprimer les vides (\(blanks.count))"),
-                               width: Self.larghezzaBottoniCorpus) { discardBlanks() }
+                               stretch: true) { discardBlanks() }
                 }
                 // **«Archivia» è sua proposta del 2026-08-18**, e la riserva resta
                 // sua da sciogliere: questa finestra si chiama «Le tue dettature»
@@ -458,7 +477,7 @@ struct TruthBrowser: View {
                 // che ad «archivia». Applicata la sua parola; se all'uso suona
                 // ambigua, la riserva è scritta qui.
                 PrefButton(title: L.t("Archivia", "Archive", "Archiver"),
-                           width: Self.larghezzaBottoniCorpus) {
+                           stretch: true) {
                     let n = TrainingCorpus.export()
                     n > 0 ? Sounds.ok() : Sounds.no()
                 }
@@ -681,15 +700,15 @@ struct DictationRow: View {
                         .font(.system(size: 9))
                         .foregroundStyle(Theme.inkFaded)
                 }
-                // Un cerchio tratteggiato, non il triangolo delle sospette: le
+                // Un punto interrogativo, non il triangolo delle sospette: le
                 // due dicono cose diverse — «probabilmente è andata storta» e
                 // «è stata usata per l'allenamento senza il tuo sì» — e riusare
                 // il segnale che oggi è affidabile lo renderebbe illeggibile.
                 // Sparisce quando la riga è sistemata: il marchio resta scritto
                 // nel file, ma smette di chiedere qualcosa.
                 if entry.details?.needsCheck == true, entry.details?.corrected != true {
-                    Image(systemName: "circle.dashed")
-                        .font(.system(size: 9.5))
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.system(size: 10))
                         .foregroundStyle(Theme.pen)
                         .help(L.t("Era finita nell’allenamento senza il tuo sì — guardala",
                                   "It went into training without your yes — take a look",

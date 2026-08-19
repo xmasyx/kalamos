@@ -472,6 +472,14 @@ struct PrefButton: View {
     /// disegnato e quindi l'area cliccabile: la regola del bottone che si clicca
     /// tutto resta vera.
     var width: CGFloat? = nil
+    /// Occupa tutta la riga invece di una larghezza fissa.
+    ///
+    /// Sua richiesta del 2026-08-20: una colonna di bottoni stretti dentro una
+    /// barra larga porta tutto a sinistra e lascia un vuoto a destra che si legge
+    /// come un difetto di allineamento. Con questo, «uguali fra loro» e «larghi
+    /// quanto la barra» diventano la stessa cosa e nessuno deve più tarare un
+    /// numero a mano quando cambia un'etichetta.
+    var stretch = false
     let act: () -> Void
 
     var body: some View {
@@ -488,6 +496,7 @@ struct PrefButton: View {
                 .fixedSize()
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5.5)
+                .frame(maxWidth: stretch ? .infinity : nil)
                 .frame(width: width)
                 .background(RoundedRectangle(cornerRadius: 7)
                     .fill(filled ? Theme.pen : Theme.penWash))
