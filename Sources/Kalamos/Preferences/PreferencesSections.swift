@@ -957,12 +957,13 @@ struct WaveSection: View {
             }
 
             PrefRow(title: L.t("Dove compare", "Where it appears", "Où elle apparaît"),
-                    note: L.t("Appesa al notch sta in cima allo schermo. Come isoletta diventa una pillola piccola che trascini dove vuoi, e trascinarla è il modo di scegliere il punto: la prendi da qualunque punto della pillola.",
-                              "Hanging from the notch it sits at the top of the screen. As a floating island it becomes a small pill you drag where you like, and dragging it is how the spot gets chosen: grab it anywhere on the pill.",
-                              "Sous l'encoche, elle reste en haut de l'écran. En îlot, elle devient une petite pastille que vous faites glisser où vous voulez : attrapez-la n'importe où.")) {
+                    note: L.t("Dal notch sta in cima allo schermo. In basso al centro è una pillola piccola sopra il Dock. Libera è dove l'hai lasciata tu. La trascini sempre, da qualunque suo punto: se la lasci vicino a una delle prime due ci si aggancia e la scelta resta; se la lasci altrove vale per questa dettatura e basta, e la prossima riparte da qui.",
+                              "From the notch it sits at the top of the screen. Bottom centre is a small pill above the Dock. Free is wherever you left it. You can always drag it, from anywhere on it: dropped near one of the first two it snaps there and the choice sticks; dropped elsewhere it lasts for this dictation only, and the next one starts from here again.",
+                              "Sous l'encoche, elle reste en haut de l'écran. En bas au centre, c'est une petite pastille au-dessus du Dock. Libre, c'est là où vous l'avez laissée. Vous pouvez toujours la faire glisser : déposée près des deux premières elle s'y accroche et le choix reste ; déposée ailleurs, elle ne vaut que pour cette dictée.")) {
                 ChipRow(options: [
                     (WavePosition.notch, L.t("Dal notch", "From the notch", "Sous l'encoche"), ""),
-                    (WavePosition.bubble, L.t("Isoletta", "Floating island", "Îlot"), ""),
+                    (WavePosition.bassoCentro, L.t("In basso al centro", "Bottom centre", "En bas au centre"), ""),
+                    (WavePosition.libera, L.t("Libera", "Free", "Libre"), ""),
                 ], isOn: { state.wavePosition == $0 }, pick: { state.wavePosition = $0 })
             }
         }

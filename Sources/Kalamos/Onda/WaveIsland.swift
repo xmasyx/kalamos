@@ -10,9 +10,28 @@ import SwiftUI
 /// want it; dragging IS how the position gets chosen, which is why there is no
 /// third option called "where I dragged it". An option that arms itself is not
 /// an option you pick.
+/// **Dove vive l'isoletta**: due ancore con un nome, più la libertà di non
+/// averne una.
+///
+/// Un nome invece di due numeri, e il motivo non è l'ordine ma la
+/// sopravvivenza: un'ancora si ricalcola dalla geometria dello schermo che c'è
+/// adesso, delle coordinate crude descrivono lo schermo di ieri e al primo
+/// monitor diverso mettono la pillola dove non si vede. `libera` resta perché
+/// «non ha ancora proprio perché è libera» (sua parola, 19/08), ed è il solo
+/// modo che porta ancora dei numeri con sé — per questo è anche il solo che ha
+/// bisogno di essere riportato dentro l'area visibile.
 enum WavePosition: String, CaseIterable, Codable {
     case notch
-    case bubble
+    case bassoCentro
+    case libera
+
+    /// Le due posizioni che disegnano la **pillola**. Il notch è l'unica banda,
+    /// e scritto così invece che come `!= .notch` sparso in giro: il giorno che
+    /// arriva una quarta posizione, questa riga è l'unico posto da guardare.
+    var disegnaPillola: Bool { self != .notch }
+
+    /// Il solo modo che si porta dietro delle coordinate.
+    var salvaCoordinate: Bool { self == .libera }
 }
 
 /// The tint persisted as `"r g b a"` in UserDefaults — readable, checkable with
@@ -193,6 +212,20 @@ final class WaveIsland: ObservableObject {
     /// pieces of choreography that disagree.
     @Published private(set) var shown: Bool = false
 
+    /// **Dove la sua mano l'ha lasciata, per questa dettatura e basta.**
+    ///
+    /// È la seconda riga del contratto del rilascio resa visibile: lasciata
+    /// lontano da ogni ancora con un'ancora scelta nelle Preferenze, l'isola
+    /// resta lì — e prende la forma della pillola, che è la cosa che gli piace
+    /// («partendo dal notch e trascinando, l'isola diventa pillola») — ma non si
+    /// scrive niente sul disco, e la dettatura dopo riparte da dove dice
+    /// l'impostazione.
+    ///
+    /// Vive qui e non in `AppState` proprio per questo: `AppState` è ciò che
+    /// sopravvive alla chiusura, e questo non deve sopravvivere nemmeno alla
+    /// dettatura. `hide()` lo azzera.
+    @Published var posizioneEffimera: WavePosition?
+
     private let state = AppState.shared
     private var panel: IslandPanel?
 
@@ -297,6 +330,9 @@ final class WaveIsland: ObservableObject {
         clock?.invalidate()
         clock = nil
         sampling = nil
+        // Dove la mano l'aveva lasciata muore con la dettatura, che è tutto il
+        // significato di «vale per questa registrazione».
+        posizioneEffimera = nil
         dismiss()
     }
 
@@ -307,6 +343,19 @@ final class WaveIsland: ObservableObject {
     /// setting in order to photograph it would leave the app configured by
     /// whoever took the last screenshot.
     nonisolated(unsafe) static var probePosition: WavePosition?
+
+    /// **La posizione che vale adesso**, e l'ordine è l'unica cosa da ricordare:
+    /// la sonda scavalca tutto (deve poter fotografare senza riconfigurare la sua
+    /// Kalamos), poi c'è dove l'ha lasciata la mano in questa dettatura, e in
+    /// fondo l'impostazione, che è la sola a sopravvivere.
+    ///
+    /// Scritta una volta sola perché i quattro punti che la risolvevano a mano
+    /// erano quattro occasioni di dimenticarne uno, e un pannello che si dimensiona
+    /// su una posizione e si disegna su un'altra è invisibile nel sorgente.
+    @MainActor
+    static func posizioneCorrente(_ state: AppState) -> WavePosition {
+        probePosition ?? shared.posizioneEffimera ?? state.wavePosition
+    }
 
     /// Whether to draw the bubble behind the wave, regardless of what is saved.
     /// **Only ever set by `--isola --senza-bolla`.**
@@ -449,6 +498,9 @@ final class WaveIsland: ObservableObject {
         // repairing. Same lesson as the paper backdrop of the photo probe:
         // `orderFrontRegardless` is a request, not a fact.
         shown = false
+        // `hide()` restituisce i monitor al sistema, e il pannello viene riusato:
+        // senza questa riga la pillola si trascinerebbe solo alla PRIMA dettatura.
+        panel?.riprendiIlGesto()
         panel?.place()
         panel?.orderFrontRegardless()
         scheduleEntrance()
@@ -773,19 +825,29 @@ struct IslandEntrance: Equatable {
     /// stops reading as "arriving" and starts reading as "zooming".
     static let bubbleScale: CGFloat = 0.92
 
-    /// Where the drop starts, as fractions of the settled island.
+    /// **La larghezza del notch fisico**, in punti: circa 192 su questi schermi.
+    /// Il labbro chiuso si misura contro l'hardware, non contro la banda.
+    static let notchFisico: CGFloat = 192
+
+    /// La striscia che l'isola tiene libera per l'hardware (`IslandView.notch`).
+    static let strisciaHardware: CGFloat = 18
+
+    /// **Il pizzico**: la goccia parte un po' più STRETTA del notch da cui pende
+    /// — 168 contro 192 — ed è lo schiacciamento che le dà il carattere. Una
+    /// goccia che sta per staccarsi è più sottile del labbro che la tiene.
+    static let pizzico: CGFloat = 168.0 / 192.0
+
+    /// Dove parte la goccia, come frazione dell'isola a riposo.
     ///
-    /// The height is the NOTCH's own measurement rather than a look chosen by eye:
-    /// 0.14 of 128 is 18, exactly the band the island already keeps clear for the
-    /// hardware (`IslandView.notch`).
-    ///
-    /// The width is deliberately a little NARROWER than the notch (0.42 of 400 is
-    /// 168, against about 192 of hardware), and that shortfall is the pinch. A
-    /// drop about to detach is thinner than the lip it hangs from — squash and
-    /// stretch, in the one place it can live without a keyframe track: the drop
-    /// gathers inwards while it stretches down, then opens.
-    static let dropWidth: CGFloat = 0.42
-    static let dropHeight: CGFloat = 0.14
+    /// **Calcolate, non scritte a mano, dal 19/08.** Erano due numeri fissi (0,42
+    /// e 0,14) giusti finché la banda era 400×128; stringendola a 320×96 il labbro
+    /// sarebbe diventato più largo del notch fisico e la striscia si sarebbe
+    /// rimpicciolita insieme alla banda, cioè due difetti silenziosi da un
+    /// cambio di costante altrove. Una prova li ha presi entrambi. Adesso il
+    /// numero segue la sua misura in PUNTI: cambiando la banda, il labbro resta
+    /// quello dell'hardware.
+    static var dropWidth: CGFloat { min(1, notchFisico * pizzico / IslandPanel.width) }
+    static var dropHeight: CGFloat { min(1, strisciaHardware / IslandPanel.height) }
 
     // MARK: - The arrival is the departure backwards, and that is now literal
     //
@@ -933,7 +995,7 @@ struct IslandEntrance: Equatable {
                          // under the hardware would read as a glow rather than as
                          // something being born.
                          opacity: 1)
-        case .bubble:
+        case .bassoCentro, .libera:
             return .init(scaleX: shown ? 1 : bubbleScale,
                          scaleY: shown ? 1 : bubbleScale,
                          anchor: .center,
@@ -948,6 +1010,18 @@ struct IslandEntrance: Equatable {
 /// `.nonactivatingPanel` plus `canBecomeKey == false` is the whole of it: a panel
 /// that took focus would move the caret out of the field the text is about to be
 /// injected into, which is the one thing this window must never do.
+/// **La vista che si prende il trascinamento**, invece di cederlo al sistema.
+///
+/// Tre metodi e nessuna astuzia: si segna dov'era il puntatore e dov'era la
+/// finestra, muove la finestra dello stesso scarto, e a mano alzata riferisce.
+/// Lo scarto invece della posizione assoluta perché il puntatore non sta al
+/// centro della pillola: sommare la differenza tiene il punto afferrato sotto le
+/// dita per tutto il gesto, mentre inseguire con il centro fa saltare l'isola al
+/// primo movimento.
+///
+/// Il motivo per cui questa classe esiste è misurato e sta accanto a
+/// `isMovable = false` in `IslandPanel.init`: il trascinamento di sistema apre
+/// l'affiancamento di macOS sul bordo superiore.
 @MainActor
 final class IslandPanel: NSPanel {
     // `nonisolated`: two numbers, immutable, and `IslandEntrance` — which is
@@ -959,8 +1033,18 @@ final class IslandPanel: NSPanel {
     // panel wider than what it draws is an invisible window lying over the desktop
     // at `.statusBar`, and every click that lands in its empty part is a click the
     // app under it never receives.
-    nonisolated static let width: CGFloat = 400
-    nonisolated static let height: CGFloat = 128
+    /// **320 e non 400 dal 19/08**, sua richiesta: «stringiamolo un po', perché
+    /// abbiamo un bel po' di cose nella barra sopra». La banda scende così a 1,6
+    /// volte il notch fisico invece di 2, e lascia respirare i menu ai due lati.
+    /// Sotto i 300 non si può andare senza rompere il rapporto con la pillola
+    /// (150), che una prova tiene inchiodato a metà della banda.
+    nonisolated static let width: CGFloat = 320
+    /// **96 e non 128 dal 19/08**, sua richiesta guardando la barra vera: «la barra
+    /// che esce fuori la voglio più piccola», «più sottile». Il rapporto passa da
+    /// 3,1:1 a 4,2:1, quindi la banda resta una banda e non diventa un riquadro.
+    /// La larghezza NON cambia: quello che sporge di troppo è l'altezza, e la
+    /// larghezza è ciò che la fa leggere come continuazione dell'hardware.
+    nonisolated static let height: CGFloat = 96
 
     /// Room around the island for the movement to pass its settled size into, as a
     /// fraction of that size.
@@ -981,8 +1065,8 @@ final class IslandPanel: NSPanel {
     /// What is DRAWN: the island itself, without the slack.
     nonisolated static func shellSize(for position: WavePosition) -> CGSize {
         switch position {
-        case .notch:  return CGSize(width: width, height: height)
-        case .bubble: return BubbleGeometry.size
+        case .notch:                    return CGSize(width: width, height: height)
+        case .bassoCentro, .libera:     return BubbleGeometry.size
         }
     }
 
@@ -1013,11 +1097,18 @@ final class IslandPanel: NSPanel {
     /// test that proves a placement of OURS is not filed as a drag must not be
     /// able to write into the real settings while it checks that nothing is
     /// written. Left out, it writes to `AppState`.
-    private let onDrag: (NSPoint) -> Void
+    private let alRilascio: ((NSPoint) -> Void)?
     /// True while the code is placing the panel — that is how a `setFrameOrigin`
     /// of ours is told apart from a drag by his hand.
     private var placingProgrammatically = false
     private var moveObserver: NSObjectProtocol?
+    /// Il monitor globale che guarda passare il trascinamento.
+    private var monitorGesto: Any?
+    private var monitorLocale: Any?
+    private var trascinando = false
+    private var ancoraPuntatore: NSPoint = .zero
+    private var ancoraOrigine: NSPoint = .zero
+    private var mossaAvvenuta = false
 
     /// **Come l'isola sopravvive al cambio di schermata**, e i tre flag servono
     /// tutti e tre: toglierne uno lascia un difetto diverso, e nessuno dei tre si
@@ -1078,15 +1169,10 @@ final class IslandPanel: NSPanel {
         [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     static let livelloPersistente: NSWindow.Level = .statusBar
 
-    init(island: WaveIsland, state: AppState, onDrag: ((NSPoint) -> Void)? = nil) {
+    init(island: WaveIsland, state: AppState, alRilascio: ((NSPoint) -> Void)? = nil) {
         self.state = state
-        self.onDrag = onDrag ?? { centre in
-            // Dragging the island out of the notch is what CHOOSES the free
-            // island: the setting follows the hand instead of contradicting it.
-            state.waveCenter = "\(Int(centre.x)) \(Int(centre.y))"
-            state.wavePosition = .bubble
-        }
-        let size = Self.size(for: WaveIsland.probePosition ?? state.wavePosition)
+        self.alRilascio = alRilascio
+        let size = Self.size(for: WaveIsland.posizioneCorrente(state))
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -1099,39 +1185,243 @@ final class IslandPanel: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
-        isMovableByWindowBackground = true
+        // **Il gesto è nostro, e non è una preferenza di stile.** Misurato il
+        // 19/08 con `Scripts/sonda-aggancio.swift` su un pannello NUDO con questi
+        // stessi flag, quindi senza una riga di Kalamos dentro: lasciando il
+        // trascinamento ad AppKit, il WindowServer lo riconosce come «finestra
+        // trascinata» e sul bordo superiore apre l'affiancamento di macOS 26 —
+        // due finestre `WindowManager Drag Guide Window` da 1542×905, cioè lo
+        // schermo intero velato, che è il «vorrebbe prendere tutto lo schermo»
+        // delle sue parole — e al rilascio ributta giù la finestra da y 953 a
+        // y 488. Al centro dello schermo, controllo dello stesso banco: zero
+        // finestre comparse, zero rimbalzi.
+        //
+        // Trascinandola noi in `VistaIsola`, i tre sintomi cadono insieme: niente
+        // velo, niente rimbalzo, e sparisce anche il ritardo con cui la pillola
+        // inseguiva il puntatore. In più il progresso del gesto diventa una cosa
+        // che possediamo, senza la quale non si può né agganciare a un'ancora né
+        // interpolare la forma fra banda e pillola.
+        isMovable = false
+        isMovableByWindowBackground = false
         collectionBehavior = WaveIsland.probeComportamento ?? Self.comportamentoPersistente
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
         contentView = NSHostingView(rootView: IslandView(island: island, state: state))
+        osservaIlGesto()
 
-        // `queue: nil`, and that is load-bearing rather than a default.
+        // **Niente più osservatore di `didMove`.** Serviva a distinguere un
+        // movimento della sua mano da uno nostro, e lo faceva con un flag: ora la
+        // mano passa dal monitor qui sotto e nostra è ogni altra chiamata, quindi
+        // la distinzione non ha più bisogno di essere indovinata da una notifica
+        // che arriva identica nei due casi.
+    }
+
+    /// **Il trascinamento, guardato da fuori.**
+    ///
+    /// Il primo tentativo del 19/08 era la strada ovvia — una vista che
+    /// sovrascrive `mouseDown` — e **non funziona**, misurato con
+    /// `--sonda-trascinamento`: zero punti di spostamento, con `hitTest` che
+    /// rispondeva correttamente. Il motivo è la ragione stessa per cui questa
+    /// finestra esiste come è fatta: `canBecomeKey == false` e
+    /// `.nonactivatingPanel` servono a non spostare il cursore dal campo in cui
+    /// sta per essere iniettato il testo, e una finestra che non può diventare
+    /// chiave, in un'app che non si attiva mai, non riceve eventi di mouse. Il
+    /// trascinamento di sistema funzionava proprio perché scavalca questa strada.
+    ///
+    /// Un monitor globale li guarda passare senza consumarli e senza chiedere
+    /// permessi (per il mouse non serve l'Accessibilità, serve per la tastiera).
+    /// Il clic non finisce all'app sotto: la finestra non è trasparente al mouse,
+    /// lo assorbe e basta.
+    /// Se qualcuno stia davvero guardando il gesto. Per la prova: un monitor
+    /// installato e uno mancante sono indistinguibili da fuori.
+    var gestoOsservato: Bool { monitorGesto != nil }
+
+    private func osservaIlGesto() {
+        guard monitorGesto == nil else { return }
+        let tipi: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        // **Due monitor, e uno solo non basta — pagato sul campo il 19/08.**
         //
-        // With a queue the block is ENQUEUED, so it runs after `place()` has
-        // already reset `placingProgrammatically` in its `defer` — the flag would
-        // be false every single time and every placement of ours would be filed as
-        // a drag. The setting would then flip to `bubble` on its own the first time
-        // the island was shown in the notch, which looks exactly like a setting
-        // that does not stick. With no queue the block runs synchronously, on the
-        // thread that posted it (main, for a window notification), while the flag
-        // is still true.
-        moveObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: self, queue: nil
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, !self.placingProgrammatically else { return }
-                self.onDrag(self.islandCentre)
-            }
+        // Il monitor GLOBALE vede solo gli eventi diretti ad ALTRE applicazioni:
+        // è cieco proprio sul caso normale, cioè il clic sull'isola, che la
+        // nostra finestra assorbe e quindi resta dentro Kalamos. La sonda non
+        // l'aveva colto perché gli eventi sintetizzati, con la nostra app mai
+        // attiva, finivano all'app davanti: verde in banco e pillola immobile in
+        // mano sua, che è il difetto peggiore di tutti.
+        //
+        // Il monitor LOCALE prende gli eventi destinati a noi prima che vengano
+        // smistati, quindi funziona anche se nessuna vista li raccoglie — ed è
+        // il caso di questa finestra, che non potendo diventare chiave non li
+        // riceverebbe mai. Restituisce l'evento invariato: guardare, non
+        // consumare.
+        monitorGesto = NSEvent.addGlobalMonitorForEvents(matching: tipi) { [weak self] evento in
+            MainActor.assumeIsolated { self?.gesto(evento) }
+        }
+        monitorLocale = NSEvent.addLocalMonitorForEvents(matching: tipi) { [weak self] evento in
+            MainActor.assumeIsolated { self?.gesto(evento) }
+            return evento
         }
     }
 
-    /// Give up the move observer. Called by `WaveIsland.hide()`, not by `deinit` —
-    /// a main-actor class cannot touch this token from a nonisolated deinit, and
-    /// the honest place to release something is the moment its use ends rather
-    /// than whenever the last reference happens to go.
+    /// Rimette i monitor se erano stati restituiti. `present()` riusa il pannello
+    /// fra una dettatura e l'altra, e senza questa riga la pillola sarebbe
+    /// trascinabile solo la PRIMA volta: `hide()` chiama `detach()`.
+    func riprendiIlGesto() { osservaIlGesto() }
+
+    private func gesto(_ evento: NSEvent) {
+        switch evento.type {
+        case .leftMouseDown:
+            let punto = NSEvent.mouseLocation
+            // Solo sull'ISOLA, non su tutta la finestra: il gioco della rimbalzata
+            // è finestra e non isola, e prenderlo per manico vorrebbe dire
+            // afferrare del vuoto intorno a lei.
+            let guscio = Self.shellFrame(for: WaveIsland.posizioneCorrente(state))
+                .offsetBy(dx: frame.origin.x, dy: frame.origin.y)
+            guard isVisible, guscio.contains(punto) else { return }
+            trascinando = true
+            ancoraPuntatore = punto
+            ancoraOrigine = frame.origin
+            mossaAvvenuta = false
+        case .leftMouseDragged:
+            guard trascinando else { return }
+            let ora = NSEvent.mouseLocation
+            // **Posizione ASSOLUTA dal punto in cui l'hai afferrata, non somma di
+            // scarti** (suo difetto dal campo, 19/08: «si sta allontanando, non
+            // tiene il puntatore»). Sommare gli scarti sembra equivalente e non lo
+            // è: appena AppKit rifiuta un'origine — contro il bordo alto lo fa —
+            // la finestra resta indietro, e da lì in poi ogni scarto si somma a una
+            // base sbagliata. L'errore non si recupera più e cresce a ogni
+            // rifiuto, che è esattamente la deriva che si vede nel filmato.
+            // Ricalcolando dall'ancora, un rifiuto costa un fotogramma e basta.
+            let voluta = NSPoint(x: ancoraOrigine.x + (ora.x - ancoraPuntatore.x),
+                                 y: ancoraOrigine.y + (ora.y - ancoraPuntatore.y))
+            guard voluta != frame.origin else { return }
+            mossaAvvenuta = true
+            setFrameOrigin(voluta)
+            // La forma può cambiare sotto le dita, e allora la finestra ha una
+            // taglia nuova: l'ancora si riprende da lì, altrimenti il salto della
+            // trasformazione diventa un offset permanente.
+            if aggiornaFormaDurante() {
+                ancoraPuntatore = ora
+                ancoraOrigine = frame.origin
+            }
+        default:
+            guard trascinando else { return }
+            trascinando = false
+            // Un clic secco non è un rilascio: senza questa riga, sfiorare l'isola
+            // basterebbe a riscriverne la posizione.
+            guard mossaAvvenuta else { return }
+            let centro = islandCentre
+            // `alRilascio` è iniettata solo dalle prove, per un motivo solo: il
+            // rilascio SCRIVE nelle impostazioni vere, e una prova che lo
+            // esercitasse davvero riconfigurerebbe la sua Kalamos.
+            if let iniettata = alRilascio { iniettata(centro) } else { rilascioPredefinito(centro: centro) }
+        }
+    }
+
+    /// **Che cosa fa un rilascio**, cioè il contratto che scioglie ISC-9 e ISC-11.
+    ///
+    /// Tre righe e nessuna quarta:
+    /// · finito **vicino a un'ancora**, si aggancia e si salva il **nome**;
+    /// · finito **lontano da tutte** con l'impostazione su un'ancora, il gesto
+    ///   vale solo per questa dettatura e non si scrive niente — alla prossima
+    ///   `place()` rimette l'isola dove dice l'impostazione;
+    /// · finito lontano con l'impostazione su **libera**, si salvano le coordinate.
+    ///
+    /// Il difetto che questo ripara non era che il trascinamento salvasse: era che
+    /// salvava un modo mai scelto e invisibile nel pannello. Nei suoi defaults
+    /// c'era `wavePosition = bubble` senza che l'avesse mai toccato dalle
+    /// Preferenze, e gliel'aveva scritto la mano.
+    ///
+    /// Statica e con lo schermo passato: così la prova non ha bisogno di una
+    /// finestra viva.
+    func rilascioPredefinito(centro: NSPoint) {
+        guard let screen = NSScreen.main else { return }
+        switch Ancore.rilascio(centro: centro,
+                               impostazione: state.wavePosition,
+                               schermo: screen.frame,
+                               visibile: screen.visibleFrame,
+                               altezzaGuscioNotch: Self.shellSize(for: .notch).height) {
+        case .nome(let ancora):
+            // Il nome, non i numeri. L'effimero cade perché adesso c'è una scelta
+            // vera, e l'assegnazione fa ripartire `place()` attraverso il
+            // publisher: è quello che porta l'isola ESATTAMENTE sull'ancora e le
+            // dà la taglia di quella posizione. La crescita alla forma-notch
+            // avviene quindi solo quando l'aggancio è avvenuto, mai per
+            // avvicinamento — che è la seconda metà di ISC-10.
+            WaveIsland.shared.posizioneEffimera = nil
+            state.wavePosition = ancora
+        case .coordinate(let punto), .lontano(let punto):
+            // **Lasciata lontano da ogni ancora, diventa libera e ci RESTA**
+            // (sua correzione del 19/08, dal campo): «di base è ancorata in basso
+            // al centro oppure nel notch, ma è sempre movibile», e «a meno che io
+            // nell'ultima registrazione non l'ho tenuta lontana da quell'ancora,
+            // in quel caso resta dove l'ho lasciata».
+            //
+            // Prima di quella correzione questo caso era effimero e la dettatura
+            // dopo tornava all'impostazione. Sbagliato, e per una ragione che vale
+            // oltre questo punto: il modello non è «un'impostazione con un gesto
+            // che la contraddice», è «sempre libera, con due magneti». Il gesto
+            // non contraddice niente, sceglie.
+            WaveIsland.shared.posizioneEffimera = nil
+            state.waveCenter = "\(Int(punto.x)) \(Int(punto.y))"
+            if state.wavePosition != .libera { state.wavePosition = .libera }
+        }
+    }
+
+    /// **Il magnete, mentre la mano si muove.**
+    ///
+    /// Tirandola fuori dal notch la banda diventa pillola nell'istante in cui
+    /// esce dal raggio dell'ancora, e ci ritorna banda se la riavvicini: è il
+    /// magnete visto da dentro il gesto, ed è la cosa che gli piaceva del
+    /// trascinamento vecchio. Non si scrive niente sul disco qui — la forma di
+    /// adesso vive in `posizioneEffimera`, e la decisione la prende il rilascio.
+    @discardableResult
+    private func aggiornaFormaDurante() -> Bool {
+        guard let screen = NSScreen.main else { return false }
+        let centro = islandCentre
+        let vicina = Ancore.aggancio(centro: centro, schermo: screen.frame,
+                                     visibile: screen.visibleFrame,
+                                     altezzaGuscioNotch: Self.shellSize(for: .notch).height)
+        // Vicino al notch è banda; ovunque altro è pillola. `bassoCentro` e
+        // `libera` disegnano la stessa cosa, quindi qui basta distinguere il notch.
+        let forma: WavePosition = (vicina == .notch) ? .notch : .libera
+        guard WaveIsland.posizioneCorrente(state) != forma else { return false }
+        WaveIsland.shared.posizioneEffimera = forma
+        ridimensionaAttorno(centro: centro)
+        return true
+    }
+
+    /// Cambia la taglia della finestra tenendo fermo il CENTRO dell'isola.
+    ///
+    /// Serve al solo caso effimero, che è l'unico in cui la forma cambia senza che
+    /// cambi l'impostazione, quindi senza che `place()` venga chiamata da nessuno.
+    /// Il centro e non l'angolo per la stessa ragione di sempre: fra una banda
+    /// 400×128 e una pillola 150×40 l'angolo significa due punti diversi, e
+    /// tenerlo fermo farebbe saltare l'isola nel momento in cui la lasci.
+    func ridimensionaAttorno(centro: NSPoint) {
+        let posizione = WaveIsland.posizioneCorrente(state)
+        let size = Self.size(for: posizione)
+        let shell = Self.shellFrame(for: posizione)
+        setFrame(NSRect(x: centro.x - shell.midX, y: centro.y - shell.midY,
+                        width: size.width, height: size.height), display: true)
+    }
+
+    /// Restituisce quello che la finestra teneva del sistema.
+    ///
+    /// Chiamata da `WaveIsland.hide()` e non da `deinit`: una classe sull'attore
+    /// principale non può toccare questi riferimenti da un `deinit` non isolato, e
+    /// il posto onesto in cui rilasciare una cosa è il momento in cui il suo uso
+    /// finisce, non quando l'ultimo riferimento capita di sparire. Un monitor
+    /// globale vivo fra una dettatura e l'altra è esattamente la risorsa tenuta
+    /// più a lungo del suo significato (MacAppRules §0.3).
     func detach() {
         if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
         moveObserver = nil
+        if let monitorGesto { NSEvent.removeMonitor(monitorGesto) }
+        monitorGesto = nil
+        if let monitorLocale { NSEvent.removeMonitor(monitorLocale) }
+        monitorLocale = nil
+        trascinando = false
     }
 
     /// Put the panel at an explicit point without it counting as a drag — for the
@@ -1152,7 +1442,7 @@ final class IslandPanel: NSPanel {
     /// shape changed, which is the exact class of silent drift the centre was
     /// chosen to remove.
     var islandCentre: NSPoint {
-        let shell = Self.shellFrame(for: WaveIsland.probePosition ?? state.wavePosition)
+        let shell = Self.shellFrame(for: WaveIsland.posizioneCorrente(state))
         return NSPoint(x: frame.origin.x + shell.midX, y: frame.origin.y + shell.midY)
     }
 
@@ -1166,7 +1456,7 @@ final class IslandPanel: NSPanel {
         guard let screen = NSScreen.main else { return }
         placingProgrammatically = true
         defer { placingProgrammatically = false }
-        let position = WaveIsland.probePosition ?? state.wavePosition
+        let position = WaveIsland.posizioneCorrente(state)
         let size = Self.size(for: position)
         let shell = Self.shellFrame(for: position)
         switch position {
@@ -1179,10 +1469,17 @@ final class IslandPanel: NSPanel {
             setFrame(NSRect(x: screen.frame.midX - size.width / 2,
                             y: screen.frame.maxY - shell.maxY,
                             width: size.width, height: size.height), display: true)
-        case .bubble:
+        case .bassoCentro:
+            // Ricalcolata dallo schermo di ADESSO, ogni volta. È tutto il
+            // vantaggio del nome sul numero: cambia il Dock, cambia il monitor,
+            // e l'ancora resta «in basso al centro» invece di restare dov'era
+            // quando l'hai salvata.
+            let centre = Ancore.centroBasso(visibile: screen.visibleFrame)
+            setFrame(NSRect(x: centre.x - shell.midX, y: centre.y - shell.midY,
+                            width: size.width, height: size.height), display: true)
+        case .libera:
             let centre = Self.savedCenter(state.waveCenter, screen: screen)
-                ?? NSPoint(x: screen.visibleFrame.midX,
-                           y: screen.visibleFrame.minY + 24 + shell.height / 2)
+                ?? Ancore.centroBasso(visibile: screen.visibleFrame)
             setFrame(NSRect(x: centre.x - shell.midX, y: centre.y - shell.midY,
                             width: size.width, height: size.height), display: true)
         }
@@ -1198,20 +1495,44 @@ final class IslandPanel: NSPanel {
     /// and it changes the instant he drags it out of the notch. A centre means the
     /// same thing to every shape.
     ///
-    /// Pure so the two poles can be tested: a saved position must survive, and a
-    /// position saved against a monitor that is no longer plugged in must NOT —
-    /// otherwise the island comes back invisible and looks like a broken feature.
+    /// Pura, così i due poli si possono provare: una posizione salvata
+    /// sopravvive, e una salvata contro un monitor che non c'è più **viene
+    /// riportata dentro** invece di essere buttata.
+    ///
+    /// **Il 19/08 questa funzione ha cambiato verdetto, e il perché conta.**
+    /// Prima rifiutava il punto fuori schermo e chi la chiamava cadeva sul
+    /// default, cioè la scelta dell'utente spariva del tutto. Ma un punto salvato
+    /// contro un monitor staccato non è un dato corrotto: è un dato giusto per un
+    /// mondo che non c'è più, e la risposta proporzionata è riportarlo dentro
+    /// l'area visibile conservando il più possibile di dov'era. Resta `nil` solo
+    /// per una stringa che non è due numeri, che è l'unico caso in cui davvero
+    /// non si sa niente.
+    /// I due numeri, senza nessun giudizio su dove cadano.
+    ///
+    /// Separata da `savedCenter` perché la migrazione ha bisogno del punto
+    /// GREZZO: chiedere a `savedCenter` significherebbe farselo già riportare
+    /// dentro l'area visibile, e allora un centro salvato su un monitor staccato
+    /// verrebbe migrato in base a dove è finito invece che a dove stava.
+    static func puntoSalvato(_ raw: String) -> NSPoint? {
+        let parts = raw.split(separator: " ").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return NSPoint(x: parts[0], y: parts[1])
+    }
+
     static func savedCenter(_ raw: String, screen: NSScreen) -> NSPoint? {
         let parts = raw.split(separator: " ").compactMap { Double($0) }
         guard parts.count == 2 else { return nil }
         let point = NSPoint(x: parts[0], y: parts[1])
         let reachable = NSScreen.screens.isEmpty ? [screen] : NSScreen.screens
-        // The centre itself has to be on some screen. An island whose middle is on
-        // a monitor can always be grabbed — which is more than the old rule about
-        // the top strip could promise, and it is one line instead of a rectangle
-        // built out of the panel's own measurements.
-        guard reachable.contains(where: { $0.frame.contains(point) }) else { return nil }
-        return point
+        // Se il centro è ancora su uno schermo, si tiene com'è: è il caso
+        // normale, e non deve pagare niente.
+        if reachable.contains(where: { $0.frame.contains(point) }) { return point }
+        // Altrimenti si riporta dentro l'area visibile dello schermo dato, col
+        // guscio nel conto: quello che deve restare afferrabile è la pillola,
+        // non il suo centro.
+        return Ancore.dentroVisibile(point,
+                                     visibile: screen.visibleFrame,
+                                     guscio: shellSize(for: .libera))
     }
 
     override var canBecomeKey: Bool { false }
@@ -1287,7 +1608,7 @@ struct IslandView: View {
         VStack(spacing: 0) {
             // Only the physical height of the notch, so the wave starts
             // immediately below it instead of hanging low in the shell.
-            Spacer().frame(height: 18)
+            Spacer().frame(height: IslandEntrance.strisciaHardware)
             // Taller than it was, by exactly what the caption used to take.
             // Keeping the old height would have left the same shell with a hole in
             // the bottom of it: the line under the wave is gone, so the wave takes
@@ -1349,7 +1670,7 @@ struct IslandView: View {
             .allowsHitTesting(false)
     }
 
-    private var position: WavePosition { WaveIsland.probePosition ?? state.wavePosition }
+    private var position: WavePosition { WaveIsland.posizioneCorrente(state) }
     private var inNotch: Bool { position == .notch }
     /// The window, and the island inside it: the first is bigger by the room the
     /// bounce needs, and everything drawn is measured against the second.

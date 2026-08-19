@@ -1329,7 +1329,7 @@ func sondaIsola() -> (posizione: WavePosition, livello: Double) {
     let posizione = CommandLine.arguments
         .first { $0.hasPrefix("--isola=") }?
         .split(separator: "=", maxSplits: 1).last
-        .flatMap { WavePosition(rawValue: $0 == "bolla" ? "bubble" : String($0)) } ?? .notch
+        .flatMap { WavePosition(rawValue: $0 == "bolla" ? "bassoCentro" : String($0)) } ?? .notch
     let livello = CommandLine.arguments
         .first { $0.hasPrefix("--livello=") }
         .flatMap { $0.split(separator: "=", maxSplits: 1).last.flatMap { Double($0) } } ?? 0.7
@@ -1516,12 +1516,192 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--misura-filmat
 // rossa. Un codice che porta dentro di sé la leva per rompersi è una leva che un
 // giorno resta tirata; togliere un flag a una finestra già costruita non lascia
 // niente dietro di sé.
+// `--sonda-trascinamento [--bersaglio=alto|centro]` — **il gesto sulla finestra
+// VERA di Kalamos**, non su un pannello finto.
+//
+// La sonda `Scripts/sonda-aggancio.swift` prova la CAUSA su un pannello nudo; qui
+// si prova il PRODOTTO, cioè che `VistaIsola` raccolga davvero il gesto attraverso
+// la vista SwiftUI. È la domanda che nessun test in-processo può porre: se
+// l'ospite SwiftUI si mangiasse `mouseDown`, la pillola diventerebbe immobile e
+// tutti i test resterebbero verdi, perché non c'è niente di rotto da nessuna parte.
+//
+// **Apre una finestra e muove il puntatore per circa due secondi.** Va lanciata
+// quando le mani sono libere, e il puntatore torna dov'era.
+if CommandLine.arguments.contains("--sonda-trascinamento") {
+    let app = NSApplication.shared
+    // **L'app va ATTIVATA, e questo è il difetto della prima versione di questa
+    // sonda.** Da accessoria e mai attiva, i clic sintetizzati finivano all'app
+    // davanti, quindi li vedeva il monitor GLOBALE: verde in banco, e in mano sua
+    // la pillola immobile, perché nell'uso vero il clic sull'isola è diretto a
+    // Kalamos e il monitor globale non vede i propri eventi. Attivandola, la sonda
+    // esercita la stessa strada dell'uso vero, cioè il monitor locale.
+    app.setActivationPolicy(.regular)
+    app.activate(ignoringOtherApps: true)
+    let alto = !CommandLine.arguments.contains("--bersaglio=centro")
+    // Il polo negativo, senza interruttori nel codice di produzione: si restituiscono
+    // i monitor alla finestra viva, e la sonda DEVE diventare rossa.
+    let senzaMonitor = CommandLine.arguments.contains("--senza-monitor")
+    guard let schermo = NSScreen.main else { exit(9) }
+    let sf = schermo.frame
+    // **Si parte dalla PILLOLA in basso**, e non è un dettaglio di comodità: nel
+    // notch il centro dell'isola cade dentro la barra dei menu, e un clic
+    // sintetizzato lì lo intercetta il sistema prima di noi. La finestra
+    // resterebbe ferma e la sonda direbbe «SwiftUI si mangia il gesto», che è la
+    // diagnosi sbagliata per il sintomo giusto — successo il 19/08, tre giri.
+    // `--da=notch` parte dalla banda: è il caso in cui il magnete deve MOLLARE,
+    // cioè la banda che diventa pillola uscendo dal raggio dell'ancora.
+    let daNotch = CommandLine.arguments.contains("--da=notch")
+    // **Non `probePosition`**: quella scavalca tutto, compreso il magnete che
+    // questa sonda deve misurare, e la banda non si trasformerebbe mai (misurato
+    // il 19/08: taglia ferma a 456×146 con il gesto che invece funzionava). Si usa
+    // lo strato VIVO, che è quello che il magnete scrive.
+    WaveIsland.shared.posizioneEffimera = daNotch ? .notch : .bassoCentro
+    let pannello = IslandPanel(island: WaveIsland.shared, state: AppState.shared,
+                               alRilascio: { _ in })   // niente scritture vere
+    pannello.place()
+    pannello.orderFrontRegardless()
+    // Diagnostica: chi risponde nel punto in cui la sonda cliccherà, e il gesto
+    // arriva davvero fino a `spostaDi`?
+    if senzaMonitor { pannello.detach() }
+    print("qualcuno guarda il gesto: \(pannello.gestoOsservato) · la finestra può diventare chiave: \(pannello.canBecomeKey)")
+
+    func inventario() -> Set<Int> {
+        guard let lista = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                     kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return Set(lista.compactMap { $0[kCGWindowNumber as String] as? Int })
+    }
+    func veliDiSistema() -> [String] {
+        guard let lista = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                     kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return lista.compactMap { w in
+            guard let nome = w[kCGWindowName as String] as? String, nome.contains("Drag Guide") else { return nil }
+            return "\((w[kCGWindowOwnerName as String] as? String) ?? "?") \(nome)"
+        }
+    }
+    func flip(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x, y: sf.height - p.y) }
+    func posta(_ tipo: CGEventType, _ punto: CGPoint) {
+        CGEvent(mouseEventSource: nil, mouseType: tipo,
+                mouseCursorPosition: flip(punto), mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+
+    let puntatorePrima = NSEvent.mouseLocation
+    DispatchQueue.global().async {
+        Thread.sleep(forTimeInterval: 0.9)
+        var partenza = CGPoint.zero
+        var origineIniziale = CGPoint.zero
+        DispatchQueue.main.sync {
+            // Nel notch il centro dell'isola cade dentro la barra dei menu, che si
+            // prende il clic prima di noi: si afferra il bordo BASSO del guscio,
+            // che è dentro l'isola e sotto la barra. Il guscio è appeso in cima
+            // alla finestra, quindi il suo bordo basso non è l'origine della
+            // finestra — sotto c'è il gioco della rimbalzata.
+            partenza = daNotch
+                ? NSPoint(x: pannello.islandCentre.x,
+                          y: pannello.frame.origin.y + IslandPanel.shellFrame(for: .notch).minY + 8)
+                : pannello.islandCentre
+            origineIniziale = pannello.frame.origin
+        }
+        // `--bersaglio=andata-ritorno` è il gesto SUO: si va contro il bordo alto,
+        // dove AppKit rifiuta l'origine, e si torna giù. È l'unico percorso in cui
+        // una somma di scarti lascia un errore permanente, e quindi l'unico che
+        // misura davvero la riparazione della deriva.
+        let andataRitorno = CommandLine.arguments.contains("--bersaglio=andata-ritorno")
+        let bersaglio = alto ? CGPoint(x: sf.midX, y: sf.maxY - 6)
+                             : CGPoint(x: sf.midX - 300, y: 500)
+        posta(.mouseMoved, partenza); Thread.sleep(forTimeInterval: 0.15)
+        posta(.leftMouseDown, partenza); Thread.sleep(forTimeInterval: 0.1)
+        var veli: [String] = []
+        // **Lo scarto fra il puntatore e la finestra**, che è la domanda vera del
+        // trascinamento: non «si muove?», ma «resta sotto il dito?». Il difetto dal
+        // campo del 19/08 («si sta allontanando, non tiene il puntatore») non si
+        // vede nel movimento totale, che era giusto: si vede solo qui.
+        var scartoIniziale: CGPoint? = nil
+        var derivaMax: CGFloat = 0
+        var tagliaPrec: CGSize? = nil
+        var trasformazioni = 0
+        // Il massimo scostamento RAGGIUNTO durante il gesto, non quello finale:
+        // in andata e ritorno la finestra torna al punto di partenza per
+        // costruzione, e misurare la fine direbbe «non si è mossa» di un gesto
+        // che ha attraversato mezzo schermo.
+        var corsaMax: CGFloat = 0
+        var saltaUno = false
+        for i in 1...45 {
+            // Andata e ritorno: 0 → 1 → 0 sul percorso, contro il bordo e indietro.
+            let g = Double(i) / 45
+            let f = andataRitorno ? (g <= 0.5 ? g * 2 : (1 - g) * 2) : g
+            posta(.leftMouseDragged, CGPoint(x: partenza.x + (bersaglio.x - partenza.x) * f,
+                                             y: partenza.y + (bersaglio.y - partenza.y) * f))
+            Thread.sleep(forTimeInterval: 0.016)
+            DispatchQueue.main.sync {
+                let m = NSEvent.mouseLocation, o = pannello.frame.origin
+                let scarto = CGPoint(x: m.x - o.x, y: m.y - o.y)
+                // Una trasformazione di forma sposta legittimamente il punto
+                // afferrato: si riazzera il riferimento, altrimenti si misura la
+                // trasformazione e la si chiama deriva.
+                corsaMax = max(corsaMax, hypot(o.x - origineIniziale.x, o.y - origineIniziale.y))
+                if let t = tagliaPrec, t != pannello.frame.size {
+                    trasformazioni += 1
+                    scartoIniziale = nil
+                    saltaUno = true          // il ridimensionamento si posa un fotogramma dopo
+                }
+                tagliaPrec = pannello.frame.size
+                if let s0 = scartoIniziale {
+                    derivaMax = max(derivaMax, hypot(scarto.x - s0.x, scarto.y - s0.y))
+                } else if saltaUno {
+                    saltaUno = false
+                } else if i > 3 {
+                    scartoIniziale = scarto   // dopo i primi eventi, quando il gesto è avviato
+                }
+                if i % 9 == 0 { veli.append(contentsOf: veliDiSistema()) }
+            }
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+        DispatchQueue.main.sync { veli.append(contentsOf: veliDiSistema()) }
+        posta(.leftMouseUp, bersaglio)
+        Thread.sleep(forTimeInterval: 0.4)
+        DispatchQueue.main.async {
+            let origineFinale = pannello.frame.origin
+            let spostata = max(corsaMax, hypot(origineFinale.x - origineIniziale.x, origineFinale.y - origineIniziale.y))
+            let taglia = pannello.frame.size
+            print("bersaglio: \(alto ? "ALTO" : "CENTRO")")
+            print("origine \(Int(origineIniziale.x)),\(Int(origineIniziale.y)) → \(Int(origineFinale.x)),\(Int(origineFinale.y))  (spostata di \(Int(spostata)) pt)")
+            let attesa = IslandPanel.size(for: daNotch && !alto ? .libera : (daNotch ? .notch : .libera))
+            print("taglia finale \(Int(taglia.width))x\(Int(taglia.height)) · attesa \(Int(attesa.width))x\(Int(attesa.height))")
+            if daNotch && !alto {
+                print(taglia.width == attesa.width ? "✓ uscendo dal notch la banda è diventata pillola"
+                                                   : "✗ la banda non si è trasformata: il magnete non molla")
+            }
+            print(String(format: "deriva massima puntatore↔finestra: %.0f pt (trasformazioni di forma: %d, escluse dalla misura)", derivaMax, trasformazioni))
+            print("veli di sistema visti: \(veli.count)\(veli.isEmpty ? "" : " → \(Set(veli).joined(separator: ", "))")")
+            let seguita = spostata > 50
+            if senzaMonitor {
+                print(seguita ? "✗ si muove anche senza monitor: la sonda non sta misurando i monitor"
+                              : "✓ polo negativo: senza monitor la finestra resta ferma")
+            } else {
+                print(seguita ? "✓ il gesto è stato raccolto: la finestra ha seguito il puntatore"
+                              : "✗ la finestra NON si è mossa: nessuno raccoglie il trascinamento")
+            }
+            print(veli.isEmpty ? "✓ nessun velo di affiancamento"
+                               : "✗ l'affiancamento di macOS è ancora in mezzo")
+            // Una trasformazione di forma sposta il punto afferrato una volta
+            // sola, e vale fino a mezza pillola; oltre è deriva.
+            print(derivaMax <= 12 ? "✓ la finestra resta sotto il puntatore"
+                                  : "✗ la finestra si allontana dal puntatore")
+            // Il puntatore torna dov'era: la sonda non lascia il Mac diverso da
+            // come l'ha trovato.
+            posta(.mouseMoved, CGPoint(x: puntatorePrima.x, y: puntatorePrima.y))
+            exit((senzaMonitor ? !seguita : seguita) && veli.isEmpty ? 0 : 8)
+        }
+    }
+    app.run()
+}
+
 if CommandLine.arguments.contains("--sonda-pannello") {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
-    // `onDrag` iniettato a vuoto: il pannello vero, costruito senza che il solo
+    // `alRilascio` iniettato a vuoto: il pannello vero, costruito senza che il solo
     // atto di costruirlo possa scrivere nelle sue impostazioni.
-    let pannello = IslandPanel(island: WaveIsland.shared, state: AppState.shared, onDrag: { _ in })
+    let pannello = IslandPanel(island: WaveIsland.shared, state: AppState.shared, alRilascio: { _ in })
     let vivo = SondaPannello.esamina(pannello)
     print("— il pannello com'è —")
     print(vivo.descrizione)
@@ -2250,7 +2430,7 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--scatta=") }),
         if let forma = CommandLine.arguments.first(where: { $0.hasPrefix("--anteprima=") })?
             .split(separator: "=", maxSplits: 1).last
             .map(String.init)
-            .flatMap({ WavePosition(rawValue: $0 == "bolla" ? "bubble" : $0) }) {
+            .flatMap({ WavePosition(rawValue: $0 == "bolla" ? "bassoCentro" : $0) }) {
             WaveIsland.probePosition = forma
         }
         let sezione = CommandLine.arguments

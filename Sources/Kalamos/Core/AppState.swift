@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 
@@ -368,8 +369,20 @@ final class AppState: ObservableObject {
         waveShellTint = defaults.string(forKey: "waveShellTint") ?? WaveTint.defaultShell
         waveShell = (defaults.object(forKey: "waveShell") as? Bool) ?? true
         playbackGainQuota = (defaults.object(forKey: "playbackGainQuota") as? Double) ?? 0
-        wavePosition = WavePosition(rawValue: defaults.string(forKey: "wavePosition") ?? "") ?? .notch
-        waveCenter = defaults.string(forKey: "waveCenter") ?? ""
+        let posizioneSalvata = defaults.string(forKey: "wavePosition") ?? ""
+        let centroSalvato = defaults.string(forKey: "waveCenter") ?? ""
+        // **La migrazione dal mondo a due posizioni**, e senza di lei l'isola si
+        // sposterebbe da sola. Fino al 19/08 i modi erano `notch` e `bubble`, e
+        // `bubble` non è più un nome valido: senza questa riga il `??` cadrebbe su
+        // `.notch` e chi aveva la pillola in basso se la ritroverebbe appesa in
+        // cima senza aver toccato niente. La migrazione non indovina, guarda DOVE
+        // stava: vicino all'ancora bassa prende il nome, altrove diventa `libera`
+        // e si tiene le sue coordinate.
+        let migrata = Ancore.migra(vecchioValore: posizioneSalvata,
+                                   centroSalvato: IslandPanel.puntoSalvato(centroSalvato),
+                                   visibile: NSScreen.main?.visibleFrame ?? .zero)
+        wavePosition = migrata ?? WavePosition(rawValue: posizioneSalvata) ?? .notch
+        waveCenter = centroSalvato
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
         // 0x3F == Fn / Globe — default Edit-Mode modifier. Distinct from the
         // dictation trigger (Right Command), and NOT used to type text, so it

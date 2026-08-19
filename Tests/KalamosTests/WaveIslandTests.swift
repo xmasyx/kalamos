@@ -323,12 +323,25 @@ import Testing
         let recovered = try #require(IslandPanel.savedCenter(raw, screen: screen))
         #expect(abs(recovered.x - inside.x) < 1 && abs(recovered.y - inside.y) < 1)
 
+        // `nil` resta per una stringa che non è due numeri: è l'unico caso in cui
+        // davvero non si sa niente.
         #expect(IslandPanel.savedCenter("", screen: screen) == nil)
         #expect(IslandPanel.savedCenter("boh", screen: screen) == nil)
         #expect(IslandPanel.savedCenter("100", screen: screen) == nil)
-        // The second monitor that went away.
-        #expect(IslandPanel.savedCenter("-9000 -9000", screen: screen) == nil)
-        #expect(IslandPanel.savedCenter("40000 40000", screen: screen) == nil)
+
+        // **Il monitor che se n'è andato cambia verdetto il 19/08.** Prima queste
+        // due righe volevano `nil`, e chi chiamava cadeva sul default: la sua
+        // scelta spariva. Un punto salvato contro uno schermo staccato non è un
+        // dato corrotto, è un dato giusto per un mondo che non c'è più, e la
+        // risposta proporzionata è riportarlo dentro l'area visibile.
+        let visibile = screen.visibleFrame
+        let guscio = IslandPanel.shellSize(for: .libera)
+        for grezzo in ["-9000 -9000", "40000 40000"] {
+            let riportato = try #require(IslandPanel.savedCenter(grezzo, screen: screen))
+            #expect(visibile.insetBy(dx: guscio.width / 2 - 1, dy: guscio.height / 2 - 1)
+                        .contains(riportato),
+                    "\(grezzo) è tornato dentro solo a metà: \(riportato)")
+        }
     }
 
     /// **The saved point is the CENTRE, and that is what makes the two shapes
@@ -375,7 +388,7 @@ import Testing
         #expect(notch.width == IslandPanel.width && notch.height == IslandPanel.height)
         #expect(notch.width > notch.height * 2, "the notch island is a band")
 
-        let pill = IslandPanel.shellSize(for: .bubble)
+        let pill = IslandPanel.shellSize(for: .bassoCentro)
         #expect(pill == BubbleGeometry.size)
         #expect(pill.width > pill.height * 2.5, "a pill is long and low, not a lozenge")
         // Small, and said in numbers so "small" cannot drift.
@@ -573,13 +586,23 @@ import Testing
         }
     }
 
-    /// The stored strings are a persistence contract: renaming a case silently
-    /// resets everybody's position to the notch.
+    /// Le stringhe salvate sono un contratto: rinominare un caso rimette in
+    /// silenzio la posizione di tutti sul notch.
     @Test func positionsKeepTheirStoredNames() {
         #expect(WavePosition.notch.rawValue == "notch")
-        #expect(WavePosition.bubble.rawValue == "bubble")
+        #expect(WavePosition.bassoCentro.rawValue == "bassoCentro")
+        #expect(WavePosition.libera.rawValue == "libera")
         #expect(WavePosition(rawValue: "notch") == .notch)
         #expect(WavePosition(rawValue: "quello di prima") == nil)
+        // `bubble` è il mondo di ieri e NON deve più essere un nome valido: se lo
+        // fosse, la migrazione non verrebbe mai interrogata.
+        #expect(WavePosition(rawValue: "bubble") == nil)
+        // Due posizioni disegnano la pillola, una sola è la banda.
+        #expect(!WavePosition.notch.disegnaPillola)
+        #expect(WavePosition.bassoCentro.disegnaPillola && WavePosition.libera.disegnaPillola)
+        // E una sola porta con sé dei numeri.
+        #expect(WavePosition.libera.salvaCoordinate)
+        #expect(!WavePosition.notch.salvaCoordinate && !WavePosition.bassoCentro.salvaCoordinate)
     }
 
     // MARK: - A placement of ours is not a drag
@@ -617,7 +640,7 @@ import Testing
     @MainActor
     @Test func theIslandLivesOnEverySpaceAndDoesNotSlide() {
         let panel = IslandPanel(island: WaveIsland.shared, state: AppState.shared,
-                                onDrag: { _ in })
+                                alRilascio: { _ in })
         defer { panel.detach() }
         let esito = SondaPannello.esamina(panel)
         #expect(esito.mancanti.isEmpty, "flag mancanti: \(esito.mancanti.joined(separator: ", "))")
@@ -634,29 +657,140 @@ import Testing
         panel.collectionBehavior = IslandPanel.comportamentoPersistente
     }
 
+    /// **Il gesto non si cede al sistema**, e la prova legge la finestra viva.
+    ///
+    /// Misurato il 19/08 con `Scripts/sonda-aggancio.swift` su un pannello nudo
+    /// con questi stessi flag: col trascinamento di AppKit, portandola contro il
+    /// bordo superiore compaiono due `WindowManager Drag Guide Window` da
+    /// 1542×905 (lo schermo velato, cioè il «vorrebbe prendere tutto lo schermo»)
+    /// e al rilascio la finestra viene ributtata a metà schermo. Al centro,
+    /// controllo dello stesso banco, non succede niente.
+    ///
+    /// Qui si chiude la causa: i due interruttori che cedevano il gesto. Che il
+    /// velo non compaia più è il banco a dirlo, perché nessun test in-processo
+    /// può vedere una finestra del WindowServer che non è nostra.
     @MainActor
-    @Test func placingTheIslandIsNotDraggingIt() {
-        var reported: [NSPoint] = []
+    @Test func theDragBelongsToUsAndNotToTheSystem() {
         let panel = IslandPanel(island: WaveIsland.shared, state: AppState.shared,
-                                onDrag: { reported.append($0) })
+                                alRilascio: { _ in })
         defer { panel.detach() }
+        #expect(!panel.isMovable, "AppKit può ancora muovere la finestra: torna l'affiancamento")
+        #expect(!panel.isMovableByWindowBackground,
+                "il trascinamento dallo sfondo è di nuovo di sistema")
+        // E qualcuno deve pur raccogliere il gesto al posto del sistema: senza il
+        // monitor la pillola resterebbe immobile, che è peggio del difetto.
+        #expect(panel.gestoOsservato, "nessuno guarda il trascinamento: la pillola è immobile")
+    }
 
-        panel.place(at: NSPoint(x: 300, y: 300))
-        panel.place(at: NSPoint(x: 420, y: 260))
-        #expect(reported.isEmpty, "a placement of ours was filed as a drag: \(reported)")
+    // MARK: - Le ancore
 
-        // His hand: the same notification, without our flag.
-        panel.setFrameOrigin(NSPoint(x: 500, y: 200))
-        #expect(reported.count == 1, "a real move was not reported")
-        // And what is reported is the centre of the ISLAND — not the corner of the
-        // window, and not the middle of the window either. It is the only point
-        // that means the same thing to a band and to a circle, which is what the
-        // setting has to survive.
-        let shell = IslandPanel.shellFrame(for: AppState.shared.wavePosition)
-        #expect(reported.first?.x == 500 + shell.midX)
-        #expect(reported.first?.y == 200 + shell.midY)
-        #expect(reported.first?.y != panel.frame.midY,
-                "in the notch the slack is all underneath, so the two middles differ")
+    /// **Un rilascio vicino a un'ancora salva il NOME; lontano da tutte, no.**
+    ///
+    /// I due poli sono la sostanza della regola, non un contorno: senza il
+    /// secondo, «si aggancia» sarebbe vero anche di una funzione che aggancia
+    /// sempre, cioè che toglie di mezzo il modo `libera`.
+    @Test func aDropNearAnAnchorTakesItsName() {
+        // Il suo schermo, misurato il 19/08.
+        let schermo = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let visibile = NSRect(x: 0, y: 74, width: 1512, height: 875)
+        let hNotch = IslandPanel.shellSize(for: .notch).height
+
+        // La sua posizione vera, `waveCenter = "754 114"`: due punti dall'ancora.
+        #expect(Ancore.aggancio(centro: NSPoint(x: 754, y: 114), schermo: schermo,
+                                visibile: visibile, altezzaGuscioNotch: hNotch) == .bassoCentro)
+        // Appesa in cima.
+        let cimaSuo = Ancore.centroNotch(schermo: schermo, altezzaGuscio: hNotch)
+        #expect(Ancore.aggancio(centro: cimaSuo, schermo: schermo,
+                                visibile: visibile, altezzaGuscioNotch: hNotch) == .notch)
+        // Il polo negativo: in mezzo allo schermo non c'è niente da agganciare.
+        #expect(Ancore.aggancio(centro: NSPoint(x: 400, y: 500), schermo: schermo,
+                                visibile: visibile, altezzaGuscioNotch: hNotch) == nil)
+        // E appena fuori dal raggio nemmeno, altrimenti «vicino» non vuol dire niente.
+        let bassa = Ancore.centroBasso(visibile: visibile)
+        #expect(Ancore.aggancio(centro: NSPoint(x: bassa.x, y: bassa.y + Ancore.raggioAggancio + 1),
+                                schermo: schermo, visibile: visibile,
+                                altezzaGuscioNotch: hNotch) == nil)
+    }
+
+    /// **L'ancora bassa sta 40 punti sopra l'AREA VISIBILE**, non 114 sopra lo
+    /// schermo, ed è la correzione del 19/08.
+    ///
+    /// La misura del 18/08 diceva 114 e chiedeva di riferirla al `visibleFrame`:
+    /// applicate insieme, le due avrebbero alzato l'isola di 74 punti rispetto a
+    /// dove ce l'ha davvero, perché i 114 erano contati dal bordo dello schermo e
+    /// sotto ci sono 74 punti di Dock.
+    @Test func theBottomAnchorReproducesHisRealPosition() {
+        let visibile = NSRect(x: 0, y: 74, width: 1512, height: 875)
+        let c = Ancore.centroBasso(visibile: visibile)
+        #expect(c.x == 756, "il centro orizzontale è quello dell'area visibile")
+        #expect(c.y == 114, "40 sopra il visibile sono i suoi 114 sopra lo schermo")
+        // Il polo che tiene onesto il numero: nascosto il Dock, l'ancora scende
+        // con l'area visibile invece di restare inchiodata a 114.
+        let senzaDock = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        #expect(Ancore.centroBasso(visibile: senzaDock).y == 40)
+    }
+
+    /// **Una posizione salvata contro uno schermo che non c'è più torna dentro**,
+    /// invece di essere buttata.
+    @Test func aSavedPositionIsBroughtBackInsteadOfDropped() {
+        let visibile = NSRect(x: 0, y: 74, width: 1512, height: 875)
+        let guscio = BubbleGeometry.size
+        // Salvata su un monitor largo 2560: la x è fuori, la y no. Il riporto
+        // tocca SOLO l'asse che sfora — questa riga è nata sbagliata, chiedendo
+        // che si muovesse anche la y, e il rosso l'ha corretta.
+        let riportata = Ancore.dentroVisibile(NSPoint(x: 2400, y: 900),
+                                              visibile: visibile, guscio: guscio)
+        #expect(riportata.x == visibile.maxX - guscio.width / 2)
+        #expect(riportata.y == 900, "la y era già dentro e non si tocca")
+        // Un punto fuori da entrambi i lati: tornano dentro tutti e due.
+        let sopra = Ancore.dentroVisibile(NSPoint(x: -500, y: 5000),
+                                          visibile: visibile, guscio: guscio)
+        #expect(sopra.x == visibile.minX + guscio.width / 2)
+        #expect(sopra.y == visibile.maxY - guscio.height / 2)
+        // Il polo negativo: un punto già dentro non si tocca, o il riporto
+        // diventerebbe uno spostamento a ogni avvio.
+        let dentro = NSPoint(x: 700, y: 400)
+        #expect(Ancore.dentroVisibile(dentro, visibile: visibile, guscio: guscio) == dentro)
+    }
+
+    /// **La migrazione guarda DOVE stava**, non indovina.
+    @Test func theMigrationLooksAtWhereItWas() {
+        let visibile = NSRect(x: 0, y: 74, width: 1512, height: 875)
+        // Il suo caso vero: `bubble` con centro 754 114 → l'ancora bassa, e non si
+        // sposta niente.
+        #expect(Ancore.migra(vecchioValore: "bubble", centroSalvato: NSPoint(x: 754, y: 114),
+                             visibile: visibile) == .bassoCentro)
+        // Un punto suo, lontano dall'ancora: resta dov'è, e diventa `libera`.
+        #expect(Ancore.migra(vecchioValore: "bubble", centroSalvato: NSPoint(x: 300, y: 700),
+                             visibile: visibile) == .libera)
+        // I poli negativi: un nome già nuovo non si migra, e nemmeno il notch.
+        #expect(Ancore.migra(vecchioValore: "libera", centroSalvato: nil, visibile: visibile) == nil)
+        #expect(Ancore.migra(vecchioValore: "notch", centroSalvato: nil, visibile: visibile) == nil)
+    }
+
+    /// **Le tre righe del contratto del rilascio**, una prova per riga.
+    ///
+    /// È la regola che scioglie la contraddizione fra «il trascinamento non
+    /// decide il modo» e «lasciandola vicino a un'ancora si salva il nome».
+    @Test func theThreeRowsOfTheDropContract() {
+        let schermo = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let visibile = NSRect(x: 0, y: 74, width: 1512, height: 875)
+        let h = IslandPanel.shellSize(for: .notch).height
+        func rilascio(_ p: NSPoint, _ imp: WavePosition) -> Ancore.Esito {
+            Ancore.rilascio(centro: p, impostazione: imp, schermo: schermo,
+                            visibile: visibile, altezzaGuscioNotch: h)
+        }
+        // (a) vicino a un'ancora → il nome, qualunque fosse l'impostazione.
+        #expect(rilascio(NSPoint(x: 754, y: 114), .notch) == .nome(.bassoCentro))
+        #expect(rilascio(NSPoint(x: 754, y: 114), .libera) == .nome(.bassoCentro))
+        // (b) lontano da tutte, partendo da un'ancora → diventa libera e ci resta.
+        // Era `.niente` fino alla sua correzione del 19/08 dal campo: «a meno che
+        // io nell'ultima registrazione non l'ho tenuta lontana da quell'ancora,
+        // in quel caso resta dove l'ho lasciata».
+        #expect(rilascio(NSPoint(x: 300, y: 600), .notch) == .lontano(NSPoint(x: 300, y: 600)))
+        #expect(rilascio(NSPoint(x: 300, y: 600), .bassoCentro) == .lontano(NSPoint(x: 300, y: 600)))
+        // (c) lontano da tutte, in modo libera → le coordinate.
+        #expect(rilascio(NSPoint(x: 300, y: 600), .libera) == .coordinate(NSPoint(x: 300, y: 600)))
     }
 
     // MARK: - Arriving and leaving
@@ -684,7 +818,7 @@ import Testing
 
         // The bubble: no edge to be born from, so no stretch and no anchor — it
         // fades up in place with a short uniform scale.
-        let bubble = IslandEntrance.state(for: .bubble, shown: false)
+        let bubble = IslandEntrance.state(for: .bassoCentro, shown: false)
         #expect(bubble.anchor == .center, "a free island grows from its own middle")
         #expect(bubble.scaleX == bubble.scaleY, "uniform: stretching it would invent an origin")
         #expect(bubble.scaleX > 0.85 && bubble.scaleX < 1,
@@ -751,8 +885,8 @@ import Testing
         let notch = IslandPanel.shellFrame(for: .notch)
         #expect(notch.maxY == IslandPanel.size(for: .notch).height)
         // Free of it, the island floats in the middle of its own slack.
-        let bubble = IslandPanel.shellFrame(for: .bubble)
-        #expect(bubble.midY == IslandPanel.size(for: .bubble).height / 2)
+        let bubble = IslandPanel.shellFrame(for: .bassoCentro)
+        #expect(bubble.midY == IslandPanel.size(for: .bassoCentro).height / 2)
     }
 
     /// The panel is taken off screen only AFTER the exit has finished drawing.
