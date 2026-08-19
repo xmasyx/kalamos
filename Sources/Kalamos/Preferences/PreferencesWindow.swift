@@ -24,6 +24,19 @@ final class PreferencesWindow: NSObject, NSWindowDelegate {
         if let window {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+            // **Si riapre sempre sulla PRIMA sezione, mai sull'ultima lasciata**
+            // (sua richiesta del 19/08, «importante»). La finestra veniva solo
+            // riportata davanti, e con lei restava selezionata la sezione di
+            // prima: chi riapre le Preferenze si aspetta il posto da cui si
+            // comincia, non quello dove aveva finito ieri.
+            //
+            // Il contenuto si ricostruisce da capo invece di essere ripristinato
+            // a mano: la sezione vive in uno `@State` dentro `PreferencesView`, e
+            // SwiftUI conserva lo stato finché la vista ha la stessa identità.
+            // Assegnare un controller NUOVO è l'unico modo per cui quell'`@State`
+            // riparte dal suo valore iniziale, che è `openAt`.
+            window.contentViewController = NSHostingController(
+                rootView: PreferencesView(state: state, actions: actions, openAt: openAt))
             window.makeKeyAndOrderFront(nil)
             return
         }

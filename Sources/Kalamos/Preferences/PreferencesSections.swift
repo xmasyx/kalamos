@@ -939,17 +939,6 @@ struct WaveSection: View {
                 preview
             }
 
-            PrefRow(title: L.t("Come si apre e si chiude la pillola",
-                               "How the pill opens and closes",
-                               "Comment la pastille s'ouvre et se ferme"),
-                    note: L.t("Vale solo quando l'onda sta fuori dal notch. La chiusura è l'apertura al contrario, sempre.",
-                              "Only when the wave sits outside the notch. Closing is opening in reverse, always.",
-                              "Uniquement hors du notch. La fermeture est l'ouverture à l'envers, toujours.")) {
-                ChipRow(options: AperturaPillola.allCases.map { ($0.rawValue, $0.titolo, $0.nota) },
-                        isOn: { state.aperturaPillola.rawValue == $0 },
-                        pick: { state.aperturaPillola = AperturaPillola(rawValue: $0) ?? .corrente })
-            }
-
             PrefRow(title: L.t("Colore dell'onda", "Wave colour", "Couleur de l'onde")) {
                 TintRow(tints: WavePalette.wave, selection: $state.waveTint)
             }
