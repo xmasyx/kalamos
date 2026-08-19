@@ -42,28 +42,23 @@ enum TrainingCorpus {
         have - exported >= batch
     }
 
-    /// A dictation he never touched has to be older than this before it counts
-    /// as presumed right. The redo marker is written when the NEXT dictation
-    /// arrives, and a correction usually comes within minutes of noticing: an
-    /// hour is long enough that "he did not touch it" means something, and short
-    /// enough that a day's work is in the corpus that evening.
-    static let presumedGrace: TimeInterval = 3600
-
     /// Copy out every dictation whose text is worth training on.
     ///
-    /// **Three sources, and the file says which.** Corrected and confirmed come
-    /// from him. `presumed` is the third class he asked for on 2026-08-15: a
-    /// dictation he used and never went back to, which is weak evidence rather
-    /// than none — the app already marks the ones he DID go back to, so what is
-    /// left is the silence of a sentence that worked. Written down as presumed,
-    /// so whoever trains on this can weigh it or drop it. Calling it confirmed
-    /// would be the app putting words in his mouth.
+    /// **Two sources, and both are his word.** Corrected means he retyped what
+    /// was wrong, confirmed means he read it and said it was right. There is no
+    /// third class: from 2026-08-20 a dictation he never went back to does not
+    /// enter, however long it has sat there. It used to, as `presumed`, on the
+    /// reasoning that silence was weak evidence a sentence had worked — and the
+    /// reasoning is wrong, because silence is also what a sentence gets when he
+    /// read it, saw it was mangled, and had no time to fix it. Those two are
+    /// indistinguishable from the outside, so the corpus takes neither and the
+    /// recording stays in "Da guardare" until he settles it.
     ///
-    /// **Idempotent by audio AND source.** A recording exported as presumed and
-    /// corrected next week appends a second, better line; the trainer keeps the
-    /// strongest per audio. Keying only on the file name — which is what the
-    /// first version did — would have frozen the guess and thrown the correction
-    /// away silently, which is the worst of the three outcomes.
+    /// **Idempotent by audio AND source.** A recording exported as confirmed at
+    /// a glance and retyped next week appends a second, stronger line; the
+    /// trainer keeps the best per audio. Keying only on the file name — which is
+    /// what the first version did — would have frozen the weaker reading and
+    /// thrown the correction away silently, the worst of the three outcomes.
     @discardableResult
     static func export() -> Int {
         let fm = FileManager.default
@@ -108,23 +103,16 @@ enum TrainingCorpus {
 
     /// What to train on for one recording, and where that text comes from.
     ///
-    /// Nil for the three cases that must never enter a training set: a recording
-    /// the app itself flagged as gone wrong and he never fixed, one that produced
-    /// no words, and one too recent for silence to mean anything yet.
-    static func trainable(_ entry: DictationEntry,
-                          now: Date = Date()) -> (String, DictationArchive.TruthSource)? {
-        if let source = DictationArchive.truthSource(of: entry.wav),
-           let truth = DictationArchive.section("VERITÀ", in: entry.wav),
-           !truth.isEmpty {
-            return (truth, source)
-        }
-        let d = DictationIndex.details(of: entry.wav)
-        guard !d.suspect,
-              now.timeIntervalSince(entry.started) >= presumedGrace,
-              let raw = DictationArchive.section("GREZZO", in: entry.wav),
-              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Nil until he has settled it by hand. The whole value of this corpus is
+    /// that every target is a sentence a human approved; one guess in it, and a
+    /// trainer downstream can no longer trust any line without checking the
+    /// source field, which is exactly the state the field existed to avoid.
+    static func trainable(_ entry: DictationEntry) -> (String, DictationArchive.TruthSource)? {
+        guard let source = DictationArchive.truthSource(of: entry.wav),
+              let truth = DictationArchive.section("VERITÀ", in: entry.wav),
+              !truth.isEmpty
         else { return nil }
-        return (raw, .presumed)
+        return (truth, source)
     }
 
     private struct Pair: Hashable { let audio: String; let source: DictationArchive.TruthSource }
@@ -183,8 +171,8 @@ enum TrainingCorpus {
             "language": language,
             "duration": seconds,
             "recorded_at": f.string(from: started),
-            // How much this line is worth. `presumed` is the app's inference,
-            // everything else is his word.
+            // How much this line is worth: how he settled it, one at a time or
+            // a screenful at once. Every line in the file is his word.
             "source": source.rawValue,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),

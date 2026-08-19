@@ -85,7 +85,7 @@ struct TrainingCorpusTests {
             audio: "audio/x.wav",
             verbatim: "l'«ecopadoy» è già funzionale, no?\tdavvero",
             heard: "l'ecopadoy e gia funzionale",
-            language: "it", seconds: 3, started: Date(timeIntervalSince1970: 0), source: .presumed)
+            language: "it", seconds: 3, started: Date(timeIntervalSince1970: 0), source: .confirmed)
         #expect(!line.contains("\n"))
         let obj = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(obj["text"] as? String == "l'«ecopadoy» è già funzionale, no?\tdavvero")
@@ -123,28 +123,27 @@ struct TrainingCorpusTests {
         return DictationEntry(wav: wav, started: DictationIndex.date(fromStem: stem) ?? Date(), details: nil)
     }
 
-    @Test("Una dettatura usata e mai ripresa entra come «presunta»")
-    func untouchedBecomesPresumed() throws {
+    @Test("Una dettatura usata e mai ripresa NON entra")
+    func untouchedNeverEnters() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("kalamos-corpus-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let e = try Self.sidecar(dir, stem: "20260810-101010", raw: "installiamo anche questa")
-        let got = try #require(TrainingCorpus.trainable(e))
-        #expect(got.1 == .presumed)
-        #expect(got.0 == "installiamo anche questa")
+        // Il polo che conta: per quanto vecchia, senza la sua parola non entra.
+        #expect(TrainingCorpus.trainable(e) == nil)
 
-        // Corrected later: the stronger source wins, and the text with it.
+        // Corretta da lui: adesso sì, e con le parole sue.
         DictationArchive.recordTruth(e.wav, verbatim: "installiamo anche quella", how: .corrected)
         let after = try #require(TrainingCorpus.trainable(e))
         #expect(after.1 == .corrected)
         #expect(after.0 == "installiamo anche quella")
     }
 
-    /// The three refusals, and they matter more than the acceptance: each one is
-    /// a way of putting a sentence he never approved into a training set.
-    @Test("Sospetta, vuota o troppo recente non entrano")
+    /// The refusals matter more than the acceptance: each one is a way of putting
+    /// a sentence he never approved into a training set.
+    @Test("Sospetta, vuota o mai guardata non entrano")
     func refusals() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("kalamos-corpus-\(UUID().uuidString)", isDirectory: true)
@@ -160,11 +159,11 @@ struct TrainingCorpusTests {
         let empty = try Self.sidecar(dir, stem: "20260810-101012", raw: "")
         #expect(TrainingCorpus.trainable(empty) == nil)
 
-        // Said a minute ago: he has not had time to go back to it, so his
-        // silence is not evidence of anything yet.
+        // Detta un minuto fa e mai guardata: il silenzio non è una prova, e non
+        // lo diventa invecchiando. Confermata, entra.
         let fresh = try Self.sidecar(dir, stem: "20260810-101013", raw: "prova")
-        #expect(TrainingCorpus.trainable(fresh, now: fresh.started.addingTimeInterval(60)) == nil)
-        #expect(TrainingCorpus.trainable(fresh, now: fresh.started
-            .addingTimeInterval(TrainingCorpus.presumedGrace + 1)) != nil)
+        #expect(TrainingCorpus.trainable(fresh) == nil)
+        DictationArchive.recordTruth(fresh.wav, verbatim: "prova", how: .confirmed)
+        #expect(TrainingCorpus.trainable(fresh) != nil)
     }
 }

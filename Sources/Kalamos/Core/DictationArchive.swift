@@ -198,11 +198,13 @@ enum DictationArchive {
         /// on this later is entitled to know which lines came from a glance.
         case confirmedInBulk = "confirmed_bulk"
 
-        /// Nobody said anything, and that is the point: he used the dictation and
-        /// never went back to it, while the ones he DID go back to are marked.
-        /// The weakest of the four, inferred by the app rather than stated by
-        /// him, and it never gets written into a sidecar — it is computed at
-        /// export time, so the day he corrects one the stronger source wins.
+        /// **Retired on 2026-08-20, and kept only so old manifest lines read
+        /// back as what they are.** It meant: nobody said anything, so the app
+        /// took the raw text as probably right. Nothing produces it any more —
+        /// silence is not evidence, since it is equally what a sentence gets
+        /// when he saw it was wrong and had no time to fix it. Removing the case
+        /// outright would make a surviving line parse as `corrected`, which is
+        /// the one outcome worse than keeping it.
         case presumed
 
         /// **Capitals, and not for emphasis.** `isHeading` recognises a block by
@@ -217,9 +219,7 @@ enum DictationArchive {
             case .corrected: return ""
             case .confirmed: return ", CONFERMATA"
             case .confirmedInBulk: return ", CONFERMATA IN BLOCCO"
-            // Never written to a sidecar: a presumption is not something the
-            // archive should record as if he had said it. It is derived at
-            // export time and lives only in the corpus line.
+            // Never written to a sidecar, and now never produced at all.
             case .presumed: return ""
             }
         }
