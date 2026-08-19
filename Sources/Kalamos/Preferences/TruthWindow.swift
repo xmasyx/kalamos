@@ -236,6 +236,12 @@ final class ArchiveStore: ObservableObject {
 
     /// Settled one way or the other: corrected, or read and confirmed as right.
     var settledCount: Int { entries.filter { $0.details?.corrected == true }.count }
+
+    /// Marcate da riguardare e non ancora sistemate. Scende mentre lui lavora,
+    /// quindi è un numero che finisce a zero e poi sparisce dal piede.
+    var checkCount: Int {
+        entries.filter { $0.details?.needsCheck == true && $0.details?.corrected != true }.count
+    }
 }
 
 /// List on the left, the recording under the ear on the right.
@@ -402,6 +408,16 @@ struct TruthBrowser: View {
                 .font(Theme.font(11))
                 .foregroundStyle(Theme.inkFaded)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // Solo finché ce ne sono: una riga che dice «0 da verificare» è
+            // rumore permanente per un lavoro che finisce.
+            if store.checkCount > 0 {
+                Text(L.t("\(store.checkCount) da verificare ◌", "\(store.checkCount) to check ◌",
+                         "\(store.checkCount) à vérifier ◌"))
+                    .font(Theme.font(11))
+                    .foregroundStyle(Theme.pen)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // Stacked, not side by side: two labels of different lengths in one
             // row leave one button two lines tall and the other one, and the
@@ -664,6 +680,20 @@ struct DictationRow: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(Theme.inkFaded)
+                }
+                // Un cerchio tratteggiato, non il triangolo delle sospette: le
+                // due dicono cose diverse — «probabilmente è andata storta» e
+                // «è stata usata per l'allenamento senza il tuo sì» — e riusare
+                // il segnale che oggi è affidabile lo renderebbe illeggibile.
+                // Sparisce quando la riga è sistemata: il marchio resta scritto
+                // nel file, ma smette di chiedere qualcosa.
+                if entry.details?.needsCheck == true, entry.details?.corrected != true {
+                    Image(systemName: "circle.dashed")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(Theme.pen)
+                        .help(L.t("Era finita nell’allenamento senza il tuo sì — guardala",
+                                  "It went into training without your yes — take a look",
+                                  "Elle est entrée dans l’entraînement sans votre accord"))
                 }
                 if entry.details?.corrected == true {
                     Image(systemName: "checkmark.circle.fill")

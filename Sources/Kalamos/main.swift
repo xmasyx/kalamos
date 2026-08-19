@@ -796,6 +796,55 @@ if CommandLine.arguments.contains("--corpus") {
     exit(0)
 }
 
+// `--marca-da-verificare <righe.jsonl> [motivo]` — segna nell'archivio le
+// registrazioni elencate in un manifest, così tornano sotto i suoi occhi.
+//
+// Nato il 2026-08-20 per rimettergli davanti le 375 dettature che la classe
+// «presunta» aveva mandato nel corpus di allenamento col grezzo preso per buono.
+// Prende il manifest invece di una lista di nomi perché il manifest è il
+// documento che dice CHI era in quello stato: ricostruire l'elenco per euristica
+// sarebbe un'ipotesi al posto di un fatto.
+//
+// Idempotente: una già marcata o già sistemata da lui non viene toccata.
+if let i = CommandLine.arguments.firstIndex(of: "--marca-da-verificare") {
+    let args = CommandLine.arguments
+    guard i + 1 < args.count else {
+        print("usage: Kalamos --marca-da-verificare <righe.jsonl> [motivo]")
+        exit(2)
+    }
+    let motivo = i + 2 < args.count && !args[i + 2].hasPrefix("--")
+        ? args[i + 2]
+        : "era entrata nell'allenamento senza il tuo sì"
+    guard let testo = try? String(contentsOfFile: args[i + 1], encoding: .utf8) else {
+        print("non riesco a leggere \(args[i + 1])")
+        exit(2)
+    }
+
+    var nomi: [String] = []
+    for riga in testo.split(separator: "\n") {
+        guard let obj = try? JSONSerialization.jsonObject(with: Data(riga.utf8)) as? [String: Any],
+              let audio = obj["audio"] as? String else { continue }
+        let nome = (audio as NSString).lastPathComponent
+        if !nomi.contains(nome) { nomi.append(nome) }
+    }
+
+    var marcate = 0, giàMarcate = 0, giàSistemate = 0, mancanti = 0
+    for nome in nomi {
+        let wav = DictationArchive.directory.appendingPathComponent(nome)
+        guard FileManager.default.fileExists(atPath: DictationArchive.sidecar(of: wav).path) else {
+            mancanti += 1; continue
+        }
+        if DictationArchive.isSettled(wav) { giàSistemate += 1; continue }
+        if DictationArchive.needsCheck(wav) { giàMarcate += 1; continue }
+        DictationArchive.markNeedsCheck(wav, reason: motivo)
+        marcate += 1
+    }
+    print("elencate: \(nomi.count)")
+    print("marcate adesso: \(marcate)")
+    print("già marcate: \(giàMarcate) · già sistemate da lui: \(giàSistemate) · non nell'archivio: \(mancanti)")
+    exit(0)
+}
+
 // `--sonda-taglio [<file.wav>]` — il taglio di coda sui suoi file veri.
 //
 // Senza un file prende l'archivio delle dettature e ordina per taglio decrescente,

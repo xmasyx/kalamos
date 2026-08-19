@@ -32,6 +32,10 @@ struct DictationDetails: Hashable, Sendable {
     var corrected: Bool
     /// The app itself flagged it as probably wrong (a redo, mostly).
     var suspect: Bool
+    /// Marcata da riguardare: era entrata nell'allenamento senza la sua parola.
+    /// Ha un default perché il campo è arrivato dopo, e i banchi che costruiscono
+    /// un `DictationDetails` a mano non parlano di questa storia.
+    var needsCheck: Bool = false
     /// When he settled it, read off the VERITÀ heading. Nil while unsettled.
     var settledAt: Date?
 }
@@ -133,6 +137,7 @@ enum DictationIndex {
             text: delivered ?? raw ?? "",
             corrected: truth?.isEmpty == false,
             suspect: header.contains("SOSPETTA:"),
+            needsCheck: header.contains("DA VERIFICARE:"),
             settledAt: settledDate(inSidecar: header))
     }
 

@@ -169,6 +169,32 @@ enum DictationArchive {
         announce(wav)
     }
 
+    /// Segna una registrazione come **da verificare**, con il motivo per cui lo è.
+    ///
+    /// Nasce il 2026-08-20, quando la classe «presunta» è stata tolta: 375
+    /// dettature erano finite nel corpus di allenamento col grezzo preso per
+    /// buono, e lui voleva poterle riguardare una per una invece di ritrovarsele
+    /// mescolate alle altre mai guardate.
+    ///
+    /// **Un'intestazione vera, non una riga in coda come `SOSPETTA:`.** Scritta
+    /// in maiuscolo e chiusa dai due punti, quindi `isHeading` la riconosce e
+    /// CHIUDE il blocco precedente: una riga qualsiasi appesa in fondo verrebbe
+    /// invece letta come la coda di `CONSEGNATO`, cioè entrerebbe nel testo della
+    /// dettatura. Il motivo sta sulla riga sotto, dove sta il corpo di un blocco.
+    static func markNeedsCheck(_ wav: URL, reason: String) {
+        guard !needsCheck(wav) else { return }
+        append(wav, lines: ["", "DA VERIFICARE:", reason])
+        Log.write("archive: da verificare \(wav.lastPathComponent) — \(reason)")
+    }
+
+    /// Il marchio c'è? Letto dal file e non da un database, come tutto il resto:
+    /// il sidecar è ciò che sopravvive a una copia altrove.
+    static func needsCheck(_ wav: URL) -> Bool {
+        guard let text = try? String(contentsOf: sidecar(of: wav), encoding: .utf8)
+        else { return false }
+        return text.contains("DA VERIFICARE:")
+    }
+
     /// Write down what was actually said. The one line in the whole file that is
     /// not a guess.
     ///

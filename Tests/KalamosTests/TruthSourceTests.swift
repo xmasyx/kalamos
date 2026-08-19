@@ -88,3 +88,89 @@ struct TruthSourceTests {
         #expect(file.contains("CONFERMATA IN BLOCCO"))
     }
 }
+
+/// Il marchio «da verificare», nato il 2026-08-20 insieme alla morte della
+/// classe «presunta»: 375 dettature erano finite nel corpus di allenamento col
+/// grezzo preso per buono, e lui voleva poterle riguardare.
+@Suite("DA VERIFICARE — il marchio che le rimette sotto i suoi occhi")
+struct NeedsCheckTests {
+
+    private static func sidecar(_ dir: URL, stem: String) throws -> URL {
+        let wav = dir.appendingPathComponent("\(stem).wav")
+        try Data().write(to: wav)
+        try """
+        durata audio: 12.0s · microfono aperto: 12.1s
+        lingua: it
+
+        GREZZO:
+        per lifeos da vedere i gestionali
+
+        CONSEGNATO:
+        per LifeOS da vedere i gestionali
+        """.write(to: DictationArchive.sidecar(of: wav), atomically: true, encoding: .utf8)
+        return wav
+    }
+
+    private static func inATempDir(_ body: (URL) throws -> Void) throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("kalamos-check-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try body(dir)
+    }
+
+    /// Il polo negativo prima di quello positivo: un file non marcato deve dire
+    /// di no, altrimenti il sì non significa niente.
+    @Test("Non marcata dice no, marcata dice sì, e due marchi restano uno")
+    func markRoundTrip() throws {
+        try Self.inATempDir { dir in
+            let wav = try Self.sidecar(dir, stem: "20260810-101010")
+            #expect(!DictationArchive.needsCheck(wav))
+            #expect(DictationIndex.details(of: wav).needsCheck == false)
+
+            DictationArchive.markNeedsCheck(wav, reason: "era entrata nell'allenamento senza il tuo sì")
+            #expect(DictationArchive.needsCheck(wav))
+            #expect(DictationIndex.details(of: wav).needsCheck)
+
+            // Idempotente: rieseguire la marcatura non impila intestazioni.
+            DictationArchive.markNeedsCheck(wav, reason: "un altro motivo")
+            let testo = try String(contentsOf: DictationArchive.sidecar(of: wav), encoding: .utf8)
+            #expect(testo.components(separatedBy: "DA VERIFICARE:").count - 1 == 1)
+        }
+    }
+
+    /// **Il difetto che questo test esiste per prendere.** `SOSPETTA:` è una riga
+    /// qualsiasi appesa in fondo, quindi finisce dentro l'ultimo blocco aperto e
+    /// il testo della dettatura se la porta dietro. Il marchio nuovo è
+    /// un'intestazione vera e CHIUDE il blocco: il testo consegnato resta quello
+    /// che lui ha detto, e la riga in lista non mostra il motivo del marchio.
+    @Test("Il marchio non entra nel testo della dettatura")
+    func markDoesNotLeakIntoTheText() throws {
+        try Self.inATempDir { dir in
+            let wav = try Self.sidecar(dir, stem: "20260810-101011")
+            let prima = DictationArchive.section("CONSEGNATO", in: wav)
+            DictationArchive.markNeedsCheck(wav, reason: "era entrata nell'allenamento senza il tuo sì")
+            #expect(DictationArchive.section("CONSEGNATO", in: wav) == prima)
+            #expect(DictationIndex.details(of: wav).text == "per LifeOS da vedere i gestionali")
+            #expect(DictationArchive.section("DA VERIFICARE", in: wav)
+                == "era entrata nell'allenamento senza il tuo sì")
+        }
+    }
+
+    /// Marcata e poi sistemata: il marchio resta scritto (è storia), ma la
+    /// dettatura risulta sistemata e il pallino nella lista si spegne.
+    @Test("Sistemarla dopo il marchio la chiude lo stesso")
+    func settlingAfterTheMarkStillWorks() throws {
+        try Self.inATempDir { dir in
+            let wav = try Self.sidecar(dir, stem: "20260810-101012")
+            DictationArchive.markNeedsCheck(wav, reason: "era entrata nell'allenamento senza il tuo sì")
+            DictationArchive.recordTruth(wav, verbatim: "per LifeOS da vedere i gestionali",
+                                         how: .confirmed)
+            let d = DictationIndex.details(of: wav)
+            #expect(d.corrected)
+            #expect(d.needsCheck)
+            #expect(DictationArchive.truthSource(of: wav) == .confirmed)
+            #expect(TrainingCorpus.trainable(DictationEntry(wav: wav, started: Date(), details: nil)) != nil)
+        }
+    }
+}
