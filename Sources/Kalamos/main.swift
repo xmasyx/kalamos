@@ -560,6 +560,164 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-pipeline") {
     exit(0)
 }
 
+// `Kalamos --selftest-contestuale <corpus.json> [--modello X] [--quanti N] [--out …]`
+//
+// L'ESPERIMENTO C8, e va detto subito che è un esperimento e non una promessa:
+// un modello locale rilegge il testo di Parakeet e ripara SOLO parole-funzione e
+// accordi (preposizioni, articoli, ausiliari, concordanze), senza toccare le
+// parole di contenuto. È l'unica classe di errore rimasta grossa dopo il
+// vocabolario e i numeri — la tassonomia dice sub-altro 1,89 punti e perse 1,55.
+//
+// Il criterio di morte è scritto nell'ISA PRIMA di questa corsa, e la prima
+// riga è meccanica invece che a occhio: **un solo cambio di parola di CONTENUTO
+// e l'esperimento si butta**. Un modello che riscrive contenuto sta inventando,
+// e il fatto che spesso indovini è esattamente ciò che rende il guasto
+// invisibile — è l'anti-claim A1 applicato a questa leva.
+//
+// Perciò questo comando non si limita a stampare: classifica ogni parola
+// cambiata in funzione o contenuto, e conta le seconde. Quel conto è il
+// verdetto.
+//
+// ── IL VERDETTO, 19/08: MORTO AL PRIMO BLOCCO ───────────────────────────────
+//
+// Dieci testi di taratura, Qwen2.5-7B-Instruct-4bit, il modello che l'app usa
+// davvero. Cinque testi cambiati, dieci parole-funzione toccate e **dieci
+// parole di CONTENUTO**. Il criterio diceva zero, e non per un pelo:
+//
+//   · «così paghiamo quei 100 euro» — una frase intera, CANCELLATA;
+//   · «vada non occupare un file md ma che riconosca la tasca effettiva» →
+//     «vada in una tasca effettiva», che non è una riparazione, è una riscrittura;
+//   · «gli tipo ingestionali» → «gli tipi ingestionali», un accordo giusto
+//     ottenuto cambiando una parola di contenuto;
+//   · «Non sto a rifarle» → «Non ne sto a rifarle», italiano peggiore di prima.
+//
+// La lezione non è che il modello è piccolo. È che «ripara solo le
+// parole-funzione» non è un'istruzione che un modello generativo possa
+// rispettare: la riscrittura è il suo modo di funzionare, e il fatto che il
+// risultato SUONI meglio è precisamente ciò che rende il danno invisibile — chi
+// rilegge trova un testo scorrevole, non un testo alterato.
+//
+// Il comando resta perché il criterio di morte va potuto RIESEGUIRE, non
+// ricordare. Chi lo riprova con un modello diverso ha già la misura da battere.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-contestuale") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-contestuale <corpus.json> [--modello X] [--quanti N] [--out …]")
+        exit(2)
+    }
+    let modello = args.firstIndex(of: "--modello").flatMap {
+        $0 + 1 < args.count ? args[$0 + 1] : nil
+    } ?? "mlx-community/Qwen3-4B-4bit"
+    let quanti = args.firstIndex(of: "--quanti").flatMap {
+        $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
+    } ?? Int.max
+
+    // La classe chiusa dell'italiano: articoli, preposizioni, congiunzioni,
+    // clitici, ausiliari. Tutto ciò che non è qui dentro è contenuto, e questa
+    // è la direzione giusta dell'incertezza — una parola sconosciuta conta come
+    // contenuto, quindi come danno, non come innocente.
+    let funzione: Set<String> = [
+        "il","lo","la","i","gli","le","un","uno","una","del","dello","della","dei","degli",
+        "delle","al","allo","alla","ai","agli","alle","dal","dallo","dalla","dai","dagli",
+        "dalle","nel","nello","nella","nei","negli","nelle","sul","sullo","sulla","sui",
+        "sugli","sulle","col","coi","di","a","da","in","con","su","per","tra","fra",
+        "e","ed","o","od","ma","però","se","che","chi","cui","come","quando","mentre",
+        "perché","poi","anche","non","più","meno","molto","già","ancora","sempre","così",
+        "mi","ti","si","ci","vi","ne","lui","lei","noi","voi","loro","io","tu","me","te",
+        "questo","questa","questi","queste","quello","quella","quelli","quelle",
+        "è","sono","sei","siamo","siete","era","erano","essere","stato","stata",
+        "ho","hai","ha","abbiamo","avete","hanno","aveva","avere","avuto",
+        "sia","sarebbe","stesso","stessa","ogni","tutto","tutta","tutti","tutte","qui","lì",
+    ]
+    let sistema = """
+    Sei un correttore di trascrizioni italiane. Il testo viene da un motore di \
+    riconoscimento vocale e contiene errori su PAROLE-FUNZIONE e ACCORDI: \
+    preposizioni, articoli, ausiliari, concordanze di genere e numero.
+
+    Regole assolute:
+    - Correggi SOLO parole-funzione e accordi grammaticali.
+    - NON cambiare, aggiungere o togliere nessuna parola di contenuto: \
+      sostantivi, verbi pieni, aggettivi, nomi propri, numeri, termini tecnici.
+    - NON riformulare, NON riassumere, NON migliorare lo stile.
+    - Se non sei sicuro, lascia il testo com'è.
+    - Rispondi SOLO con il testo corretto, senza commenti.
+    """
+    struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
+    struct Pair: Codable { let before: String; let after: String }
+    let sem = DispatchSemaphore(value: 0)
+    Task.detached {
+        // Dichiarate QUI e non in cima: una funzione al livello superiore di
+        // main.swift è codice top-level, quindi implicitamente asincrona, e
+        // chiamarla da dentro il Task non compila.
+        func parole(_ t: String) -> [String] {
+            t.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        }
+        // Le parole che compaiono in uno e non nell'altro, senza allineamento:
+        // per il verdetto basta sapere QUALI parole sono entrate e uscite, e un
+        // multiinsieme è più difficile da imbrogliare di un allineamento.
+        func differenza(_ a: [String], _ b: [String]) -> [String] {
+            var conto: [String: Int] = [:]
+            for w in a { conto[w, default: 0] += 1 }
+            var fuori: [String] = []
+            for w in b {
+                if let n = conto[w], n > 0 { conto[w] = n - 1 } else { fuori.append(w) }
+            }
+            return fuori
+        }
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            let entries = try JSONDecoder().decode([Entry].self, from: data)
+            let testi = entries.flatMap {
+                [$0.raw, $0.text, $0.clean].compactMap { $0 }.filter { !$0.isEmpty }
+            }.prefix(quanti)
+            let motore = MLXEngine(modelID: modello)
+            print("modello: \(modello) · \(testi.count) testi\n")
+            var coppie: [Pair] = []
+            var contenutoTotale = 0, funzioneTotale = 0, cambiati = 0
+            let t0 = Date()
+            for testo in testi {
+                var out = try await motore.generate(system: sistema, user: testo,
+                                                    purpose: .cleaning, maxTokens: 2048)
+                // Qwen3 ragiona ad alta voce se il template lo permette: quel
+                // blocco non è testo consegnato e non deve entrare nella misura.
+                if let r = out.range(of: "</think>") { out = String(out[r.upperBound...]) }
+                out = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                coppie.append(Pair(before: testo, after: out))
+                guard out != testo else { continue }
+                cambiati += 1
+                let entrate = differenza(parole(testo), parole(out))
+                let uscite = differenza(parole(out), parole(testo))
+                let contenuto = (entrate + uscite).filter { !funzione.contains($0) }
+                contenutoTotale += contenuto.count
+                funzioneTotale += (entrate.count + uscite.count) - contenuto.count
+                let (a, b) = finestraDelCambio(testo, out)
+                print("PRIMA: \(a)")
+                print("DOPO : \(b)")
+                print("  entrate: \(entrate.joined(separator: " ")) | uscite: \(uscite.joined(separator: " "))")
+                if !contenuto.isEmpty {
+                    print("  *** PAROLE DI CONTENUTO TOCCATE: \(contenuto.joined(separator: " ")) ***")
+                }
+                print("")
+            }
+            print("— \(cambiati) testi cambiati su \(testi.count) in \(String(format: "%.0f", Date().timeIntervalSince(t0))) s —")
+            print("parole-funzione toccate: \(funzioneTotale)")
+            print("PAROLE DI CONTENUTO TOCCATE: \(contenutoTotale)  (il criterio di morte dice 0)")
+            if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted]
+                try encoder.encode(coppie).write(to: URL(fileURLWithPath: args[i + 1]))
+                print("scritto \(args[i + 1]) — \(coppie.count) coppie")
+            }
+            exit(contenutoTotale == 0 ? 0 : 1)
+        } catch {
+            FileHandle.standardError.write(Data("selftest-contestuale: \(error)\n".utf8))
+            exit(1)
+        }
+    }
+    sem.wait()
+}
+
 // `Kalamos --selftest-combo <corpus.json>` — the negative pole for KeyCombos.
 //
 // Same shape as --selftest-vocab and for the same reason: the failure that costs
