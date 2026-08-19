@@ -830,7 +830,22 @@ struct IslandEntrance: Equatable {
     static let notchFisico: CGFloat = 192
 
     /// La striscia che l'isola tiene libera per l'hardware (`IslandView.notch`).
-    static let strisciaHardware: CGFloat = 18
+    ///
+    /// **Si LEGGE dal sistema, non si indovina** (MacAppRules §0.1), e il 19/08 il
+    /// numero scritto a mano era sbagliato di 14 punti: `safeAreaInsets.top` sul
+    /// suo Mac dice **32**, il valore fisso diceva 18. Finché la banda era alta
+    /// 128 l'errore stava nascosto nell'abbondanza; stringendola a 96 è uscito
+    /// fuori come lui l'ha visto, cioè l'onda tagliata dal notch stesso.
+    ///
+    /// Su uno schermo senza notch `safeAreaInsets.top` è 0 e non c'è hardware da
+    /// scansare: lì vale il valore di riserva, che serve solo a non incollare
+    /// l'onda al bordo.
+    static let strisciaPredefinita: CGFloat = 18
+
+    static func strisciaHardware(_ schermo: NSScreen?) -> CGFloat {
+        let notch = schermo?.safeAreaInsets.top ?? 0
+        return notch > 0 ? notch : strisciaPredefinita
+    }
 
     /// **Il pizzico**: la goccia parte un po' più STRETTA del notch da cui pende
     /// — 168 contro 192 — ed è lo schiacciamento che le dà il carattere. Una
@@ -847,7 +862,7 @@ struct IslandEntrance: Equatable {
     /// numero segue la sua misura in PUNTI: cambiando la banda, il labbro resta
     /// quello dell'hardware.
     static var dropWidth: CGFloat { min(1, notchFisico * pizzico / IslandPanel.width) }
-    static var dropHeight: CGFloat { min(1, strisciaHardware / IslandPanel.height) }
+    static var dropHeight: CGFloat { min(1, strisciaPredefinita / IslandPanel.height) }
 
     // MARK: - The arrival is the departure backwards, and that is now literal
     //
@@ -1603,12 +1618,29 @@ struct IslandView: View {
         if inNotch { notch } else { bubble }
     }
 
+    /// Aria sopra e sotto il blocco dell'onda.
+    static let respiro: CGFloat = 6
+
+    /// Quanto hardware c'è da scansare su questo schermo.
+    private var striscia: CGFloat { IslandEntrance.strisciaHardware(NSScreen.main) }
+
+    /// **Quello che resta all'onda**: il guscio, meno l'hardware, meno l'aria.
+    /// Pubblica e pura così la prova può chiederlo per qualunque taglia di banda
+    /// senza costruire una vista.
+    static func altezzaOnda(guscio: CGFloat, striscia: CGFloat) -> CGFloat {
+        max(24, guscio - striscia - respiro * 2)
+    }
+
+    private var altezzaOnda: CGFloat {
+        Self.altezzaOnda(guscio: shellSize.height, striscia: striscia)
+    }
+
     /// The band under the hardware.
     private var notch: some View {
         VStack(spacing: 0) {
             // Only the physical height of the notch, so the wave starts
             // immediately below it instead of hanging low in the shell.
-            Spacer().frame(height: IslandEntrance.strisciaHardware)
+            Spacer().frame(height: striscia)
             // Taller than it was, by exactly what the caption used to take.
             // Keeping the old height would have left the same shell with a hole in
             // the bottom of it: the line under the wave is gone, so the wave takes
@@ -1618,17 +1650,22 @@ struct IslandView: View {
             // La tela è larga quanto il guscio — il filo deve toccare i due
             // bordi — e i nastri si spengono nelle ultime frazioni di ciascun
             // capo invece di essere tranciati contro il nero.
-            wave(profilo: WaveCanvas.profiloSfumato()).frame(height: 72)
+            // **Calcolata, non scritta a mano.** Era 72, e con la banda a 96 la
+            // somma faceva 18 + 72 + 12 = 102 punti dentro un guscio di 96: sei
+            // punti finivano sotto `.clipped()`, e i primi 14 stavano comunque
+            // dietro il notch. Adesso l'onda prende esattamente quello che resta
+            // sotto l'hardware, quindi stringendo ancora la banda si assottiglia
+            // invece di essere tranciata.
+            wave(profilo: WaveCanvas.profiloSfumato()).frame(height: altezzaOnda)
         }
         // The 22 points of side margin went on 2026-08-16, and with them the last
         // reason the thread stopped short of the ends. The shell is a rectangle
         // here, so there is no arc to keep clear and nothing the margin was
         // protecting — it was simply holding the wave away from its own edges.
-        // This centres the wave in the band BELOW the notch rather than in the
-        // shell: the block is centred in the frame and the 18 points of hardware
-        // are inside it, which puts the middle of the wave at 73 of 128 — the
-        // middle of what can actually be seen.
-        .padding(.vertical, 6)
+        // Centra l'onda nella banda SOTTO il notch invece che nel guscio: il
+        // blocco è centrato nel riquadro e la striscia dell'hardware sta dentro,
+        // quindi il centro dell'onda cade a metà di ciò che si vede davvero.
+        .padding(.vertical, Self.respiro)
         .frame(width: shellSize.width, height: shellSize.height)
         .background {
             UnevenRoundedRectangle(

@@ -136,6 +136,13 @@ have made, with search and filters, the audio next to the text, and playback at
 a line there is not cosmetic: the correction feeds the words it learns from, so the
 next transcription is better for having been wrong once.
 
+**You can see it listening, and you decide where.** A wave shows while the
+microphone is open: hanging from the notch as a band that continues the hardware,
+or as a small pill above the Dock. It is always draggable, from anywhere on it —
+drop it near either of those two spots and it snaps and stays there; drop it
+anywhere else and that is where it lives from then on. The wave follows the audio
+already being recorded; it listens to nothing extra.
+
 **And it fits the Mac you own.** First run reads the chip, the memory, the cores
 and the free disk, then proposes the models that fit and shows you the figure that
 decided each choice. Accept and setup is two pages shorter.

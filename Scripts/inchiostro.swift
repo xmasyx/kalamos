@@ -4,6 +4,16 @@ import AppKit
 // Il guscio è nero pieno; l'onda è tutto ciò che dentro il guscio non è nero.
 // Domanda: fra l'inchiostro più alto/basso e il bordo del guscio quanti pixel
 // restano? Zero significa tagliata.
+// `--striscia=<pt>`: quanti punti in cima al guscio sono coperti dall'HARDWARE.
+// **Senza questo la sonda misura la domanda debole.** Il 19/08 ha risposto «l'onda
+// non tocca il bordo» — vero — mentre lui vedeva l'onda tagliata: il taglio non lo
+// faceva il guscio, lo faceva il notch fisico, che copre i primi 32 punti. Una
+// sonda che guarda il contenitore invece della parte VISIBILE del contenitore dà
+// un verde onesto alla domanda sbagliata.
+let striscia = CommandLine.arguments
+    .first { $0.hasPrefix("--striscia=") }
+    .flatMap { Double($0.split(separator: "=", maxSplits: 1).last ?? "") } ?? 0
+
 guard CommandLine.arguments.count > 1,
       let img = NSImage(contentsOfFile: CommandLine.arguments[1]),
       let tiff = img.tiffRepresentation,
@@ -35,13 +45,23 @@ for x in stride(from: W/2 - 300, through: W/2 + 300, by: 1) where x >= 0 && x < 
     guard it >= 0 else { continue }
     colonneConInchiostro += 1
     inkTop = min(inkTop, it - t); inkBot = max(inkBot, b - ib)
-    if it - t <= 1 { toccaSopra += 1 }
+    // Il bordo utile in cima non è il guscio: è il guscio più la striscia coperta.
+    if Double(it - t) <= striscia * 2 + 1 { toccaSopra += 1 }
     if b - ib <= 1 { toccaSotto += 1 }
 }
 let scala = 2   // le foto sono a 2×
 print("immagine \(W)×\(H) px · guscio alto \(bot - top + 1) px = \((bot - top + 1)/scala) pt")
 print("colonne misurate: \(colonneConInchiostro)")
-print("margine minimo sopra: \(inkTop) px = \(inkTop/scala) pt · colonne che toccano il bordo alto: \(toccaSopra)")
+print("striscia hardware dichiarata: \(Int(striscia)) pt")
+print("margine minimo sopra il guscio: \(inkTop) px = \(inkTop/scala) pt · sotto l'hardware ne restano \(inkTop/scala - Int(striscia)) pt · colonne coperte dal notch: \(toccaSopra)")
 print("margine minimo sotto: \(inkBot) px = \(inkBot/scala) pt · colonne che toccano il bordo basso: \(toccaSotto)")
-print(toccaSopra + toccaSotto == 0 ? "✓ l'onda non tocca il bordo del guscio"
-                                   : "✗ l'onda arriva al bordo in \(toccaSopra + toccaSotto) colonne: è tagliata")
+// **Zero colonne misurate NON è un verde.** Una sonda che non ha guardato niente
+// e una che ha guardato e non ha trovato difetti si leggono identiche, ed è la
+// forma peggiore di falso verde: qui è successo davvero, perché la schermata di
+// pausa di Otium era finita sopra la foto.
+guard colonneConInchiostro >= 50 else {
+    print("✗ misurate solo \(colonneConInchiostro) colonne: la foto non contiene il guscio (un'altra finestra davanti?)")
+    exit(3)
+}
+print(toccaSopra + toccaSotto == 0 ? "✓ l'onda sta dentro la parte VISIBILE del guscio"
+                                   : "✗ l'onda finisce sotto l'hardware o contro il bordo in \(toccaSopra + toccaSotto) colonne: è tagliata")

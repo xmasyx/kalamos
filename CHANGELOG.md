@@ -5,6 +5,41 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
+## Unreleased
+
+### The wave island: two anchors, a magnet, and a drag that belongs to the app
+
+Where the wave appears is now a named place — `notch`, `bottom centre`, or `free` —
+and not a pair of coordinates. A name is recomputed from the geometry of whatever
+screen is attached; raw coordinates describe yesterday's screen and put the island
+off-screen the first time you plug in a monitor. A position saved against a display
+that is gone is brought back inside the visible area instead of being discarded.
+
+The model is: **always free, with two magnets.** The island moves from any position,
+the notch included. Pulled out past the anchor's radius the band becomes the pill
+under your finger; dropped near an anchor it snaps and the name is saved; dropped
+anywhere else it becomes free and stays there, so the next dictation starts where
+you left it.
+
+- **The "it wants to take the whole screen" was macOS, not this app.** Measured on a
+  bare panel carrying the island's flags, with no Kalamos code involved
+  (`Scripts/sonda-aggancio.swift`): dragged against the top edge, two
+  `WindowManager Drag Guide Window` layers 1542×905 appear — the tiling overlay of
+  macOS 26 — and on release the system throws the window back to mid-screen. Dropped
+  at the centre of the screen, neither happens. The repair is to stop handing the
+  gesture to the window server and to track it in the app.
+- **The drag computes an absolute position, not a running sum of deltas.** The two
+  look equivalent and are not: the moment AppKit refuses an origin, and against the
+  top edge it does, a running sum keeps adding to a wrong base and the window drifts
+  away from the pointer for good. `--sonda-trascinamento` measures the pointer↔window
+  offset through a there-and-back gesture: 13 pt of drift with the sum, 1 pt with the
+  absolute position.
+- **The band under the notch is 320 × 96**, down from 400 × 128 — 40% less area over
+  the menu bar — and the wave inside is sized from what is left below the physical
+  notch, read from `safeAreaInsets` rather than assumed. `Scripts/inchiostro.swift`
+  reads the rendered image column by column and reports how far the ink stays from
+  the edge.
+
 ## v1.5.0
 
 ### Punctuation without the language model: 28 ms instead of 3.3 seconds

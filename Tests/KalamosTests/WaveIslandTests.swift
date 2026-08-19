@@ -682,6 +682,39 @@ import Testing
         #expect(panel.gestoOsservato, "nessuno guarda il trascinamento: la pillola è immobile")
     }
 
+    /// **L'onda entra nella banda, e la banda comincia SOTTO l'hardware.**
+    ///
+    /// Difetto dal campo del 19/08, con la banda appena stretta a 96: «l'onda
+    /// viene tagliata dal notch stesso». Erano due errori sovrapposti, e nessuno
+    /// dei due si vedeva finché la banda era alta 128.
+    ///
+    /// Primo: l'onda aveva un'altezza scritta a mano, 72, e la somma faceva
+    /// 32 + 72 + 12 = 116 punti dentro un guscio di 96 — venti punti sotto
+    /// `.clipped()`. Secondo: la striscia riservata all'hardware era la costante
+    /// 18, mentre `safeAreaInsets.top` su quello schermo dice **32**, quindi i
+    /// primi quattordici punti dell'onda stavano dietro il notch fisico anche
+    /// quando ci stavano dentro il guscio.
+    ///
+    /// La prova gira sui NUMERI e non sullo schermo di chi la esegue: una riga
+    /// che asserisse `safeAreaInsets` proverebbe la macchina, non il codice.
+    @Test func theWaveFitsUnderTheHardware() {
+        let guscio = IslandPanel.height        // 96
+        let striscia: CGFloat = 32             // quanto misura il suo notch
+        let onda = IslandView.altezzaOnda(guscio: guscio, striscia: striscia)
+        #expect(striscia + onda + IslandView.respiro * 2 == guscio,
+                "la somma non torna: \(striscia) + \(onda) + \(IslandView.respiro * 2) contro \(guscio)")
+        // Il polo negativo, che è la forma di prima: 72 non ci stava, e deve
+        // continuare a non starci, altrimenti l'uguaglianza qui sopra passerebbe
+        // per qualunque numero.
+        #expect(striscia + 72 + IslandView.respiro * 2 > guscio,
+                "la vecchia altezza fissa entrerebbe: la prova non sta misurando niente")
+        // E stringendo ancora la banda l'onda si assottiglia invece di uscire.
+        let stretta = IslandView.altezzaOnda(guscio: 80, striscia: striscia)
+        #expect(stretta < onda && striscia + stretta + IslandView.respiro * 2 == 80)
+        // Senza schermo, o su uno schermo senza notch, resta il valore di riserva.
+        #expect(IslandEntrance.strisciaHardware(nil) == IslandEntrance.strisciaPredefinita)
+    }
+
     // MARK: - Le ancore
 
     /// **Un rilascio vicino a un'ancora salva il NOME; lontano da tutte, no.**
