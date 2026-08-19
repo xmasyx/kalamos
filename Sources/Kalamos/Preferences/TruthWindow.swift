@@ -47,7 +47,11 @@ final class TruthWindow: NSObject, NSWindowDelegate {
         w.title = L.t("Le tue dettature", "Your dictations", "Vos dictées")
         w.styleMask = [.titled, .closable, .resizable]
         w.titlebarAppearsTransparent = true
-        w.backgroundColor = Theme.paperNS
+        // La barra del titolo è trasparente, quindi prende QUESTO colore: dando
+        // il colore della pagina, titolo e contenuto diventavano un blocco solo
+        // (sua osservazione, 2026-08-20). Col colore di bordo la barra si legge
+        // come una fascia, e `TitlebarSeam` ci mette sotto la riga e l'ombra.
+        w.backgroundColor = Theme.paperEdgeNS
         w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false
         w.setContentSize(NSSize(width: 880, height: 560))
@@ -270,10 +274,11 @@ struct TruthBrowser: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                // 300 e non 260 (2026-08-20): quattro filtri su due file e i
-                // bottoni del piede a tutta larghezza hanno bisogno di respiro,
-                // e la pagina di destra ne aveva da prestare.
-                .frame(width: 300)
+                // 270: i quattro filtri su due file ci stanno larghi, e la
+                // pagina di destra — dove si legge e si scrive — resta la parte
+                // grande della finestra. A 300 la colonna pesava troppo (sua
+                // osservazione, 2026-08-20).
+                .frame(width: 270)
                 .background(Theme.paperEdge)
 
             Divider().overlay(Theme.rule)
@@ -319,6 +324,11 @@ struct TruthBrowser: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.paper)
         }
+        // La cucitura sta QUI e non dentro la colonna: separa la barra del
+        // titolo dalla finestra intera, quindi deve attraversare anche il
+        // divisorio fra le due pagine, altrimenti la riga si interrompe a metà
+        // ed è peggio che non averla.
+        .overlay(alignment: .top) { TitlebarSeam() }
         .onAppear {
             store.load()
             selection = initial
@@ -340,7 +350,7 @@ struct TruthBrowser: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 10) {
             PrefField(placeholder: L.t("Cerca nel testo", "Search the text", "Chercher dans le texte"),
-                      text: $query)
+                      text: $query, stretch: true)
 
             // Due file da due invece di una fila da quattro, e non è una
             // rinuncia: a una riga sola «Da verificare» non ci starebbe senza

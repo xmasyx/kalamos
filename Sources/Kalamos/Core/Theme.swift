@@ -68,6 +68,21 @@ enum Theme {
         }
     }
 
+    /// Il colore della sola barra del titolo, per le finestre con la barra
+    /// trasparente (2026-08-20).
+    ///
+    /// È `paperEdge`, cioè lo stesso della colonna: la barra diventa una fascia
+    /// di bordo invece di un pezzo di pagina, e con la cucitura sotto (vedi
+    /// `TitlebarSeam`) le due zone si distinguono anche di notte, dove un velo
+    /// nero da solo si perde nel fondo scuro.
+    static var paperEdgeNS: NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(srgbRed: 0x10 / 255, green: 0x15 / 255, blue: 0x1C / 255, alpha: 1)
+                : NSColor(srgbRed: 0xF4 / 255, green: 0xF0 / 255, blue: 0xE7 / 255, alpha: 1)
+        }
+    }
+
     /// One colour, two values, resolved at draw time.
     private static func dual(_ light: UInt32, _ dark: UInt32) -> Color {
         dual(Color(hex: light), Color(hex: dark))

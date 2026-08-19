@@ -506,6 +506,31 @@ struct PrefButton: View {
     }
 }
 
+/// La cucitura fra la barra del titolo e la pagina.
+///
+/// Sua osservazione del 2026-08-20: con `titlebarAppearsTransparent` la barra
+/// prende lo stesso colore del contenuto, e la finestra si legge come un unico
+/// blocco in cui il titolo galleggia. Le app di sistema separano le due zone, e
+/// lo fanno con un'ombra corta che muore subito, non con un bordo marcato.
+///
+/// Nero e non `Theme.ink` di proposito: l'inchiostro è chiaro sul tema notturno,
+/// quindi la stessa riga schiarirebbe invece di staccare. Un velo nero al 14%
+/// funziona su carta e su ardesia perché è un'ombra, non un colore.
+///
+/// `allowsHitTesting(false)` non è prudenza: la cucitura passa sopra il campo di
+/// ricerca, e una decorazione che si prende i clic è un campo che non si apre.
+struct TitlebarSeam: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(Theme.rule).frame(height: 1)
+            LinearGradient(colors: [Color.black.opacity(0.14), Color.black.opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 12)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 /// The one text-field shape in the window.
 ///
 /// It was a private helper on the vocabulary section, which was fine until a
@@ -515,6 +540,8 @@ struct PrefButton: View {
 struct PrefField: View {
     let placeholder: String
     @Binding var text: String
+    /// Occupa tutta la riga invece dei 190 punti di casa. Vedi `PrefButton`.
+    var stretch = false
 
     var body: some View {
         TextField(placeholder, text: $text)
@@ -523,7 +550,10 @@ struct PrefField: View {
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.rule, lineWidth: 1.5))
-            .frame(maxWidth: 190)
+            // 190 è la misura giusta per un campo in mezzo a una riga di
+            // impostazioni; in una colonna dove tutto il resto arriva al bordo,
+            // è l'unico comando che si ferma prima e si vede (2026-08-20).
+            .frame(maxWidth: stretch ? .infinity : 190)
     }
 }
 
