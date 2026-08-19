@@ -392,6 +392,95 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
     exit(0)
 }
 
+/// La finestra intorno al primo e all'ultimo punto in cui due testi divergono.
+///
+/// Serve a rendere LEGGIBILE il cancello dei numeri: una dettatura vera arriva a
+/// settecento parole, e stamparla intera due volte per far vedere che «trenta
+/// per cento» è diventato «30%» significa che nessuno la leggerà. Un cancello
+/// che nessuno legge è un tasso, e un tasso non è una prova.
+func finestraDelCambio(_ a: String, _ b: String, contorno: Int = 45) -> (String, String) {
+    let x = Array(a), y = Array(b)
+    var i = 0
+    while i < x.count, i < y.count, x[i] == y[i] { i += 1 }
+    var j = 0
+    while j < x.count - i, j < y.count - i, x[x.count - 1 - j] == y[y.count - 1 - j] { j += 1 }
+    func taglia(_ s: [Character], _ fine: Int) -> String {
+        let da = max(0, i - contorno), a2 = min(s.count, fine + contorno)
+        return (da > 0 ? "…" : "") + String(s[da..<a2]) + (a2 < s.count ? "…" : "")
+    }
+    return (taglia(x, x.count - j), taglia(y, y.count - j))
+}
+
+// `Kalamos --selftest-numeri <corpus.json> [--out coppie.json]`
+//
+// Il cancello di `ItalianNumberSpans`, e ha la stessa forma di `--selftest-vocab`
+// perché ha lo stesso guasto da temere: non il numero mancato, ma la parola
+// ordinaria trasformata in numero. «Sei sicuro» che diventa «6 sicuro» non
+// somiglia a un errore di trascrizione, somiglia a un testo scritto male, e chi
+// legge non ha modo di accorgersene.
+//
+// Perciò stampa OGNI cambio, e stampa a parte il polo negativo: quante frasi
+// senza numeri sono state toccate. Quel numero deve essere zero, ed è l'unica
+// riga di questa uscita che si può leggere senza leggere le altre.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-numeri") {
+    let args = CommandLine.arguments
+    let path = flagIndex + 1 < args.count ? args[flagIndex + 1] : ""
+    guard !path.isEmpty, !path.hasPrefix("--") else {
+        print("usage: Kalamos --selftest-numeri <corpus.json> [--out coppie.json]")
+        exit(2)
+    }
+    struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
+    // Una frase «senza numeri» è una frase in cui non compare nessuna parola del
+    // dizionario dei numeri e nessuna cifra: se il normalizzatore la tocca, ha
+    // toccato qualcosa che non era suo.
+    func senzaNumeri(_ t: String) -> Bool {
+        let parole = t.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        return !parole.contains { ItalianNumberSpans.value[$0] != nil || $0.contains(where: \.isNumber) }
+    }
+    do {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let entries = try JSONDecoder().decode([Entry].self, from: data)
+        let testi = entries.flatMap {
+            [$0.raw, $0.text, $0.clean].compactMap { $0 }.filter { !$0.isEmpty }
+        }
+        // Il polo bocciato, per poterlo rimisurare invece di ricordarselo.
+        let isolate = args.contains("--parole-isolate")
+        print("corpus: \(testi.count) testi da \(path) · parole isolate: \(isolate ? "SÌ (polo bocciato)" : "no")\n")
+        var cambiati = 0, toccatiSenzaNumeri = 0
+        for testo in testi {
+            let out = ItalianNumberSpans.apply(to: testo, paroleIsolate: isolate)
+            guard out != testo else { continue }
+            cambiati += 1
+            if senzaNumeri(testo) {
+                toccatiSenzaNumeri += 1
+                print("*** TOCCATO UN TESTO SENZA NUMERI ***")
+            }
+            // Solo la finestra intorno al cambio: su una dettatura di 700 parole
+            // stampare tutto vuol dire non far leggere niente.
+            let (fPrima, fDopo) = finestraDelCambio(testo, out)
+            print("PRIMA: \(fPrima)")
+            print("DOPO : \(fDopo)\n")
+        }
+        print("— \(cambiati) testi cambiati su \(testi.count) —")
+        print("polo negativo: \(toccatiSenzaNumeri) testi SENZA numeri toccati (deve essere 0)")
+        print("Ogni riga qui sopra va LETTA: un tasso non è una prova.")
+        if let i = args.firstIndex(of: "--out"), i + 1 < args.count {
+            struct Pair: Codable { let before: String; let after: String }
+            let pairs = testi.map {
+                Pair(before: $0, after: ItalianNumberSpans.apply(to: $0, paroleIsolate: isolate))
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            try encoder.encode(pairs).write(to: URL(fileURLWithPath: args[i + 1]))
+            print("scritto \(args[i + 1]) — \(pairs.count) coppie")
+        }
+        exit(toccatiSenzaNumeri == 0 ? 0 : 1)
+    } catch {
+        FileHandle.standardError.write(Data("selftest-numeri: \(error)\n".utf8))
+        exit(1)
+    }
+}
+
 // `Kalamos --selftest-combo <corpus.json>` — the negative pole for KeyCombos.
 //
 // Same shape as --selftest-vocab and for the same reason: the failure that costs

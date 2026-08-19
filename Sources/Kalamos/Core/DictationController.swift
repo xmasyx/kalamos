@@ -428,6 +428,24 @@ final class DictationController {
                 if repaired != text { Log.write("vocabulary: \"\(text)\" → \"\(repaired)\"") }
                 text = repaired
 
+                // I numeri in cifre, e SOLO su Parakeet.
+                //
+                // Whisper scrive già «30%» da sé; Parakeet non ha una
+                // normalizzazione inversa per l'italiano e consegna «trenta per
+                // cento», «uno.cinque barra uno.sette». Non è un ascolto
+                // peggiore, è un formato — ma nel testo che finisce nel suo
+                // documento è un errore lo stesso.
+                //
+                // Il cancello è dietro il motore e non dietro una preferenza
+                // perché su Whisper questa passata non avrebbe niente da fare e
+                // avrebbe comunque qualcosa da rompere: ogni riparazione che
+                // gira su un testo già a posto è solo una superficie di rischio.
+                if state.speechEngine == .parakeet {
+                    let inCifre = ItalianNumberSpans.apply(to: text)
+                    if inCifre != text { Log.write("numeri: \"\(text)\" → \"\(inCifre)\"") }
+                    text = inCifre
+                }
+
                 // 1b. Edit Mode: the dictation IS an instruction. Transform the
                 //     captured selection on-device and replace it (⌘V overwrites
                 //     the still-highlighted text). Skips the normal clean-up path.
