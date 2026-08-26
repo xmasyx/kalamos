@@ -1911,6 +1911,177 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--misura-filmat
 //
 // **Apre una finestra e muove il puntatore per circa due secondi.** Va lanciata
 // quando le mani sono libere, e il puntatore torna dov'era.
+// **Sonda del cursore dell'audio (2026-08-27).** Trascina la barra della
+// striscia VERA — `TruthPlayerStrip`, non una copia — dentro una finestra con
+// gli stessi flag di `TruthWindow`, e misura tre cose che il clic non misura:
+// quanto si è mossa la manopola, quante volte è tornata indietro, e quante volte
+// l'audio è stato riprogrammato durante il gesto.
+//
+// `--senza-presa` è il polo negativo: riprogramma a ogni evento come faceva
+// prima, e DEVE mostrare le riprogrammazioni a raffica.
+func utileValido(_ a: CGFloat, _ b: CGFloat) -> Bool { b - a > 40 }
+
+if CommandLine.arguments.contains("--sonda-scrub") {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    let senzaPresa = CommandLine.arguments.contains("--senza-presa")
+    let soloClic = CommandLine.arguments.contains("--clic")
+    guard let schermo = NSScreen.main else { exit(9) }
+    let sf = schermo.frame
+
+    // Il wav più recente che si lascia leggere: la sonda non inventa un audio,
+    // perché la riprogrammazione costa in proporzione a quello vero.
+    let wav = ((try? FileManager.default.contentsOfDirectory(
+        at: DictationArchive.directory, includingPropertiesForKeys: nil)) ?? [])
+        .filter { $0.pathExtension == "wav" }.sorted { $0.path > $1.path }
+    guard let url = wav.first else {
+        FileHandle.standardError.write(Data("sonda-scrub: nessun wav in archivio\n".utf8))
+        exit(2)
+    }
+    let player = DictationPlayer()
+    player.load(url)
+    guard player.isLoaded else {
+        FileHandle.standardError.write(Data("sonda-scrub: audio non caricato\n".utf8))
+        exit(2)
+    }
+
+    let larghezza: CGFloat = 720
+    let hosting = NSHostingController(rootView:
+        TruthPlayerStrip(player: player).padding(20).frame(width: larghezza, height: 90))
+    hosting.sizingOptions = []
+    let w = NSWindow(contentViewController: hosting)
+    w.title = "sonda-scrub"
+    w.styleMask = [.titled, .closable]
+    w.titlebarAppearsTransparent = true
+    w.backgroundColor = Theme.paperEdgeNS
+    // Lo stesso flag di `TruthWindow`: è la condizione in cui il difetto viveva.
+    w.isMovableByWindowBackground = true
+    w.setContentSize(NSSize(width: larghezza, height: 90))
+    w.center()
+    w.makeKeyAndOrderFront(nil)
+    app.activate(ignoringOtherApps: true)
+
+    func flip(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x, y: sf.height - p.y) }
+    func posta(_ tipo: CGEventType, _ punto: CGPoint) {
+        guard let e = CGEvent(mouseEventSource: nil, mouseType: tipo,
+                              mouseCursorPosition: flip(punto), mouseButton: .left) else { return }
+        e.post(tap: .cghidEventTap)
+    }
+
+    let originePrima = w.frame.origin
+    var letture: [Double] = []
+
+    DispatchQueue.global().async {
+        Thread.sleep(forTimeInterval: 1.2)
+        // La riga della barra: dentro la striscia, dopo il bottone del play, e
+        // prima della colonna del tempo. Si ricava dal layout, non a occhio.
+        // Le coordinate le dichiara la barra stessa (`ScrubBar.rettangoloProbe`),
+        // non questa sonda: vedi il commento accanto a quella proprietà.
+        let (y, x0, x1): (CGFloat, CGFloat, CGFloat) = DispatchQueue.main.sync {
+            guard let v = NonSpostaLaFinestra.vistaSonda else { return (0, 0, 0) }
+            let r = w.convertToScreen(v.convert(v.bounds, to: nil))
+            return (r.midY, r.minX, r.maxX)
+        }
+        guard utileValido(x0, x1) else {
+            FileHandle.standardError.write(Data("sonda-scrub: la barra non ha dichiarato il suo rettangolo\n".utf8))
+            exit(3)
+        }
+        let utile = x1 - x0
+
+        DispatchQueue.main.sync { player.toggle() }   // ogni polo misura la barra MENTRE suona
+        Thread.sleep(forTimeInterval: 0.3)
+
+        // **Il clic deve continuare a spostare** (sua richiesta esplicita, 2026-08-27).
+        // Un clic è un premi-e-rilascia senza movimento: se la riparazione lo
+        // avesse spostato dentro `onChanged`, qui la manopola resterebbe ferma.
+        if soloClic {
+            let bersaglio = CGPoint(x: x0 + utile * 0.75, y: y)
+            let prima = DispatchQueue.main.sync { player.riprogrammazioni }
+            posta(.mouseMoved, bersaglio)
+            Thread.sleep(forTimeInterval: 0.2)
+            posta(.leftMouseDown, bersaglio)
+            Thread.sleep(forTimeInterval: 0.05)
+            posta(.leftMouseUp, bersaglio)
+            Thread.sleep(forTimeInterval: 0.12)
+            let dove = DispatchQueue.main.sync { player.fraction }
+            let quante = DispatchQueue.main.sync { player.riprogrammazioni } - prima
+            DispatchQueue.main.async {
+                print("polo CLIC: premi e rilascia al 75% senza muovere")
+                print(String(format: "la manopola è andata a %.3f (atteso 0,750)", dove))
+                print("riprogrammazioni audio: \(quante) (attesa 1)")
+                let ok = abs(dove - 0.75) < 0.05 && quante == 1
+                print("VERDETTO: il clic \(ok ? "sposta ancora" : "NON sposta più")")
+                exit(ok ? 0 : 1)
+            }
+            return
+        }
+        let partenza = CGPoint(x: x0 + utile * 0.20, y: y)
+        let arrivo = CGPoint(x: x0 + utile * 0.80, y: y)
+        // **Il polo negativo, e non ha interruttori dentro l'app.** Rifà a mano
+        // quello che la barra faceva prima — un `seek` a ogni evento del mouse —
+        // e pretende di vedere la raffica di riprogrammazioni. Se qui il numero
+        // non esplode, la misura è cieca e il verde dell'altro polo non vale.
+        if senzaPresa {
+            let prima = DispatchQueue.main.sync { player.riprogrammazioni }
+            for i in 0..<40 {
+                let f = 0.20 + 0.60 * Double(i) / 39.0
+                DispatchQueue.main.sync { player.seek(toFraction: f) }
+                Thread.sleep(forTimeInterval: 0.016)
+            }
+            let quante = DispatchQueue.main.sync { player.riprogrammazioni } - prima
+            DispatchQueue.main.async {
+                print("polo NEGATIVO: un seek per ogni evento del mouse, com'era")
+                print("riprogrammazioni audio su 40 eventi: \(quante) (attesa 40)")
+                print("VERDETTO: la misura \(quante >= 40 ? "vede il difetto" : "È CIECA")")
+                exit(quante >= 40 ? 0 : 1)
+            }
+            return
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+        let riprogrammazioniPrima = DispatchQueue.main.sync { player.riprogrammazioni }
+        posta(.mouseMoved, partenza)
+        Thread.sleep(forTimeInterval: 0.2)
+        posta(.leftMouseDown, partenza)
+        Thread.sleep(forTimeInterval: 0.05)
+        let passi = 40
+        for i in 1...passi {
+            let f = Double(i) / Double(passi)
+            posta(.leftMouseDragged, CGPoint(x: partenza.x + (arrivo.x - partenza.x) * f, y: y))
+            Thread.sleep(forTimeInterval: 0.016)
+            let v = DispatchQueue.main.sync { player.fraction }
+            letture.append(v)
+        }
+        let riprogrammazioniDurante = DispatchQueue.main.sync { player.riprogrammazioni } - riprogrammazioniPrima
+        posta(.leftMouseUp, arrivo)
+        Thread.sleep(forTimeInterval: 0.3)
+        let riprogrammazioniTotali = DispatchQueue.main.sync { player.riprogrammazioni } - riprogrammazioniPrima
+
+        let corsa = (letture.last ?? 0) - (letture.first ?? 0)
+        // Uno scatto è la manopola che torna indietro mentre la mano va avanti.
+        let indietro = zip(letture, letture.dropFirst()).filter { $1 < $0 - 0.0005 }.count
+        let mosso = DispatchQueue.main.sync { w.frame.origin != originePrima }
+        let gestoVero = DispatchQueue.main.sync { abs(NSEvent.mouseLocation.x - arrivo.x) < 3 }
+        let durata = DispatchQueue.main.sync { player.duration }
+
+        DispatchQueue.main.async {
+            print("polo: \(senzaPresa ? "SENZA PRESA (com'era)" : "CON PRESA (oggi)")")
+            print("file: \(url.lastPathComponent) · \(String(format: "%.1f", durata)) s · barra utile \(Int(utile)) punti")
+            print(String(format: "barra sullo schermo: x %.0f→%.0f, y %.0f", x0, x1, y))
+            print("il gesto è avvenuto davvero: \(gestoVero ? "SI" : "NO — CGEvent inerte, manca il permesso Accessibilità")")
+            print("la finestra si è spostata: \(mosso ? "SI (il window server si è preso il gesto)" : "no")")
+            print(String(format: "corsa della manopola: %.3f (attesa ~0,600)", corsa))
+            print("scatti all'indietro durante il trascinamento: \(indietro)")
+            print("riprogrammazioni audio DURANTE il gesto: \(riprogrammazioniDurante) (attesa 0)")
+            print("riprogrammazioni audio in tutto, rilascio compreso: \(riprogrammazioniTotali) (attesa 1)")
+            let ok = gestoVero && !mosso && corsa >= 0.4 && indietro == 0
+                     && riprogrammazioniDurante == 0 && riprogrammazioniTotali == 1
+            print("VERDETTO: \(ok ? "il trascinamento è fluido e va dove va la mano" : "ROSSO")")
+            exit(ok ? 0 : 1)
+        }
+    }
+    app.run()
+}
+
 if CommandLine.arguments.contains("--sonda-trascinamento") {
     let app = NSApplication.shared
     // **L'app va ATTIVATA, e questo è il difetto della prima versione di questa

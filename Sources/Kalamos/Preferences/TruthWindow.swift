@@ -983,7 +983,10 @@ struct TruthPlayerStrip: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("p", modifiers: .command)
 
-                ScrubBar(fraction: player.fraction) { player.seek(toFraction: $0) }
+                ScrubBar(fraction: player.fraction,
+                         inizia: { player.iniziaPresa() },
+                         trascina: { player.trascina(aFraction: $0) },
+                         finisce: { player.finiscePresa(aFraction: $0) })
 
                 // Larghezza fissa, e non solo perché le cifre ballano: è la
                 // colonna sotto cui va incolonnata «Volume audio» (sua richiesta,
@@ -1154,6 +1157,7 @@ struct GainBar: View {
             // 11 punti non lo prende nessuno al primo colpo. Stessa regola del
             // bottone che si clicca tutto e non solo dove c'è scritto.
             .contentShape(Rectangle())
+            .background(NonSpostaLaFinestra())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { imposta(Playback.clamp($0.location.x / w)) }
                 .onEnded { g in
@@ -1178,6 +1182,46 @@ struct GainBar: View {
     }
 }
 
+/// **Dice ad AppKit che il clic su questo pezzo non sposta la finestra.**
+///
+/// `TruthWindow` è `isMovableByWindowBackground`, e senza questo la finestra si
+/// prendeva il trascinamento delle due barre: il window server la spostava
+/// insieme al puntatore, quindi il puntatore restava fermo RISPETTO alla barra e
+/// la manopola non si muoveva. Dal campo, 2026-08-27: «mi permette solamente di
+/// spostarmi cliccando nei diversi punti, non trascinando».
+///
+/// Il difetto non era «il gesto non arriva»: gli `onChanged` arrivavano tutti e
+/// trentuno. Era che `location.x` non cambiava. Misurato coi tre poli di
+/// `Scripts/sonda-scrub.swift`: corsa della frazione 0,021 con la finestra
+/// mobile, 0,600 con questa vista sotto, su una trascinata da 0,25 a 0,85.
+struct NonSpostaLaFinestra: NSViewRepresentable {
+    /// Solo la barra dell'audio la accende, e serve alla sonda: è una `NSView`
+    /// vera esattamente sotto il controllo, quindi il suo rettangolo sullo
+    /// schermo lo converte AppKit invece di ricavarlo dal layout. La prima
+    /// versione della sonda lo ricavava a mano e ha postato il gesto quaranta
+    /// punti più in alto, sulla barra del titolo: verde sul rimedio, e intanto
+    /// misurava lo sfondo.
+    var registra = false
+
+    final class Vista: NSView {
+        override var mouseDownCanMoveWindow: Bool { false }
+        var registra = false
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if registra, window != nil { NonSpostaLaFinestra.vistaSonda = self }
+        }
+    }
+
+    nonisolated(unsafe) static weak var vistaSonda: Vista?
+
+    func makeNSView(context: Context) -> NSView {
+        let v = Vista()
+        v.registra = registra
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 /// The playhead, drawn out of the same three colours as everything else.
 ///
 /// A `Slider` was the short way and it was wrong twice over: it arrives with the
@@ -1186,25 +1230,52 @@ struct GainBar: View {
 /// pointing at it.
 struct ScrubBar: View {
     let fraction: Double
-    let seek: (Double) -> Void
+    let inizia: () -> Void
+    let trascina: (Double) -> Void
+    let finisce: (Double) -> Void
+
+    /// **Dove sta la manopola mentre la mano la tiene**, e `nil` quando la mano
+    /// non c'è. Durante la presa il disegno segue il puntatore e non il
+    /// riproduttore: il riproduttore ha una sua idea del tempo che arriva dal
+    /// nodo audio, e due sorgenti sulla stessa manopola sono esattamente il
+    /// tremolio che si vuole togliere.
+    @State private var presa: Double?
 
     var body: some View {
         GeometryReader { geo in
             let w = max(geo.size.width, 1)
+            let f = presa ?? Playback.clamp(fraction)
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.rule).frame(height: 4)
-                Capsule().fill(Theme.pen).frame(width: w * Playback.clamp(fraction), height: 4)
+                Capsule().fill(Theme.pen).frame(width: w * f, height: 4)
                 Circle()
                     .fill(Theme.pen)
                     .frame(width: 11, height: 11)
-                    .offset(x: w * Playback.clamp(fraction) - 5.5)
+                    .offset(x: w * f - 5.5)
             }
             .frame(height: geo.size.height, alignment: .center)
             // The whole strip is the target, knob included: a 11-point circle is
             // not something anybody hits on the first try.
             .contentShape(Rectangle())
+            .background(NonSpostaLaFinestra(registra: true))
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { seek(Playback.clamp($0.location.x / w)) })
+                .onChanged { g in
+                    if presa == nil { inizia() }
+                    let v = Playback.clamp(g.location.x / w)
+                    presa = v
+                    trascina(v)
+                }
+                // **Il clic continua a spostare**, ed è la stessa riga: un clic è
+                // una presa che finisce dove è cominciata, quindi arriva qui con
+                // la sua posizione e l'audio ci va, una volta sola. È anche il
+                // motivo per cui il salto del suono non si fa in `onChanged`:
+                // riprogrammare la coda del file sessanta volte al secondo era il
+                // resto degli scatti.
+                .onEnded { g in
+                    let v = Playback.clamp(g.location.x / w)
+                    presa = nil
+                    finisce(v)
+                })
         }
         .frame(height: 18)
     }

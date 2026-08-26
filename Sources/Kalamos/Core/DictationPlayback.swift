@@ -414,6 +414,13 @@ final class DictationPlayer: NSObject, ObservableObject {
     /// nel frattempo il numero è cambiato non parla più a nome di nessuno.
     private var generazione = 0
 
+    /// Vero mentre la mano tiene la barra di scorrimento.
+    private(set) var inPresa = false
+
+    /// Quante volte la coda del file è stata riprogrammata. Non serve all'app:
+    /// serve alla sonda, che su una trascinata intera ne pretende **una**.
+    private(set) var riprogrammazioni = 0
+
     var isLoaded: Bool { formato != nil && duration > 0 }
 
     var fraction: Double { Playback.fraction(elapsed: elapsed, duration: duration) }
@@ -520,13 +527,47 @@ final class DictationPlayer: NSObject, ObservableObject {
 
     /// Drag on the bar. Seeking while paused is the ordinary way to line up on a
     /// word, so it must not start the sound.
+    ///
+    /// **Un clic è una presa che finisce dove è cominciata**, quindi passa di qui
+    /// e riprogramma subito: `finiscePresa` fa il lavoro per tutti e due i gesti.
     func seek(toFraction f: Double) {
+        finiscePresa(aFraction: f)
+    }
+
+    /// **La mano si posa sulla barra.** Da qui in poi il tempo lo comanda lei.
+    ///
+    /// Due cose devono smettere di succedere, e sono le due che facevano gli
+    /// scatti (sua richiesta, 2026-08-27: «fluido, non a scatti neanche minimi»).
+    /// Il ticker scriveva `elapsed` venti volte al secondo mentre la mano lo
+    /// stava già scrivendo, e i due valori si contendevano la manopola. E il
+    /// suono: ogni evento del mouse riprogrammava la coda del file, cioè copiava
+    /// l'audio residuo e gli riapplicava il guadagno, sessanta volte al secondo
+    /// sul thread che deve anche disegnare.
+    func iniziaPresa() {
+        guard isLoaded, !inPresa else { return }
+        inPresa = true
+        stopTicking()
+        // `isPlaying` NON cambia: dice se il suono riparte al rilascio, e la
+        // pausa dentro una presa non è una scelta dell'utente sul play.
+        if isPlaying { nodo.pause() }
+    }
+
+    /// Il trascinamento vero e proprio: si muove il numero, e nient'altro.
+    func trascina(aFraction f: Double) {
+        guard isLoaded, inPresa else { return }
+        elapsed = Playback.seconds(fraction: f, duration: duration)
+    }
+
+    /// La mano si stacca: qui, una volta sola, l'audio va dove sta la manopola.
+    func finiscePresa(aFraction f: Double) {
         guard isLoaded else { return }
+        inPresa = false
         let t = Playback.seconds(fraction: f, duration: duration)
         elapsed = t
         guard isPlaying else { return }
         programma(da: t)
         nodo.play()
+        startTicking()
     }
 
     /// **La mano dell'utente sul volume.** Limita allo spazio del file, ricorda la
@@ -562,6 +603,7 @@ final class DictationPlayer: NSObject, ObservableObject {
         for i in 0 ..< lavorati.count { dati[i] = lavorati[i] }
         buffer.frameLength = AVAudioFrameCount(lavorati.count)
         partenza = Double(primo) / sr
+        riprogrammazioni += 1
         generazione += 1
         let gen = generazione
         nodo.scheduleBuffer(buffer, at: nil, options: []) { [weak self] in
@@ -578,10 +620,13 @@ final class DictationPlayer: NSObject, ObservableObject {
 
     private func startTicking() {
         stopTicking()
-        // 20 Hz: the bar is 460 points wide over 20 seconds, so a tick is a
-        // couple of points and the movement reads as continuous. Faster would
-        // redraw a view nobody can see move.
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        // 60 Hz, non 20. Il commento di prima diceva che a venti volte al secondo
+        // il movimento «si legge come continuo»: su una dettatura corta un tick
+        // sposta la manopola di un punto e mezzo, e a occhio è un tremolio, non
+        // una corsa (sua richiesta, 2026-08-27: «neanche scatti minimi»). Il
+        // costo è una lettura del tempo del nodo e una pubblicazione, cioè
+        // niente rispetto al disegno che il sistema fa comunque a ogni fotogramma.
+        ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isPlaying,
                       let nodeTime = self.nodo.lastRenderTime,
