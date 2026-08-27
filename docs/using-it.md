@@ -23,7 +23,7 @@ do the same thing yourself:
 
 ```sh
 unzip Kalamos.zip -d /Applications
-xattr -d com.apple.quarantine /Applications/Kalamos.app
+xattr -dr com.apple.quarantine /Applications/Kalamos.app
 open /Applications/Kalamos.app
 ```
 

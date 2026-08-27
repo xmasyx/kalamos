@@ -81,6 +81,34 @@ jobs:
       - name: Package
         run: ditto -c -k --keepParent build/Kalamos.app Kalamos.zip
 
+      # Il DMG, per chi scarica a mano invece di usare l'installatore.
+      #
+      # Costruito qui dentro con `hdiutil` e non da uno strumento di sistema: un runner GitHub è
+      # una macchina nuda, e un passo che dipende da qualcosa fuori dal repo è un passo che
+      # funziona solo sul Mac di chi l'ha scritto.
+      - name: Make the DMG
+        run: |
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            "build/Kalamos.app/Contents/Info.plist")"
+          DMG="Kalamos-${VERSION}.dmg"
+          STAGE="$(mktemp -d)"
+          cp -R "build/Kalamos.app" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "Kalamos ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+
+          # Un DMG che si crea senza errori può contenere un bundle rotto, e la differenza si vede
+          # solo montandolo. Meglio qui che nella cartella Download di chi lo scarica.
+          MNT="$(hdiutil attach "$DMG" -nobrowse -readonly | grep -o '/Volumes/.*' | head -1)"
+          # Si smonta SEMPRE, anche quando il controllo boccia: uscire prima del `detach` lascia un
+          # volume montato in giro, e su una macchina che non è un runner usa-e-getta resta lì.
+          trap 'hdiutil detach "$MNT" -quiet 2>/dev/null || true' EXIT
+          test -x "$MNT/Kalamos.app/Contents/MacOS/Kalamos" \
+            || { echo "::error::no executable inside the DMG"; exit 1; }
+          codesign --verify --deep --strict "$MNT/Kalamos.app" \
+            || { echo "::error::the signature does not hold inside the DMG"; exit 1; }
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          echo "the DMG is $DMG"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -92,7 +120,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" Kalamos.zip \
+          gh release create "${GITHUB_REF_NAME}" Kalamos.zip "${DMG}" \
             --title "Kalamos ${GITHUB_REF_NAME}" \
             --generate-notes \
             --notes "
