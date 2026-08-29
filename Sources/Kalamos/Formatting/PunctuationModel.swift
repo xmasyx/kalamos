@@ -69,6 +69,14 @@ actor PunctuationModel {
     private static let tokConfigBytes = 406
     private static let tokClass = "XLMRobertaTokenizer"
 
+    /// Derivato dalle taglie che fanno da cancello, non ricopiato: aggiungere un
+    /// file al manifesto senza aggiornare a mano un secondo numero renderebbe
+    /// falsa sia la percentuale sia la prova che termina a uno.
+    nonisolated static var totaleDownload: Int {
+        files.reduce(0) { $0 + $1.bytes }
+            + tokFiles.reduce(0) { $0 + $1.bytes } + tokConfigBytes
+    }
+
     /// `<Application Support>/Kalamos/punctuation/<rev>/punctuation.mlmodelc`
     static var modelDir: URL {
         puntoBase.appendingPathComponent("punctuation.mlmodelc", isDirectory: true)
@@ -82,7 +90,16 @@ actor PunctuationModel {
     /// La cartella è keyed sulla revisione del MODELLO: il tokenizer vive
     /// dentro la stessa, così la coppia si sposta o si butta insieme.
     private static var puntoBase: URL {
-        ModelStorage.base
+        // La sonda di ripresa deve poter troncare una copia sacrificabile senza
+        // toccare i byte dell'app installata; il getter legge l'ambiente ogni
+        // volta e non introduce stato globale mutabile sotto Swift 6.
+        let radice: URL
+        if let iniettata = ProcessInfo.processInfo.environment["KALAMOS_PUNCT_DIR"] {
+            radice = URL(fileURLWithPath: iniettata, isDirectory: true)
+        } else {
+            radice = ModelStorage.base
+        }
+        return radice
             .appendingPathComponent("punctuation", isDirectory: true)
             .appendingPathComponent(rev, isDirectory: true)
     }
@@ -114,32 +131,39 @@ actor PunctuationModel {
             && tokenizerConfigOK
     }
 
+    /// La divisione viene evitata sul solo estremo esatto: un arrotondamento
+    /// vicino a uno non deve sostituirsi alla prova che tutti i byte del
+    /// manifesto sono davvero sul disco.
+    nonisolated static func avanzamento(completati: Int, delFile: Int,
+                                        totale: Int) -> Avanzamento {
+        let scaricati = min(max(completati + delFile, 0), totale)
+        let frazione = scaricati == totale
+            ? 1.0
+            : min(1, Double(scaricati) / Double(totale))
+        return Avanzamento(frazione: frazione, scaricati: scaricati, totale: totale)
+    }
+
     /// Scarica i file del modello e quelli del tokenizer, uno per uno, e
     /// verifica la taglia. Un file già integro non si riscarica (riprendere
     /// costa zero).
-    static func download(progress: @escaping @Sendable (Double) -> Void) async throws {
+    static func download(progress: @escaping @Sendable (Avanzamento) -> Void) async throws {
         // Il `tokenizer_config.json` entra nel conto con la taglia di upstream:
         // è quella che viaggia sulla rete.
-        let totale = files.reduce(0) { $0 + $1.bytes }
-            + tokFiles.reduce(0) { $0 + $1.bytes } + tokConfigBytes
+        let totale = totaleDownload
+        let monotono = MonotonicProgress()
         var fatti = 0
 
-        func scarica(_ url: URL, verso dest: URL, attesi: Int, nome: String) async throws {
-            try FileManager.default.createDirectory(
-                at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let (tmp, risposta) = try await URLSession.shared.download(from: url)
-            guard let http = risposta as? HTTPURLResponse, http.statusCode == 200 else {
-                throw NSError(domain: "PunctuationModel", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "HTTP \((risposta as? HTTPURLResponse)?.statusCode ?? -1) su \(nome)"])
+        // Il filtro monotòno sta qui e non nella vista perché il passo indietro
+        // che deve assorbire nasce nel trasporto: un server che ignora il
+        // `Range` risponde 200 e riporta a zero i byte del file in corso, il che
+        // è vero per quel file e falso per la barra, che ha già contato i file
+        // chiusi. Chi guarda una barra tornare indietro smette di crederle.
+        @Sendable func emetti(_ valore: Avanzamento) {
+            if let nuovo = monotono.emetti(frazione: valore.frazione,
+                                           scaricati: valore.scaricati,
+                                           totale: valore.totale) {
+                progress(nuovo)
             }
-            let size = taglia(tmp) ?? -1
-            guard size == attesi else {
-                try? FileManager.default.removeItem(at: tmp)
-                throw NSError(domain: "PunctuationModel", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "\(nome): \(size) byte invece di \(attesi) — scaricamento incompleto"])
-            }
-            try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.moveItem(at: tmp, to: dest)
         }
 
         for f in files {
@@ -147,44 +171,75 @@ actor PunctuationModel {
             if taglia(dest) != f.bytes {
                 let url = URL(string:
                     "https://huggingface.co/\(repo)/resolve/\(rev)/punctuation.mlmodelc/\(f.rel)")!
-                try await scarica(url, verso: dest, attesi: f.bytes, nome: f.rel)
+                let completatiPrima = fatti
+                try await ResumableDownload.scaricaConRitentativi(
+                    da: url, verso: dest, attesi: f.bytes, nome: f.rel
+                ) { byteDiQuestoFile in
+                    emetti(avanzamento(completati: completatiPrima,
+                                       delFile: byteDiQuestoFile, totale: totale))
+                }
             }
             fatti += f.bytes
-            progress(Double(fatti) / Double(totale))
+            emetti(avanzamento(completati: fatti, delFile: 0, totale: totale))
         }
 
         for f in tokFiles {
             let dest = tokenizerDir.appendingPathComponent(f.rel)
             if taglia(dest) != f.bytes {
                 let url = URL(string: "https://huggingface.co/\(tokRepo)/resolve/\(tokRev)/\(f.rel)")!
-                try await scarica(url, verso: dest, attesi: f.bytes, nome: f.rel)
+                let completatiPrima = fatti
+                try await ResumableDownload.scaricaConRitentativi(
+                    da: url, verso: dest, attesi: f.bytes, nome: f.rel
+                ) { byteDiQuestoFile in
+                    emetti(avanzamento(completati: completatiPrima,
+                                       delFile: byteDiQuestoFile, totale: totale))
+                }
             }
             fatti += f.bytes
-            progress(Double(fatti) / Double(totale))
+            emetti(avanzamento(completati: fatti, delFile: 0, totale: totale))
         }
 
         if !tokenizerConfigOK {
             let dest = tokenizerDir.appendingPathComponent(tokConfigName)
             let url = URL(string: "https://huggingface.co/\(tokRepo)/resolve/\(tokRev)/\(tokConfigName)")!
-            try await scarica(url, verso: dest, attesi: tokConfigBytes, nome: tokConfigName)
+            let completatiPrima = fatti
+            try await ResumableDownload.scaricaConRitentativi(
+                da: url, verso: dest, attesi: tokConfigBytes, nome: tokConfigName
+            ) { byteDiQuestoFile in
+                emetti(avanzamento(completati: completatiPrima,
+                                   delFile: byteDiQuestoFile, totale: totale))
+            }
             // La patch, sui byte appena verificati: aggiunge il campo mancante
             // e non tocca nient'altro.
             guard let data = FileManager.default.contents(atPath: dest.path),
                   var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
-                throw NSError(domain: "PunctuationModel", code: 8, userInfo: [
-                    NSLocalizedDescriptionKey: "\(tokConfigName) scaricato ma illeggibile"])
+                throw DownloadFailure.contenuto(
+                    nome: tokConfigName, dettaglio: "file scaricato ma illeggibile")
             }
             json["tokenizer_class"] = tokClass
-            let patched = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
-            try patched.write(to: dest, options: .atomic)
+            let patched: Data
+            do {
+                patched = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+            } catch {
+                throw DownloadFailure.contenuto(
+                    nome: tokConfigName, dettaglio: error.localizedDescription)
+            }
+            do {
+                try patched.write(to: dest, options: .atomic)
+            } catch {
+                throw DownloadFailure.disco(nome: tokConfigName, causa: error.localizedDescription)
+            }
             guard tokenizerConfigOK else {
-                throw NSError(domain: "PunctuationModel", code: 9, userInfo: [
-                    NSLocalizedDescriptionKey: "\(tokConfigName) riscritto ma senza tokenizer_class"])
+                throw DownloadFailure.contenuto(
+                    nome: tokConfigName, dettaglio: "tokenizer_class assente dopo la riscrittura")
             }
         }
+        // I 406 byte entrano nel conto anche quando il file era già a posto e
+        // non si è scaricato niente: il totale è quello che viaggia sulla rete
+        // nel caso peggiore, e solo così l'ultima frazione vale esattamente uno.
         fatti += tokConfigBytes
-        progress(Double(fatti) / Double(totale))
+        emetti(avanzamento(completati: fatti, delFile: 0, totale: totale))
     }
 
     // ------------------------------------------------------------ caricamento

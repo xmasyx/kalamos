@@ -1065,8 +1065,11 @@ if CommandLine.arguments.contains("--punct-download") {
     let sem = DispatchSemaphore(value: 0)
     Task.detached {
         do {
-            try await PunctuationModel.download { f in
-                FileHandle.standardError.write(Data(String(format: "\r%.0f%%", f * 100).utf8))
+            try await PunctuationModel.download { avanzamento in
+                let percentuale = String(format: "%3.0f%%", avanzamento.frazione * 100)
+                let scaricati = ByteFormat.stringa(avanzamento.scaricati, virgola: true)
+                let totale = ByteFormat.stringa(avanzamento.totale, virgola: true)
+                FileHandle.standardError.write(Data("\r \(percentuale)  \(scaricati) / \(totale)".utf8))
             }
             print("\nscaricato e verificato: \(PunctuationModel.modelDir.path)")
         } catch {

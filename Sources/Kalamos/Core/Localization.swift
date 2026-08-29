@@ -26,6 +26,13 @@ enum L {
         }
     }
 
+    /// Byte leggibili nella lingua dell'app: la virgola decimale è italiana e
+    /// francese, il punto è inglese. Il separatore segue `uiLanguage`, non il
+    /// locale di sistema, altrimenti l'app parla una lingua e i numeri un'altra.
+    static func byte(_ n: Int) -> String {
+        ByteFormat.stringa(n, virgola: AppState.shared.uiLanguage != .english)
+    }
+
     /// The name of a model in running text ("the speech model is loading").
     static func modelName(_ kind: ModelKind) -> String {
         switch kind {
