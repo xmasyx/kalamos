@@ -38,12 +38,26 @@ Kalamos --clean "the meeting is on tuesday at ten no wait wednesday at ten thirt
 ## Install
 
 ```sh
+brew install --cask xmasyx/tap/kalamos
+xattr -dr com.apple.quarantine /Applications/Kalamos.app   # once: the app is not notarized
+```
+
+The second line is needed once, because Kalamos is signed with the project's own certificate
+and not notarized by Apple: without it macOS refuses to open the app (System Settings → Privacy
+& Security → *Open Anyway* does the same thing). After that, Kalamos updates itself from its
+menu: choose **Check for updates…** and it runs `brew upgrade`, clears the flag on the new copy
+and relaunches. If you previously installed it with `install.sh`, switch to Homebrew with
+`brew install --cask --force xmasyx/tap/kalamos`.
+
+Alternatively:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/xmasyx/kalamos/main/Scripts/install.sh | bash
 ```
 
 Requires **macOS 14+ on Apple Silicon** (M1 or newer): transcription runs on the
-Neural Engine, which Intel Macs do not have. Builds are unsigned, so the installer
-clears the quarantine flag — read the script first, and see
+Neural Engine, which Intel Macs do not have. Builds are signed with the project's own
+certificate, not notarized: the installer clears the quarantine flag — read the script first, and see
 [what macOS will say and why](docs/using-it.md#what-macos-will-say-and-why).
 
 Removing it: `install.sh --uninstall`, or `--purge` to take the downloaded models

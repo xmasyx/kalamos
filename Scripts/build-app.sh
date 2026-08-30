@@ -58,14 +58,24 @@ fi
 
 [ -f "Sources/Kalamos/Resources/AppIcon.icns" ] && cp "Sources/Kalamos/Resources/AppIcon.icns" "${BUNDLE_DIR}/Contents/Resources/AppIcon.icns"
 
-# Stable identity if available (persistent permissions), else ad-hoc.
+# Identità stabile se c'è, ad-hoc altrimenti, e lo si dice invece di firmare di nascosto in un
+# modo diverso da quello atteso.
 IDENTITY="Kalamos Dev"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "${IDENTITY}"; then
-    echo "▶ codesign with stable identity \"${IDENTITY}\"…"
-    codesign --force --deep --sign "${IDENTITY}" "${BUNDLE_DIR}"
+    echo "▶ firma con identità stabile «${IDENTITY}»…"
+    codesign --force --deep --sign "${IDENTITY}" --timestamp=none "${BUNDLE_DIR}"
+elif [[ "${KALAMOS_RELEASE:-0}" == "1" ]]; then
+    # Un artefatto pubblicato NON può essere firmato ad-hoc, e il motivo non è estetico: la firma
+    # ad-hoc cambia identità a ogni ricostruzione, quindi macOS tratta ogni aggiornamento come
+    # un'app diversa e azzera i permessi che l'utente aveva concesso. Meglio fermarsi qui che
+    # spedire uno zip che si rompe da solo al primo aggiornamento.
+    echo "✗ manca l'identità stabile «${IDENTITY}»: un artefatto di rilascio non si firma ad-hoc" >&2
+    echo "  creala una volta sola con Scripts/make-signing-cert.sh" >&2
+    exit 6
 else
-    echo "▶ ad-hoc codesign (run Scripts/make-signing-cert.sh once for persistent permissions)…"
-    codesign --force --deep --sign - "${BUNDLE_DIR}"
+    echo "▶ firma ad-hoc (per quella stabile: Scripts/make-signing-cert.sh)…"
+    codesign --force --deep --sign - --timestamp=none "${BUNDLE_DIR}" >/dev/null 2>&1 \
+        || echo "  (firma saltata: non blocca l'avvio in locale)"
 fi
 
 echo "✓ Built ${BUNDLE_DIR}"

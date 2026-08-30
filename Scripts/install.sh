@@ -5,7 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/xmasyx/kalamos/main/Scripts/install.sh | bash
 #
 # Downloads the latest release, puts Kalamos.app in /Applications, clears the
-# quarantine flag (builds are unsigned) and launches it.
+# quarantine flag (builds use the project's own certificate and are not notarized)
+# and launches it.
 #
 #   install.sh              install or update to the latest release
 #   install.sh --version X  install a specific tag (e.g. v0.2.0)
