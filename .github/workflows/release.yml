@@ -123,6 +123,26 @@ jobs:
 
       # A bundle missing default.metallib looks perfectly healthy until a user
       # turns on AI cleanup. Refuse to ship one.
+      # `Authority=<Nome> Dev` è un controllo sul NOME, e un altro certificato autofirmato con lo
+      # stesso Common Name lo supererebbe: macOS non guarda la stringa, guarda il designated
+      # requirement, e un'identità diversa azzera i permessi TCC già concessi (Accessibilità,
+      # microfono). Qui l'impronta della foglia è fissata a quella dell'identità vera, letta
+      # dall'app firmata. Rilievo dell'audit cross-vendor del 2026-08-30; due poli misurati:
+      # exit 0 contro la propria identità, exit 3 contro un'impronta diversa.
+      - name: Pin the signing identity
+        run: |
+          APP="build/Kalamos.app"
+          REQ='identifier "com.kalamos.app" and certificate leaf = H"c613131fa65afc71b10ffaea5927ea7ffc708f47"'
+          codesign --verify --strict -R="$REQ" "$APP" \
+            || { echo "::error::il bundle non soddisfa il designated requirement fissato: un certificato diverso azzererebbe i permessi gia concessi"; exit 1; }
+
+      # La logica del tasto nei sorgenti non prova che il binario SPEDITO lo esponga: fino al
+      # 2026-08-30 le tre release pubblicate non lo contenevano, e nessun cancello lo diceva.
+      - name: The published binary carries the update button
+        run: |
+          strings "build/Kalamos.app/Contents/MacOS/Kalamos" | grep -qF 'Check for updates' \
+            || { echo "::error::il binario non contiene il tasto di aggiornamento"; exit 1; }
+
       - name: Verify the bundle
         run: |
           APP="build/Kalamos.app"
