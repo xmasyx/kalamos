@@ -5,7 +5,7 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
-## Unreleased
+## v1.6.0
 
 ### Updates from inside Kalamos
 
