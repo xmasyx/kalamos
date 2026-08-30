@@ -267,4 +267,32 @@ import Testing
         #expect(!VocabularyRepair.èSoloUnaDesinenza("calamos", "kalamos")) // prima lettera
         #expect(!VocabularyRepair.èSoloUnaDesinenza("dettatura", "dettatura")) // identiche
     }
+    /// **«forse» non diventa «Forge»** (30/08, sua dettatura vera).
+    ///
+    /// Il termine ha cinque lettere, quindi passa la frenata sulla lunghezza, e
+    /// dista un edit da una delle parole più comuni della lingua, quindi passa
+    /// quella sul budget. Nessuna soglia lo prende: il difetto non è la
+    /// distanza, è che la parola scritta era GIÀ giusta. Il dizionario è finto
+    /// qui apposta — un test che interroga quello di sistema misura la macchina.
+    ///
+    /// Misurato sulle sue 893 dettature italiane: 75 cambi senza la guardia,
+    /// 49 con. I 26 testi che spariscono sono 30 «forse»→«Forge», 4
+    /// «forte»→«Forge» e 2 «dentatura»→«dettatura», che è l'unica riparazione
+    /// vera persa e appartiene a `Corrections`, non a un indovinello.
+    @Test func unaParolaCheLaLinguaConosceNonSiSostituisce() {
+        let italiano: (String) -> Bool = { parola in
+            ["forse", "forte", "dentatura", "una", "di", "prova", "serve", "va", "sistemata"]
+                .contains(parola.lowercased())
+        }
+        #expect(VocabularyRepair.apply(to: "forse va sistemata", terms: ["Forge"],
+                                       knows: italiano) == "forse va sistemata")
+        // Il polo negativo: senza la guardia il difetto è vivo, ed è esattamente
+        // quello che ha visto lui.
+        #expect(VocabularyRepair.apply(to: "forse va sistemata", terms: ["Forge"])
+                == "Forge va sistemata")
+        // E la guardia non spegne le riparazioni su parole che non esistono.
+        #expect(VocabularyRepair.apply(to: "Calamos serve per questo", terms: Self.terms,
+                                       knows: italiano) == "Kalamos serve per questo")
+    }
+
 }

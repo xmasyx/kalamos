@@ -5,6 +5,22 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
+## Non ancora rilasciato
+
+### «forse» non diventa più «Forge»
+
+Il vocabolario ripara i tuoi nomi per somiglianza, e con un termine di cinque lettere basta un
+edit: «Forge» ha mangiato «forse» — una delle parole più comuni della lingua — e anche «forte».
+Nessuna soglia poteva prenderlo, perché il difetto non è nella distanza: la parola scritta dal
+motore era già giusta. La riparazione per somiglianza ora chiede al dizionario di sistema, nella
+lingua riconosciuta, e una parola che la lingua conosce non viene mai sostituita. È la stessa
+guardia che le correzioni imparate hanno dal 15/08.
+
+Misurato sulle 893 dettature italiane dell'archivio: **75 cambi senza la guardia, 49 con**. I 26
+testi che spariscono sono 30 «forse»→«Forge», 4 «forte»→«Forge» e 2 «dentatura»→«dettatura» —
+quest'ultima l'unica riparazione vera persa, e appartiene a una regola di sostituzione, non a un
+indovinello. Le risposte del dizionario sono in cache: senza, il banco non finiva in dieci minuti.
+
 ## v1.6.0
 
 ### «A che punto siamo» non diventa più «a che. Siamo»

@@ -366,19 +366,28 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
     let extra = args.firstIndex(of: "--budget-extra").flatMap {
         $0 + 1 < args.count ? Int(args[$0 + 1]) : nil
     } ?? 0
+    // La guardia del dizionario è un flag e non un default, perché il banco deve
+    // poter misurare i due mondi: quello che ha lasciato passare «forse» → «Forge»
+    // e quello che lo blocca. In produzione è sempre accesa.
+    let dizionario = args.contains("--dizionario")
+    let lingua = args.firstIndex(of: "--lingua").flatMap {
+        $0 + 1 < args.count ? args[$0 + 1] : nil
+    } ?? "it"
+    let knows: ((String) -> Bool)? = dizionario
+        ? { SystemDictionary.knows($0, language: lingua) } : nil
     struct Entry: Codable { let raw: String?; let text: String?; let clean: String? }
     do {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let entries = try JSONDecoder().decode([Entry].self, from: data)
         print("vocabolario (\(terms.count)): \(terms.joined(separator: ", "))")
-        print("corpus: \(entries.count) voci da \(path) · min-fuzzy=\(minFuzzy) · budget+\(extra)\n")
+        print("corpus: \(entries.count) voci da \(path) · min-fuzzy=\(minFuzzy) · budget+\(extra) · dizionario=\(dizionario ? lingua : "spento")\n")
         var changed = 0, seen = 0
         for entry in entries {
             for field in [entry.raw, entry.text, entry.clean].compactMap({ $0 }) where !field.isEmpty {
                 seen += 1
                 let out = VocabularyRepair.apply(to: field, terms: terms,
                                                  minFuzzyLength: minFuzzy,
-                                                 extraBudget: extra)
+                                                 extraBudget: extra, knows: knows)
                 guard out != field else { continue }
                 changed += 1
                 print("PRIMA: \(field)")
@@ -396,7 +405,7 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--selftest-vocab") {
                 [entry.raw, entry.text, entry.clean].compactMap { $0 }.filter { !$0.isEmpty }
                     .map { Pair(before: $0, after: VocabularyRepair.apply(
                         to: $0, terms: terms, minFuzzyLength: minFuzzy,
-                        extraBudget: extra)) }
+                        extraBudget: extra, knows: knows)) }
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted]

@@ -424,7 +424,11 @@ final class DictationController {
                 // AFTER Corrections on purpose: a rule you wrote yourself is an
                 // instruction, and the vocabulary is a guess. The instruction goes
                 // first and the guess never gets to overrule it.
-                let repaired = VocabularyRepair.apply(to: text)
+                // La guardia del dizionario, nella lingua che il motore ha
+                // riconosciuto: «forse» non diventa «Forge» (30/08).
+                let repaired = VocabularyRepair.apply(
+                    to: text,
+                    knows: { SystemDictionary.knows($0, language: sourceLang.rawValue) })
                 if repaired != text { Log.write("vocabulary: \"\(text)\" → \"\(repaired)\"") }
                 text = repaired
 

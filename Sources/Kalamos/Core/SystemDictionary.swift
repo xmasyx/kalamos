@@ -28,10 +28,20 @@ enum SystemDictionary {
     /// worse; but a guard that has quietly stopped guarding is the thing worth
     /// knowing about (2026-07-13: a branch that emits nothing is
     /// indistinguishable from a branch that never ran).
+    /// Le risposte si ricordano, e non è un'ottimizzazione gratuita.
+    ///
+    /// Dal 30/08 questa guardia è chiamata anche da `VocabularyRepair`, cioè una
+    /// volta per termine per parola invece che una volta per regola imparata: il
+    /// banco su 1786 testi non è arrivato in fondo in dieci minuti senza questa
+    /// riga. Il dizionario di sistema non cambia sotto i piedi durante una corsa.
+    @MainActor private static var cache: [String: Bool] = [:]
+
     @MainActor
     static func knows(_ word: String, language: String) -> Bool {
         let w = word.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !w.isEmpty else { return false }
+        let key = language + "\u{0}" + w.lowercased()
+        if let hit = cache[key] { return hit }
 
         let checker = NSSpellChecker.shared
         let tag = checker.availableLanguages.contains(where: { $0.hasPrefix(language) })
@@ -41,6 +51,8 @@ enum SystemDictionary {
         }
         let found = checker.checkSpelling(of: w, startingAt: 0, language: language,
                                           wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
-        return found.location == NSNotFound
+        let known = found.location == NSNotFound
+        cache[key] = known
+        return known
     }
 }

@@ -97,16 +97,25 @@ enum VocabularyRepair {
     /// serve a poter **rimisurare** la bocciatura invece di ricordarsela. In
     /// produzione nessun motore lo alza — `apply` è chiamata senza.
     /// Apply the vocabulary to a raw transcription.
+    /// `knows` è la guardia del dizionario: risponde «la lingua conosce questa
+    /// parola?», e una parola che la lingua conosce non viene MAI sostituita per
+    /// somiglianza. È la stessa guardia che `LearnedCorrections` ha dal 15/08,
+    /// portata qui il 30/08 dal caso «forse» → «Forge»: il termine ha cinque
+    /// lettere, quindi passa la frenata 2, e dista un edit da una delle parole
+    /// più comuni della lingua, quindi passa la 3. Nessuna soglia lo prende,
+    /// perché il difetto non è nella distanza: è che la parola scritta era
+    /// giusta. Passata `nil`, la riparazione si comporta come prima.
     static func apply(to text: String, terms: [String] = Vocabulary.terms,
                       minFuzzyLength: Int = minFuzzyLength,
-                      extraBudget: Int = 0) -> String {
+                      extraBudget: Int = 0,
+                      knows: ((String) -> Bool)? = nil) -> String {
         guard !terms.isEmpty, !text.isEmpty else { return text }
         var result = text
         // Longest terms first: "Claude Desktop" must win over "Claude", or the
         // single-word term consumes the first half and the pair never matches.
         for term in terms.sorted(by: { $0.count > $1.count }) {
             result = applyOne(term, to: result, minFuzzyLength: minFuzzyLength,
-                              extraBudget: extraBudget)
+                              extraBudget: extraBudget, knows: knows)
         }
         return result
     }
@@ -114,7 +123,7 @@ enum VocabularyRepair {
     // MARK: - One term
 
     private static func applyOne(_ term: String, to text: String, minFuzzyLength: Int,
-                                 extraBudget: Int) -> String {
+                                 extraBudget: Int, knows: ((String) -> Bool)? = nil) -> String {
         let target = fold(term)
         guard !target.isEmpty else { return text }
         // Il supplemento vale solo per i termini corti, ed è lì che serve: su
@@ -220,6 +229,12 @@ enum VocabularyRepair {
                 // singolare quando la lista lo ha al plurale, che è un caso da
                 // `Corrections`, non da indovinare.
                 if èSoloUnaDesinenza(candidate, target) { continue }
+                // Una parola che la lingua conosce è già una parola: il motore
+                // non ha sbagliato a scriverla, e sostituirla per somiglianza
+                // vandalizza una frase corretta. Vale solo sulla finestra di una
+                // parola sola — «cloud e» non è una parola, e per quel caso la
+                // frenata è il nucleo-in-fondo qui sopra.
+                if width == 1, let knows, knows(joined) { continue }
                 if distance(candidate, target, cap: budget) <= budget {
                     tokens.replaceSubrange(from...to, with: [.word(term)])
                     advanced = true
