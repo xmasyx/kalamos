@@ -8,7 +8,7 @@ import Testing
 ///
 /// None of them is visible in a screenshot — a wave drawn from a broken level
 /// still looks like a wave — so they are the pieces that get a test.
-@Suite struct WaveIslandTests {
+@MainActor @Suite struct WaveIslandTests {
 
     // MARK: - Loudness → height
 
