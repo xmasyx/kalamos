@@ -85,7 +85,12 @@ struct RuleBasedFormatter: TextFormatter {
                               "nel", "nello", "nella", "dal", "dalla", "sul", "sulla",
                               "questo", "questa", "quel", "quello", "quella",
                               "ogni", "tal", "mio", "suo", "loro", "altro", "qualche",
-                              "primo", "secondo", "terzo", "quarto", "quinto", "stesso", "certo"],
+                              "primo", "secondo", "terzo", "quarto", "quinto", "stesso", "certo",
+                              // Interrogativi e relativi: "a che punto siamo",
+                              // "fino a che punto", "quale punto". Buco visto sul
+                              // campo il 2026-08-30 — "a che punto siamo?" tornava
+                              // "a che. Siamo?".
+                              "che", "quale", "quali"],
                 followNouns: ["di", "debole", "chiave", "forte", "fermo", "nave", "vendita",
                               "vista", "focale", "cardine", "nascita", "morto", "cruciale", "critico"]),
             PunctuationWord(
@@ -93,7 +98,8 @@ struct RuleBasedFormatter: TextFormatter {
                 determiners: ["la", "le", "una", "un", "senza", "sola", "sole", "singola",
                               "nessuna", "qualche", "ogni", "questa", "quella", "altra",
                               "stessa", "ultima", "prima", "della", "delle", "alla", "alle",
-                              "dalla", "sulla", "con", "di", "doppia", "mia", "sua"],
+                              "dalla", "sulla", "con", "di", "doppia", "mia", "sua",
+                              "che", "quale", "quali"],
                 followNouns: ["mobile", "decimale", "fissa"]),
         ],
         .french: [
@@ -101,13 +107,15 @@ struct RuleBasedFormatter: TextFormatter {
                 word: "point", replacement: ".",
                 determiners: ["le", "la", "les", "un", "une", "du", "des", "au", "aux",
                               "ce", "cet", "cette", "mon", "son", "leur", "chaque", "tout",
-                              "premier", "deuxième", "troisième"],
+                              "premier", "deuxième", "troisième",
+                              "quel", "quelle", "quels", "quelles"],
                 followNouns: ["de", "faible", "fort", "final", "mort", "cardinal", "chaud"]),
             PunctuationWord(
                 word: "virgule", replacement: ",",
                 determiners: ["la", "les", "une", "un", "sans", "seule", "seules", "aucune",
                               "chaque", "cette", "autre", "dernière", "première", "même",
-                              "de", "avec", "double", "ma", "sa", "leur"],
+                              "de", "avec", "double", "ma", "sa", "leur",
+                              "quel", "quelle", "quels", "quelles"],
                 followNouns: ["flottante", "décimale", "fixe"]),
         ],
         .english: [
@@ -115,13 +123,15 @@ struct RuleBasedFormatter: TextFormatter {
                 word: "period", replacement: ".",
                 determiners: ["a", "the", "this", "that", "one", "each", "every", "any",
                               "long", "short", "same", "grace", "trial", "time", "no",
-                              "another", "first", "second", "third", "whole", "entire"],
+                              "another", "first", "second", "third", "whole", "entire",
+                              "what", "which"],
                 followNouns: ["of", "piece", "drama", "costume", "furniture", "when", "in"]),
             PunctuationWord(
                 word: "comma", replacement: ",",
                 determiners: ["a", "the", "no", "one", "single", "without", "any", "each",
                               "every", "this", "that", "another", "final", "first", "last",
-                              "oxford", "serial", "extra", "missing"],
+                              "oxford", "serial", "extra", "missing",
+                              "what", "which"],
                 followNouns: ["splice", "separated", "delimited"]),
         ],
     ]

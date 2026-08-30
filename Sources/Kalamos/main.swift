@@ -1641,6 +1641,10 @@ if CommandLine.arguments.contains("--selftest-format") {
             ("ho finito il lavoro punto", "lavoro.", "punto"),    // real full stop
             ("prendi il latte punto poi torna", "latte. poi", "punto poi"), // mid full stop
             ("al punto in cui siamo", "al punto", nil),           // determiner → word kept
+            // Sua dettatura del 2026-08-30: il grezzo diceva "a che punto siamo",
+            // il consegnato "a che. Siamo". Gli interrogativi mancavano dalla guardia.
+            ("a che punto siamo", "a che punto", nil),
+            ("fino a che punto regge", "che punto", nil),
             // "virgola" has the same two lives, and it cost real dictations on
             // 2026-08-11: talking ABOUT commas, the word was eaten twice in one
             // minute. Both of these are his verbatim transcripts.
@@ -1660,6 +1664,8 @@ if CommandLine.arguments.contains("--selftest-format") {
             (en, "add milk comma bread and eggs", "milk, bread", "comma"),
             (fr, "il arrive sans une seule virgule ici", "seule virgule", nil),
             (fr, "prends le lait virgule puis reviens", "lait, puis", "virgule"),
+            (fr, "à quel point c'est grave", "quel point", nil),
+            (en, "what period are we in", "what period", nil),
         ]
         var fails = 0
         for (input, must, forbidden) in cases {

@@ -7,6 +7,17 @@ an estimate.
 
 ## v1.6.0
 
+### «A che punto siamo» non diventa più «a che. Siamo»
+
+`punto` e `virgola` valgono due volte: il segno dettato e la parola. La guardia che li
+distingue guardava solo articoli e quantificatori, e agli interrogativi non pensava nessuno:
+«a che punto siamo?» tornava «A che. Siamo?» (sua dettatura del 30/08, grezzo corretto e
+consegnato rotto). Aggiunti `che`, `quale`, `quali` in italiano, `quel`/`quelle` in francese e
+`what`/`which` in inglese — una classe, non un caso. Quattro poli nuovi in `--selftest-format`;
+tolta la parola dalla lista, i due italiani tornano rossi con esattamente l'uscita che aveva
+visto lui.
+
+
 ### Updates from inside Kalamos
 
 **Check for updates…** is now in both of the app's menus. Kalamos checks GitHub at most once a
