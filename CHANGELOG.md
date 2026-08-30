@@ -5,7 +5,7 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
-## Non ancora rilasciato
+## v1.6.1
 
 ### «forse» non diventa più «Forge»
 
