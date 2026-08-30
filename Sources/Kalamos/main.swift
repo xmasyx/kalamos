@@ -52,6 +52,15 @@ if CommandLine.arguments.contains("--version") {
     exit(0)
 }
 
+// Banco locale del modulo aggiornamenti. Avvia soltanto il run loop necessario alle API async:
+// niente delegate, controllo giornaliero, event tap, modelli o interfaccia dell'app.
+if CommandLine.arguments.contains("--bench-updates") {
+    Task { @MainActor in
+        exit(await Updater().runBench())
+    }
+    RunLoop.main.run()
+}
+
 // `Kalamos --selftest-mic [seconds]` — watch the capture graph live, once a second.
 //
 // Built for the 2026-08-14 EarPods case: start it, then plug or unplug the

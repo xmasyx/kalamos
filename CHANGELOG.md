@@ -7,6 +7,19 @@ an estimate.
 
 ## Unreleased
 
+### Updates from inside Kalamos
+
+**Check for updates…** is now in both of the app's menus. Kalamos checks GitHub at most once a
+day without holding up launch; an explicit check reports its result in a system alert in Italian,
+English, or French. A Homebrew install can run the cask upgrade only after the user clicks
+**Update and relaunch**: the same alert then shows Homebrew's latest line, Kalamos clears
+quarantine from its own new bundle, and relaunches only after the old process has ended. Manual
+installs open the matching GitHub release instead.
+
+The version, cadence, install-source, action, and release-JSON decisions are isolated from the
+network and covered by 24 tests. A three-pole local bench exercises Homebrew, a manual install,
+and a missing `brew` executable with no network access.
+
 ### The notch↔pill transition is one curve, and the magnet pulls the position too
 
 Pulled out of the notch, the band no longer switches to the pill in a single frame:

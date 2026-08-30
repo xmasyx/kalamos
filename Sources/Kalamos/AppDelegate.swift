@@ -21,6 +21,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panelHost: NSHostingView<MenuPanel>!
     private var accessibilityTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private let updater = Updater()
+    private var explicitUpdateCheck = false
+    private var updateAlert: NSAlert?
+    private var updateAction: Updates.Action?
+    private weak var updateLineField: NSTextField?
     /// Tenuto per una ragione sola: liberarlo prima che l'app esca. Vedi
     /// `applicationWillTerminate`.
 
@@ -29,6 +34,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupMenuBar()
         observeStatus()
         observeLanguage()
+        observeUpdates()
+
+        // Il controllo parte dopo che il lancio ha restituito il run loop: legge soltanto la
+        // cadenza in linea e fa rete in un Task. I comandi headless escono da `main.swift` prima
+        // di creare il delegate; il cancello esplicito impedisce che una futura sonda GUI con un
+        // nome `--selftest-*` possa cambiare questa proprietà per accidente.
+        if Self.allowsUpdateCheckAtLaunch {
+            DispatchQueue.main.async { [weak self] in self?.updater.checkIfDue() }
+        }
 
         // Both engines from launch, neither loaded until used, and one switch
         // between them. `speechSwitch` is kept so Preferences can change the
@@ -140,6 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// `#selector(NSText.copy(_:))` is ambiguous against `NSObject.copy()`.
     private func setupMainMenu() {
         let app = NSMenu()
+        let updates = NSMenuItem(title: L.t("Verifica aggiornamenti…", "Check for updates…",
+                                             "Rechercher des mises à jour…"),
+                                 action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        app.addItem(updates)
         let prefs = NSMenuItem(title: L.t("Preferenze…", "Preferences…", "Préférences…"),
                                action: #selector(showPreferences), keyEquivalent: ",")
         prefs.target = self
@@ -299,6 +318,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(truth)
 
         menu.addItem(.separator())
+        let updates = NSMenuItem(title: L.t("Verifica aggiornamenti…", "Check for updates…",
+                                             "Rechercher des mises à jour…"),
+                                 action: #selector(checkForUpdates), keyEquivalent: "")
+        menu.addItem(updates)
         let prefs = NSMenuItem(title: L.t("Preferenze…", "Preferences…", "Préférences…"),
                                action: #selector(showPreferences), keyEquivalent: ",")
         menu.addItem(prefs)
@@ -415,6 +438,156 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: Preferences
+
+    private static var allowsUpdateCheckAtLaunch: Bool {
+        let arguments = CommandLine.arguments.dropFirst()
+        return !arguments.contains("--doctor")
+            && !arguments.contains("--version")
+            && !arguments.contains(where: { $0.hasPrefix("--selftest-") })
+    }
+
+    @objc private func checkForUpdates() {
+        explicitUpdateCheck = true
+        updater.checkNow()
+    }
+
+    private func observeUpdates() {
+        updater.$state
+            .receive(on: RunLoop.main)
+            .sink { [weak self] updateState in
+                MainActor.assumeIsolated { self?.updateStateChanged(updateState) }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Il giro giornaliero tace quando non c'è niente da fare o manca la rete, ma rende visibile
+    /// una versione nuova. Un giro chiesto dal menu termina sempre in un avviso di sistema;
+    /// durante Homebrew quello stesso avviso rimane aperto e cambia riga.
+    private func updateStateChanged(_ updateState: Updater.State) {
+        switch updateState {
+        case .idle, .checking:
+            break
+        case .upToDate(let current) where explicitUpdateCheck:
+            explicitUpdateCheck = false
+            showUpToDate(current)
+        case .available(let version, let action):
+            explicitUpdateCheck = false
+            showUpdateAvailable(version: version, action: action)
+        case .upgrading(let line):
+            updateLineField?.stringValue = line
+            updateLineField?.toolTip = line
+        case .failed(let reason):
+            if updateAlert != nil {
+                showUpgradeFailure(reason)
+            } else if explicitUpdateCheck {
+                explicitUpdateCheck = false
+                showUpdateCheckFailure(reason)
+            }
+        default:
+            break
+        }
+    }
+
+    private func showUpToDate(_ current: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = L.t("Aggiornata, \(current)",
+                                "Up to date, \(current)",
+                                "À jour, \(current)")
+        alert.addButton(withTitle: L.t("OK", "OK", "OK"))
+        runUpdateAlert(alert)
+    }
+
+    private func showUpdateAvailable(version: String, action: Updates.Action) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = L.t("C'è la \(version)",
+                                "There's \(version)",
+                                "La version \(version) est disponible")
+
+        switch action {
+        case .openReleasePage:
+            alert.addButton(withTitle: L.t("Scarica", "Download", "Télécharger"))
+            alert.addButton(withTitle: L.t("Più tardi", "Later", "Plus tard"))
+            let response = runUpdateAlert(alert)
+            if response == .alertFirstButtonReturn { updater.perform(action) }
+
+        case .upgradeAndRelaunch:
+            alert.addButton(withTitle: L.t("Aggiorna e riavvia", "Update and relaunch",
+                                           "Mettre à jour et relancer"))
+            alert.addButton(withTitle: L.t("Più tardi", "Later", "Plus tard"))
+
+            // Il primo bottone non chiude l'NSAlert: lo trasforma nello stato di avanzamento.
+            // Il secondo conserva l'azione standard di AppKit e chiude il ciclo modale.
+            updateAlert = alert
+            updateAction = action
+            alert.buttons[0].target = self
+            alert.buttons[0].action = #selector(beginUpgradeFromAlert(_:))
+            _ = runUpdateAlert(alert)
+            updateAlert = nil
+            updateAction = nil
+            updateLineField = nil
+        }
+    }
+
+    @objc private func beginUpgradeFromAlert(_ sender: NSButton) {
+        guard let alert = updateAlert, let action = updateAction else { return }
+
+        sender.isEnabled = false
+        alert.buttons[1].isEnabled = false
+        alert.messageText = L.t("Aggiornamento…", "Updating…", "Mise à jour…")
+        alert.informativeText = L.t(
+            "Homebrew sta aggiornando Kalamos. Si riaprirà appena ha finito.",
+            "Homebrew is updating Kalamos. It will relaunch when it finishes.",
+            "Homebrew met Kalamos à jour. L’application se relancera ensuite.")
+
+        let line = NSTextField(labelWithString: L.t("Preparo Homebrew…",
+                                                     "Preparing Homebrew…",
+                                                     "Préparation de Homebrew…"))
+        line.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        line.textColor = .secondaryLabelColor
+        line.lineBreakMode = .byTruncatingHead
+        line.maximumNumberOfLines = 1
+        line.frame = NSRect(x: 0, y: 0, width: 420, height: 18)
+        line.toolTip = line.stringValue
+        alert.accessoryView = line
+        updateLineField = line
+        alert.layout()
+
+        updater.perform(action)
+    }
+
+    private func showUpgradeFailure(_ reason: String) {
+        guard let alert = updateAlert else { return }
+        alert.alertStyle = .warning
+        alert.messageText = L.t("Aggiornamento non riuscito",
+                                "Update failed",
+                                "Échec de la mise à jour")
+        alert.informativeText = reason
+        updateLineField?.stringValue = reason
+        updateLineField?.toolTip = reason
+        alert.buttons[0].isEnabled = false
+        alert.buttons[1].title = L.t("Chiudi", "Close", "Fermer")
+        alert.buttons[1].isEnabled = true
+        alert.layout()
+    }
+
+    private func showUpdateCheckFailure(_ reason: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L.t("Controllo non riuscito",
+                                "Check failed",
+                                "Échec de la vérification")
+        alert.informativeText = reason
+        alert.addButton(withTitle: L.t("Chiudi", "Close", "Fermer"))
+        runUpdateAlert(alert)
+    }
+
+    @discardableResult
+    private func runUpdateAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal()
+    }
 
     @objc private func showPreferences() {
         PreferencesWindow.shared.show(state: state, actions: PreferencesActions(
