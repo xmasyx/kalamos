@@ -1933,6 +1933,14 @@ if let flag = CommandLine.arguments.first(where: { $0.hasPrefix("--misura-filmat
 // prima, e DEVE mostrare le riprogrammazioni a raffica.
 func utileValido(_ a: CGFloat, _ b: CGFloat) -> Bool { b - a > 40 }
 
+/// Posta un evento del mouse in coordinate «schermo in alto a sinistra», dalla coda globale delle
+/// sonde. `nonisolated` perché non tocca stato dell'app: gli serve solo l'altezza dello schermo.
+nonisolated func postaEventoMouse(_ tipo: CGEventType, _ punto: CGPoint, altezzaSchermo: CGFloat) {
+    let p = CGPoint(x: punto.x, y: altezzaSchermo - punto.y)
+    CGEvent(mouseEventSource: nil, mouseType: tipo, mouseCursorPosition: p, mouseButton: .left)?
+        .post(tap: .cghidEventTap)
+}
+
 if CommandLine.arguments.contains("--sonda-scrub") {
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
@@ -1973,11 +1981,14 @@ if CommandLine.arguments.contains("--sonda-scrub") {
     w.makeKeyAndOrderFront(nil)
     app.activate(ignoringOtherApps: true)
 
-    func flip(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x, y: sf.height - p.y) }
-    func posta(_ tipo: CGEventType, _ punto: CGPoint) {
-        guard let e = CGEvent(mouseEventSource: nil, mouseType: tipo,
-                              mouseCursorPosition: flip(punto), mouseButton: .left) else { return }
-        e.post(tap: .cghidEventTap)
+    // Una chiusura `@Sendable` e non una funzione locale: qui siamo a livello di file, cioè sul
+    // MainActor, e una funzione locale eredita quell'isolamento. Chiamata dalla coda globale, il
+    // compilatore del runner GitHub la rifiuta («call to main actor-isolated local function»)
+    // mentre l'Xcode locale lascia passare (CI rossa dal 27/08, vista il 30/08). La chiusura
+    // cattura solo l'altezza dello schermo, che è un numero.
+    let altezzaSchermo = sf.height
+    let posta: @Sendable (CGEventType, CGPoint) -> Void = { tipo, punto in
+        postaEventoMouse(tipo, punto, altezzaSchermo: altezzaSchermo)
     }
 
     let originePrima = w.frame.origin
@@ -2145,10 +2156,10 @@ if CommandLine.arguments.contains("--sonda-trascinamento") {
             return "\((w[kCGWindowOwnerName as String] as? String) ?? "?") \(nome)"
         }
     }
-    func flip(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x, y: sf.height - p.y) }
-    func posta(_ tipo: CGEventType, _ punto: CGPoint) {
-        CGEvent(mouseEventSource: nil, mouseType: tipo,
-                mouseCursorPosition: flip(punto), mouseButton: .left)?.post(tap: .cghidEventTap)
+    // Stessa forma della sonda dello scrub: chiusura `@Sendable`, non funzione locale (vedi lì).
+    let altezzaSchermo = sf.height
+    let posta: @Sendable (CGEventType, CGPoint) -> Void = { tipo, punto in
+        postaEventoMouse(tipo, punto, altezzaSchermo: altezzaSchermo)
     }
 
     let puntatorePrima = NSEvent.mouseLocation
