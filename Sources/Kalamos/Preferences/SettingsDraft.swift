@@ -40,6 +40,7 @@ struct SettingsDraft: Equatable {
     var idleSeconds: Int
     var editModeEnabled: Bool
     var editModeKeyCode: UInt16
+    var checkUpdatesAtLaunch: Bool
     var launchAtLogin: Bool
 
     @MainActor
@@ -65,6 +66,7 @@ struct SettingsDraft: Equatable {
         idleSeconds = Tuning.idleUnloadRaw
         editModeEnabled = state.editModeEnabled
         editModeKeyCode = state.editModeKeyCode
+        checkUpdatesAtLaunch = state.checkUpdatesAtLaunch
         self.launchAtLogin = launchAtLogin
     }
 
@@ -90,6 +92,7 @@ struct SettingsDraft: Equatable {
         if cleanupPrompt != other.cleanupPrompt { n += 1 }
         if idleSeconds != other.idleSeconds { n += 1 }
         if editModeEnabled != other.editModeEnabled || editModeKeyCode != other.editModeKeyCode { n += 1 }
+        if checkUpdatesAtLaunch != other.checkUpdatesAtLaunch { n += 1 }
         if launchAtLogin != other.launchAtLogin { n += 1 }
         return n
     }

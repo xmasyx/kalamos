@@ -170,6 +170,31 @@ struct TranscriptionSection: View {
             }
 
             CleanupSection(draft: $draft, state: state)
+
+            PrefRow(title: L.t("Edit Mode", "Edit Mode", "Edit Mode"),
+                    note: L.t("Tieni premuto il tasto qui sotto e detta un'istruzione: Kalamos trasforma il testo che hai selezionato invece di scriverne di nuovo.",
+                              "Hold the key below and speak an instruction: Kalamos transforms the text you selected instead of writing new text.",
+                              "Maintenez la touche ci-dessous et dictez une instruction : Kalamos transforme le texte sélectionné."),
+                    toggle: $draft.editModeEnabled) {
+                VStack(alignment: .leading, spacing: 9) {
+                    if draft.editModeEnabled {
+                        ChipRow(options: [
+                            (UInt16(0x3F), "Fn / Globe", ""),
+                            (UInt16(0x3D), "Right Option", ""),
+                            (UInt16(0x3C), "Right Shift", ""),
+                        ], isOn: { draft.editModeKeyCode == $0 },
+                           pick: { draft.editModeKeyCode = $0 })
+                        if draft.editModeKeyCode == draft.hotKeyCode {
+                            Text(L.t("Questo è lo stesso tasto della dettatura, quindi Edit Mode resta spento. Scegline un altro.",
+                                     "That is the dictation key, so Edit Mode stays off. Pick another one.",
+                                     "C’est la touche de dictée : Edit Mode reste inactif. Choisissez-en une autre."))
+                                .font(Theme.font(11.5))
+                                .foregroundStyle(Theme.pen)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -836,30 +861,11 @@ struct AdvancedSection: View {
                 }
             }
 
-            PrefRow(title: L.t("Edit Mode", "Edit Mode", "Edit Mode"),
-                    note: L.t("Tieni premuto il tasto qui sotto e detta un'istruzione: Kalamos trasforma il testo che hai selezionato invece di scriverne di nuovo.",
-                              "Hold the key below and speak an instruction: Kalamos transforms the text you selected instead of writing new text.",
-                              "Maintenez la touche ci-dessous et dictez une instruction : Kalamos transforme le texte sélectionné."),
-                    toggle: $draft.editModeEnabled) {
-                VStack(alignment: .leading, spacing: 9) {
-                    if draft.editModeEnabled {
-                        ChipRow(options: [
-                            (UInt16(0x3F), "Fn / Globe", ""),
-                            (UInt16(0x3D), "Right Option", ""),
-                            (UInt16(0x3C), "Right Shift", ""),
-                        ], isOn: { draft.editModeKeyCode == $0 },
-                           pick: { draft.editModeKeyCode = $0 })
-                        if draft.editModeKeyCode == draft.hotKeyCode {
-                            Text(L.t("Questo è lo stesso tasto della dettatura, quindi Edit Mode resta spento. Scegline un altro.",
-                                     "That is the dictation key, so Edit Mode stays off. Pick another one.",
-                                     "C’est la touche de dictée : Edit Mode reste inactif. Choisissez-en une autre."))
-                                .font(Theme.font(11.5))
-                                .foregroundStyle(Theme.pen)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-            }
+            PrefRow(title: L.t("Aggiornamenti", "Updates", "Mises à jour"),
+                    note: L.t("Kalamos chiede a GitHub se c'è una versione nuova, al massimo una volta al giorno. Non scarica niente da solo: quando ne trova una te lo chiede, e decidi tu.",
+                              "Kalamos asks GitHub whether a new version exists, at most once a day. It downloads nothing on its own: when it finds one it asks you, and you decide.",
+                              "Kalamos demande à GitHub s'il existe une nouvelle version, au plus une fois par jour. Il ne télécharge rien seul : il vous demande."),
+                    toggle: $draft.checkUpdatesAtLaunch) { EmptyView() }
 
             PrefRow(title: L.t("All'accensione del Mac", "When the Mac starts",
                                "Au démarrage du Mac")) {

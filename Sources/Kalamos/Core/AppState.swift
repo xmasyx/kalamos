@@ -258,6 +258,13 @@ final class AppState: ObservableObject {
     @Published var editModeEnabled: Bool { didSet { persist("editModeEnabled", editModeEnabled) } }
     @Published var editModeKeyCode: UInt16 { didSet { persist("editModeKeyCode", Int(editModeKeyCode)) } }
 
+    /// Il controllo degli aggiornamenti all'avvio. Acceso di default, perche' un'app
+    /// firmata in casa e non notarizzata si aggiorna solo se qualcuno glielo ricorda;
+    /// spegnibile, perche' l'unica rete che Kalamos fa e' questa e chi la vuole zero
+    /// deve poterla togliere. Il controllo resta comunque al massimo uno al giorno, e
+    /// non scarica niente da solo: la scelta e' nell'avviso che compare dopo.
+    @Published var checkUpdatesAtLaunch: Bool { didSet { persist("checkUpdatesAtLaunch", checkUpdatesAtLaunch) } }
+
     /// Whether first-run setup has been seen. Also set, silently, for anyone who
     /// was already using the app before setup existed — see `init`.
     @Published var didCompleteOnboarding: Bool {
@@ -384,6 +391,7 @@ final class AppState: ObservableObject {
         wavePosition = migrata ?? WavePosition(rawValue: posizioneSalvata) ?? .notch
         waveCenter = centroSalvato
         editModeEnabled = (defaults.object(forKey: "editModeEnabled") as? Bool) ?? false
+        checkUpdatesAtLaunch = (defaults.object(forKey: "checkUpdatesAtLaunch") as? Bool) ?? true
         // 0x3F == Fn / Globe — default Edit-Mode modifier. Distinct from the
         // dictation trigger (Right Command), and NOT used to type text, so it
         // won't conflict with capital letters the way Shift would. Held during

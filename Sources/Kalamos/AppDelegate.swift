@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // cadenza in linea e fa rete in un Task. I comandi headless escono da `main.swift` prima
         // di creare il delegate; il cancello esplicito impedisce che una futura sonda GUI con un
         // nome `--selftest-*` possa cambiare questa proprietà per accidente.
-        if Self.allowsUpdateCheckAtLaunch {
+        if Self.allowsUpdateCheckAtLaunch && state.checkUpdatesAtLaunch {
             DispatchQueue.main.async { [weak self] in self?.updater.checkIfDue() }
         }
 
@@ -634,6 +634,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             state.editModeEnabled = draft.editModeEnabled
             state.editModeKeyCode = draft.editModeKeyCode
             startEditHotkeyIfNeeded()
+        }
+
+        if draft.checkUpdatesAtLaunch != state.checkUpdatesAtLaunch {
+            state.checkUpdatesAtLaunch = draft.checkUpdatesAtLaunch
         }
 
         if draft.launchAtLogin != (SMAppService.mainApp.status == .enabled) {
