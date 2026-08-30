@@ -14,9 +14,9 @@
          v1.2.0 è uscita il 7/08 e le build locali hanno continuato a dire 1.1.1
          per quattro giorni, col codice dell'8/08 già dentro. -->
     <key>CFBundleVersion</key>
-    <string>0.0.0</string>
+    <string>1.5.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.0</string>
+    <string>1.5.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
