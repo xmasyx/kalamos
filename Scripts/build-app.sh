@@ -14,7 +14,16 @@ case "$CONFIG" in debug) CONFIG=Debug;; release) CONFIG=Release;; esac
 APP_NAME="Kalamos"
 DERIVED=".build/xc"
 PRODUCTS="${DERIVED}/Build/Products/${CONFIG}"
-BUNDLE_DIR="build/${APP_NAME}.app"
+# Il bundle di lavorazione NON vive dentro il progetto (2026-08-30, sua segnalazione).
+# Con una copia in `build/`, Spotlight indicizza due Kalamos identiche e la ricerca
+# non sa quale aprire; `.metadata_never_index` non serve a niente, perché l'indice
+# molla una voce solo quando il file esce da un percorso indicizzato. La copia di
+# lavoro sta quindi in una cartella temporanea, e l'unica destinazione vera è
+# /Applications. In CI il path storico resta `build/`, che il workflow si aspetta.
+BUILD_DIR="${KALAMOS_BUILD_DIR:-${CI:+build}}"
+BUILD_DIR="${BUILD_DIR:-${TMPDIR:-/tmp}/Kalamos-build}"
+mkdir -p "${BUILD_DIR}"
+BUNDLE_DIR="${BUILD_DIR}/${APP_NAME}.app"
 
 echo "▶ xcodebuild (${CONFIG}) — compiles MLX Metal shaders…"
 xcodebuild -scheme "${APP_NAME}" -destination 'platform=macOS,arch=arm64' \

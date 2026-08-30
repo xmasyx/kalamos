@@ -109,6 +109,10 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             export KALAMOS_VERSION="${GITHUB_REF_NAME#v}"
           fi
+          # Il bundle di lavorazione vive fuori dal progetto dal 30/08, ma qui il
+          # path storico è quello che i passi successivi (firma, DMG, staging) si
+          # aspettano: si dichiara, invece di dipendere dal solo $CI del runner.
+          export KALAMOS_BUILD_DIR=build
           ./Scripts/build-app.sh Release
 
       - name: Verify the signature
