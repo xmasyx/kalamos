@@ -20,6 +20,17 @@ The version, cadence, install-source, action, and release-JSON decisions are iso
 network and covered by 24 tests. A three-pole local bench exercises Homebrew, a manual install,
 and a missing `brew` executable with no network access.
 
+The launch check has its own switch, **Updates**, under Advanced, on by default. Turning it off
+stops the daily question to GitHub; the menu entry keeps working, so an explicit check is always
+one click away. Nothing is ever downloaded without the alert first: **Update and relaunch** or
+**Later**.
+
+### Edit Mode moved to Transcription
+
+Edit Mode transforms the text you selected instead of writing new text, which makes it a way of
+transcribing, not a setting for advanced users. It now sits in **Transcription**, under the
+cleanup options, with the same switch and the same key picker.
+
 ### The notch↔pill transition is one curve, and the magnet pulls the position too
 
 Pulled out of the notch, the band no longer switches to the pill in a single frame:
