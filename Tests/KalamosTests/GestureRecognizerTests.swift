@@ -256,15 +256,9 @@ import Testing
         return (g, { box.actions })
     }
 
-    /// Dal 31/08 il microfono non si apre più sulla risalita, ma alla scadenza della
-    /// finestra di grazia: al momento del rilascio «⌥ da solo» e «⌥ò scritto un attimo
-    /// storto» sono lo stesso evento, e decidere lì dentro era il difetto. I due poli
-    /// stanno in `OptionPiuLetteraNonDetta`.
     @Test func oneTapStartsAndTheNextOneFinishes() {
         let (g, actions) = recorder()
         g.keyDown(at: 0.0); g.keyUp(at: 0.05)
-        #expect(actions().isEmpty, "il microfono non si apre prima della grazia")
-        g.tick(at: 0.05 + g.singleTapGrace + 0.01)
         #expect(actions() == [.beginRecording])
         g.keyDown(at: 3.0); g.keyUp(at: 3.05)
         #expect(actions() == [.beginRecording, .endRecordingAndProcess])

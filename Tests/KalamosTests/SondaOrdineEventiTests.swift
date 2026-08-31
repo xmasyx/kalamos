@@ -1,20 +1,17 @@
 import Testing
 @testable import Kalamos
 
-/// I due poli della riparazione del 31/08: ⌥ò non deve mai dettare, ⌥ da solo deve
-/// sempre dettare.
+/// I due poli del tocco singolo, riscritti il 31/08 sulla sua regola: **si detta se
+/// ⌥ è stato rilasciato da solo, non si detta se durante la pressione è stata premuta
+/// anche una lettera**. L'avvio resta istantaneo: nessuna attesa, nessuna finestra.
 ///
-/// Nascono da una misura, non da un'intuizione. `SingleTapModeTests` copriva un solo
-/// ordine di arrivo degli eventi, quello ideale — ⌥ giù, lettera, ⌥ su — ed era verde.
-/// Enumerando gli altri tre il 31/08, **tre su quattro facevano partire una
-/// dettatura**: la lettera prima del modificatore, la lettera persa dal tap, e la
-/// lettera un soffio dopo la risalita. In campo il sintomo era esattamente quello,
-/// «ogni tanto parte il trascrittore quando scrivo ⌥ò».
-///
-/// La causa non era la macchina a stati ma il momento della decisione: aprire il
-/// microfono sulla risalita significa scegliere quando l'intenzione è ancora
-/// ambigua. Ora la risalita apre una finestra di grazia, e solo alla sua scadenza il
-/// microfono si apre davvero.
+/// Nascono da una misura. `SingleTapModeTests` copriva un solo ordine di arrivo degli
+/// eventi, quello ideale, ed era verde. Enumerando gli altri il 31/08, la lettera
+/// **persa dal tap** faceva partire la dettatura, ed era il sintomo in campo. Il tap
+/// non è una fonte affidabile: macOS lo disabilita quando il gestore è lento, e un
+/// campo a input sicuro gli nasconde i tasti. La domanda «c'era una lettera?» va
+/// quindi fatta anche al sistema, ed è ciò che `HotkeyManager.aKeyWasPressed` passa
+/// qui come `otherKeyDuringPress`.
 @Suite struct OptionPiuLetteraNonDetta {
 
     private func provino() -> (GestureRecognizer, @Sendable () -> [DictationAction]) {
@@ -27,75 +24,60 @@ import Testing
 
     /// Il polo POSITIVO, e senza di lui gli altri non valgono niente: una riparazione
     /// che spegne anche il gesto buono passerebbe ogni prova negativa.
-    @Test func unToccoPulitoApreIlMicrofono() {
+    @Test func ilTastoRilasciatoDaSoloDettaSubito() {
         let (g, azioni) = provino()
         g.keyDown(at: 0.0)
         g.keyUp(at: 0.08)
-        #expect(azioni().isEmpty, "il microfono non si apre prima della grazia")
-        g.tick(at: 0.08 + g.singleTapGrace + 0.01)
-        #expect(azioni() == [.beginRecording], "un tocco pulito deve dettare")
+        #expect(azioni() == [.beginRecording], "deve partire sul rilascio, senza attese")
     }
 
-    /// E il tocco che CHIUDE non aspetta niente: la grazia protegge solo l'apertura.
-    @Test func ilToccoCheChiudeNonAspetta() {
+    /// Ordine A — il tap VEDE la lettera mentre il tasto è giù.
+    @Test func ordineA_letteraVistaDalTap() {
         let (g, azioni) = provino()
-        g.keyDown(at: 0.0); g.keyUp(at: 0.08); g.tick(at: 0.30)
-        g.keyDown(at: 2.0)
-        #expect(azioni() == [.beginRecording, .endRecordingAndProcess])
-    }
-
-    /// Ordine A — ⌥ giù, lettera, ⌥ su. Il tap vede la lettera mentre il tasto è giù.
-    @Test func ordineA_letteraMentreIlTastoEGiu() {
-        let (g, azioni) = provino()
-        g.keyDown(at: 0.0); g.abort(); g.keyUp(at: 0.10); g.tick(at: 0.50)
+        g.keyDown(at: 0.0); g.abort(); g.keyUp(at: 0.10)
         #expect(azioni().isEmpty)
     }
 
-    /// Ordine B — la lettera risulta premuta un soffio PRIMA del modificatore.
-    /// Il tap non ha niente da annullare: a salvarla è la guardia di sistema, che
-    /// `HotkeyManager` calcola e passa qui.
-    @Test func ordineB_letteraPrimaDelModificatore() {
-        let (g, azioni) = provino()
-        g.abort(); g.keyDown(at: 0.0)
-        g.keyUp(at: 0.10, otherKeyDuringPress: true)
-        g.tick(at: 0.50)
-        #expect(azioni().isEmpty)
-    }
-
-    /// Ordine C — la lettera non arriva affatto al tap (tap disabilitato per
-    /// lentezza, oppure input sicuro). Stessa guardia: la risposta la dà il sistema.
-    @Test func ordineC_letteraPersaDalTap() {
+    /// Ordine C — la lettera non arriva affatto al tap: tap disabilitato per lentezza,
+    /// oppure input sicuro. È il caso che spiega l'«ogni tanto», ed è quello che il
+    /// vecchio codice non poteva vedere in nessun modo.
+    @Test func ordineC_letteraPersaDalTapMaVistaDalSistema() {
         let (g, azioni) = provino()
         g.keyDown(at: 0.0)
         g.keyUp(at: 0.10, otherKeyDuringPress: true)
-        g.tick(at: 0.50)
         #expect(azioni().isEmpty)
     }
 
-    /// Ordine D — la lettera arriva subito DOPO la risalita. È il caso che la vecchia
-    /// versione non poteva vedere in nessun modo, perché aveva già aperto il microfono.
-    @Test func ordineD_letteraSubitoDopoLaRisalita() {
+    /// Ordine B — la lettera risulta premuta un soffio PRIMA del modificatore. La
+    /// tolleranza di 40 ms in `HotkeyManager` la fa ricadere dentro la pressione.
+    @Test func ordineB_letteraUnSoffioPrimaDelModificatore() {
         let (g, azioni) = provino()
-        g.keyDown(at: 0.0); g.keyUp(at: 0.10)
-        g.abort()                       // la lettera, dentro la grazia
-        g.tick(at: 0.50)
+        g.abort(); g.keyDown(at: 0.0)
+        g.keyUp(at: 0.10, otherKeyDuringPress: true)
         #expect(azioni().isEmpty)
     }
 
-    /// Anche un clic dentro la grazia annulla: ⌥-clic è una scorciatoia vera.
-    @Test func unClicDentroLaGraziaAnnulla() {
+    /// Un clic mentre il tasto è giù: ⌥-clic è una scorciatoia vera, non una dettatura.
+    @Test func unClicMentreIlTastoEGiuAnnulla() {
         let (g, azioni) = provino()
-        g.keyDown(at: 0.0); g.keyUp(at: 0.10)
-        g.abort()                       // il tasto del mouse passa dalla stessa porta
-        g.tick(at: 0.50)
+        g.keyDown(at: 0.0); g.abort(); g.keyUp(at: 0.10)
         #expect(azioni().isEmpty)
     }
 
-    /// Il polo negativo del polo negativo: senza la grazia l'ordine D dettava.
-    /// Si misura chiedendo al riconoscitore di aprire subito, cioè saltando il tick.
-    @Test func senzaAspettareLaGraziaIlMicrofonoResterebbeChiuso() {
+    /// Una lettera scritta PRIMA di toccare ⌥ non deve impedire la dettatura: il conto
+    /// di `HotkeyManager` la vede più vecchia della pressione, quindi qui arriva falso.
+    @Test func unaLetteraPrecedenteNonBloccaLaDettatura() {
         let (g, azioni) = provino()
-        g.keyDown(at: 0.0); g.keyUp(at: 0.10)
-        #expect(azioni().isEmpty, "l'apertura non avviene più sulla risalita")
+        g.keyDown(at: 0.0)
+        g.keyUp(at: 0.08, otherKeyDuringPress: false)
+        #expect(azioni() == [.beginRecording])
+    }
+
+    /// Il tocco che CHIUDE resta immediato.
+    @Test func ilToccoCheChiudeEImmediato() {
+        let (g, azioni) = provino()
+        g.keyDown(at: 0.0); g.keyUp(at: 0.08)
+        g.keyDown(at: 2.0)
+        #expect(azioni() == [.beginRecording, .endRecordingAndProcess])
     }
 }

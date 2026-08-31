@@ -45,9 +45,6 @@ final class GestureRecognizer {
         case holding(downAt: TimeInterval)   // key currently down (could become hold or 1st tap)
         case holdingAborted                  // another key was pressed → not a dictation gesture
         case awaitingSecondTap(deadline: TimeInterval)
-        /// Un tocco singolo è stato visto e il microfono NON è ancora aperto: si
-        /// aspetta `singleTapGrace` per vedere se era l'inizio di una scorciatoia.
-        case pendingSingleTap(deadline: TimeInterval)
         case toggleListening                 // hands-free; next tap stops it
 
         /// Nome corto per il registro degli eventi (`HotkeyTrace`). Senza i valori
@@ -58,7 +55,6 @@ final class GestureRecognizer {
             case .holding: return "holding"
             case .holdingAborted: return "aborted"
             case .awaitingSecondTap: return "awaiting2"
-            case .pendingSingleTap: return "pending1"
             case .toggleListening: return "listening"
             }
         }
@@ -68,11 +64,6 @@ final class GestureRecognizer {
 
     let holdThreshold: TimeInterval      // press >= this == real hold
     let doubleTapWindow: TimeInterval    // 2nd tap must land within this
-
-    /// Quanto si aspetta, in modalità «un tocco», prima di aprire davvero il microfono.
-    /// Non è latenza percepita: nessuno parla nei due decimi dopo aver toccato il tasto.
-    /// È il tempo che serve alla lettera di ⌥ò per arrivare e annullare il gesto.
-    let singleTapGrace: TimeInterval = 0.20
 
     /// Which gestures the trigger key answers to.
     ///
@@ -144,12 +135,6 @@ final class GestureRecognizer {
             state = .idle
             emit(.endRecordingAndProcess)
 
-        case .pendingSingleTap:
-            // Un altro tocco mentre la grazia scorre: il gesto ricomincia da capo,
-            // e quello di prima non ha mai aperto niente da chiudere.
-            state = .holding(downAt: now)
-            if allowsHold { emit(.beginRecording) }
-
         case .holding, .holdingAborted:
             // Key already down (e.g. auto-repeat); ignore.
             break
@@ -164,9 +149,6 @@ final class GestureRecognizer {
             if allowsHold { emit(.cancelRecording) }
             state = .holdingAborted
         }
-        // La finestra di grazia del tocco singolo esiste proprio per questo: la
-        // lettera di ⌥ò arriva un attimo dopo la risalita, non mentre il tasto è giù.
-        if case .pendingSingleTap = state { state = .idle }
     }
 
     /// The user pressed Escape mid-dictation: throw the audio away.
@@ -195,12 +177,6 @@ final class GestureRecognizer {
             emit(.cancelRecording)
             return true
 
-        case .pendingSingleTap:
-            // Niente sta registrando, quindi Esc non è nostro e passa oltre. La
-            // grazia però si chiude: Esc non è mai l'inizio di una dettatura.
-            state = .idle
-            return false
-
         case .idle, .holding, .holdingAborted, .awaitingSecondTap:
             return false   // nothing was recording — Escape is not ours
         }
@@ -208,12 +184,15 @@ final class GestureRecognizer {
 
     /// Feed a key-UP event.
     ///
-    /// `otherKeyDuringPress` è la seconda guardia del tocco singolo, e non passa dal
-    /// nostro tap: è il sistema a dire quando è stato premuto l'ultimo tasto. Serve
-    /// perché `abort()` copre solo il caso in cui il tap ha VISTO la lettera, e un tap
-    /// disabilitato per lentezza o un campo a input sicuro la fanno sparire senza che
-    /// nessuno se ne accorga. Misurato il 31/08: dei quattro ordini in cui ⌥ e una
-    /// lettera possono arrivare, solo quello ideale non faceva partire una dettatura.
+    /// `otherKeyDuringPress` è la regola del tocco singolo detta per intero: se ⌥ è
+    /// stato rilasciato **da solo**, si detta subito; se durante la pressione è stata
+    /// premuta anche una lettera, quel gesto era ⌥ò e non si detta. L'avvio resta
+    /// istantaneo, senza attese (sua richiesta, 31/08).
+    ///
+    /// Serve accanto ad `abort()` e non al suo posto: `abort()` copre solo il caso in
+    /// cui il nostro tap ha VISTO la lettera, mentre un tap disabilitato per lentezza
+    /// o un campo a input sicuro la fanno sparire senza lasciare traccia. Questo
+    /// campo lo chiede invece al sistema, che la lettera la sa sempre.
     func keyUp(at now: TimeInterval, otherKeyDuringPress: Bool = false) {
         switch state {
         case .holding(let downAt):
@@ -230,15 +209,15 @@ final class GestureRecognizer {
                 // than leaving a window open for a gesture that cannot happen.
                 if allowsHold { emit(.cancelRecording) }
                 if mode == .singleTap {
-                    // Un tocco è tutto il gesto, ma il microfono NON si apre qui.
-                    // Aprirlo sulla risalita significa decidere prima di sapere: al
-                    // momento del rilascio «⌥ da solo» e «⌥ò scritto un attimo storto»
-                    // sono lo stesso evento. Si aspetta `singleTapGrace`, e un tasto o
-                    // un clic dentro quella finestra annulla.
+                    // Un tocco è tutto il gesto: si ascolta SUBITO, e il tocco dopo
+                    // chiude (in `keyDown`). L'unica condizione è che il tasto sia
+                    // stato rilasciato da solo: con una lettera premuta durante la
+                    // pressione il gesto era una scorciatoia, non una dettatura.
                     if otherKeyDuringPress {
-                        state = .idle          // il sistema dice che una lettera c'era
+                        state = .idle
                     } else {
-                        state = .pendingSingleTap(deadline: now + singleTapGrace)
+                        state = .toggleListening
+                        emit(.beginRecording)
                     }
                 } else {
                     state = allowsDoubleTap
@@ -250,7 +229,7 @@ final class GestureRecognizer {
         case .holdingAborted:
             state = .idle   // trigger released after an aborted (shortcut) hold
 
-        case .idle, .awaitingSecondTap, .pendingSingleTap, .toggleListening:
+        case .idle, .awaitingSecondTap, .toggleListening:
             // key-up with no matching down we care about
             break
         }
@@ -261,12 +240,6 @@ final class GestureRecognizer {
     func tick(at now: TimeInterval) {
         if case .awaitingSecondTap(let deadline) = state, now >= deadline {
             state = .idle   // lone short tap → nothing to do (recording already cancelled)
-        }
-        // La grazia del tocco singolo è scaduta senza che arrivasse niente: era un
-        // tocco vero, e solo adesso si apre il microfono.
-        if case .pendingSingleTap(let deadline) = state, now >= deadline {
-            state = .toggleListening
-            emit(.beginRecording)
         }
     }
 

@@ -295,10 +295,7 @@ final class HotkeyManager {
         }
         // Swallow the key only while a dictation gesture is active.
         switch recognizer.state {
-        // `pendingSingleTap` passa oltre: durante la grazia il microfono non è ancora
-        // aperto, quindi non c'è nessun gesto da proteggere ingoiando il tasto.
-        case .idle, .awaitingSecondTap, .pendingSingleTap, .holdingAborted:
-            return Unmanaged.passUnretained(event)
+        case .idle, .awaitingSecondTap, .holdingAborted: return Unmanaged.passUnretained(event)
         case .holding, .toggleListening: return nil
         }
     }
