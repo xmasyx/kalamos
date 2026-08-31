@@ -140,7 +140,7 @@ jobs:
       - name: Pin the signing identity
         run: |
           APP="build/Kalamos.app"
-          REQ='identifier "com.kalamos.app" and certificate leaf = H"c613131fa65afc71b10ffaea5927ea7ffc708f47"'
+          REQ='identifier "com.kalamos.app" and certificate leaf = H"16af04f237686a37f277759838ddae60207c29f1"'
           codesign --verify --strict -R="$REQ" "$APP" \
             || { echo "::error::il bundle non soddisfa il designated requirement fissato: un certificato diverso azzererebbe i permessi gia concessi"; exit 1; }
 

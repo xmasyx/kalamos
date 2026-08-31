@@ -39,11 +39,21 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
 
 # macOS `security import` rejects empty-password p12s ("MAC verification failed")
 # and OpenSSL 3's default p12 MAC. Use a password + -legacy when available.
-P12PASS="kalamos"
+P12PASS="${P12_PASS:-$(openssl rand -hex 16)}"
 LEGACY=""
 if openssl pkcs12 -help 2>&1 | grep -q -- "-legacy"; then LEGACY="-legacy"; fi
 openssl pkcs12 -export $LEGACY -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
     -out "$TMP/kalamos.p12" -passout "pass:$P12PASS" -name "$IDENTITY"
+
+# Il .p12 e la SOLA copia della chiave privata: senza, un portachiavi ricreato da
+# macOS porta via l identita per sempre (successo il 30/08/2026). Si copia fuori
+# PRIMA che il trap cancelli $TMP, e mai dentro un repository.
+BACKUP_DIR="${SIGNING_BACKUP_DIR:-$HOME/Library/Application Support/Kalamos/signing}"
+mkdir -p "$BACKUP_DIR"
+cp "$TMP/kalamos.p12" "$BACKUP_DIR/kalamos.p12"
+printf '%s\n' "$P12PASS" > "$BACKUP_DIR/kalamos.password"
+chmod 600 "$BACKUP_DIR/kalamos.p12" "$BACKUP_DIR/kalamos.password"
+echo "- chiave privata conservata in $BACKUP_DIR/kalamos.p12 (password in kalamos.password)"
 
 echo "▶ importing into login keychain (allowing codesign to use it)…"
 security import "$TMP/kalamos.p12" -k "$KEYCHAIN" -P "$P12PASS" -A -T /usr/bin/codesign

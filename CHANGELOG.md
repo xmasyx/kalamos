@@ -5,6 +5,19 @@ it. Numbers here come from benchmarks in the repo or from real use, never from
 an estimate.
 
 
+## v1.6.2
+
+### Identità di firma nuova
+
+Il certificato con cui Kalamos viene firmata è stato rigenerato, e il rilascio adesso fissa quello
+nuovo. macOS vede un'identità diversa una volta sola, quindi dopo questo aggiornamento **il
+microfono va concesso di nuovo**: dagli aggiornamenti successivi resta dov'è.
+
+`Scripts/make-signing-cert.sh` non butta più il `.p12` che produce, così la chiave privata resta e
+l'identità si ripristina invece di rinascere ogni volta. E `Scripts/build-app.sh` firma con
+l'impronta del certificato invece che col nome, che diventa ambiguo quando due portachiavi
+contengono un certificato con lo stesso nome comune.
+
 ## v1.6.1
 
 ### «forse» non diventa più «Forge»
