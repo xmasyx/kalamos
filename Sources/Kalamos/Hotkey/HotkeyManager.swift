@@ -158,7 +158,68 @@ final class HotkeyManager {
         if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: on) }
     }
 
+    /// Involucro che registra QUELLO CHE ARRIVA prima di deciderne qualcosa.
+    ///
+    /// Sta fuori da `dispatch` di proposito: la decisione ha molti punti di uscita, e
+    /// un registro sparso su ognuno è un registro che un giorno dimentica un ramo. Qui
+    /// invece ogni evento che entra nel tap lascia una riga, compresi i due
+    /// `tapDisabled*` che nessun altro vedrebbe mai. Spento salvo `hotkeyTrace`.
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard HotkeyTrace.enabled else { return dispatch(type: type, event: event) }
+        let before = recognizer.state.label
+        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let result = dispatch(type: type, event: event)
+        HotkeyTrace.note(event: Self.name(of: type),
+                         trigger: (type == .flagsChanged || type == .keyDown || type == .keyUp)
+                             && code == keyCode,
+                         alternateHeld: event.flags.contains(.maskAlternate),
+                         autorepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+                         stateBefore: before,
+                         stateAfter: recognizer.state.label)
+        return result
+    }
+
+    private static func name(of type: CGEventType) -> String {
+        switch type {
+        case .keyDown: return "keyDown"
+        case .keyUp: return "keyUp"
+        case .flagsChanged: return "flags"
+        case .leftMouseDown: return "mouseL"
+        case .rightMouseDown: return "mouseR"
+        case .otherMouseDown: return "mouseO"
+        case .tapDisabledByTimeout: return "TAP-DISABILITATO-LENTEZZA"
+        case .tapDisabledByUserInput: return "TAP-DISABILITATO-UTENTE"
+        default: return "altro(\(type.rawValue))"
+        }
+    }
+
+    /// Quando è sceso il tasto d'innesco, per sapere quanto è durata la pressione.
+    private var triggerDownAt: TimeInterval?
+
+    /// Una lettera è stata premuta MENTRE il tasto d'innesco era giù?
+    ///
+    /// Lo chiede al sistema, non al nostro tap, e questa è tutta la ragione per cui
+    /// esiste: `abort()` copre solo il caso in cui il tap ha visto la lettera, mentre
+    /// un tap disabilitato per lentezza o un campo a input sicuro la fanno sparire
+    /// senza lasciare traccia. Il conto è esatto: se l'ultimo tasto premuto è più
+    /// recente della durata della pressione, allora è caduto dentro la pressione.
+    /// Una lettera scritta PRIMA di toccare ⌥ risulta invece più vecchia, quindi non
+    /// produce falsi allarmi.
+    private static func aKeyWasPressed(since downAt: TimeInterval?, upAt: TimeInterval) -> Bool {
+        guard let downAt else { return false }
+        let press = upAt - downAt
+        guard press > 0 else { return false }
+        let sinceLast = CGEventSource.secondsSinceLastEventType(.combinedSessionState,
+                                                                eventType: .keyDown)
+        // I 40 ms di tolleranza servono al caso in cui la lettera risulti premuta un
+        // soffio PRIMA che il modificatore venga registrato: succede scrivendo ⌥ò di
+        // corsa, ed è un ordine che senza tolleranza cade fuori dal conto per un
+        // millesimo. Nessuno tocca ⌥ per dettare entro 40 ms dall'ultima lettera
+        // scritta, quindi il falso allarme che questa tolleranza compra non esiste.
+        return sinceLast >= 0 && sinceLast < press + 0.040
+    }
+
+    private func dispatch(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
@@ -205,8 +266,15 @@ final class HotkeyManager {
 
         if let modifierMask {
             if type == .flagsChanged, code == keyCode {
-                if event.flags.contains(modifierMask) { recognizer.keyDown(at: now) }
-                else { recognizer.keyUp(at: now) }
+                if event.flags.contains(modifierMask) {
+                    triggerDownAt = now
+                    recognizer.keyDown(at: now)
+                } else {
+                    recognizer.keyUp(at: now,
+                                     otherKeyDuringPress: Self.aKeyWasPressed(since: triggerDownAt,
+                                                                             upAt: now))
+                    triggerDownAt = nil
+                }
             } else if type == .keyDown, code != keyCode {
                 // A normal key pressed while the trigger is held → it's a
                 // shortcut or a capital letter, not dictation. Abort.
@@ -227,7 +295,10 @@ final class HotkeyManager {
         }
         // Swallow the key only while a dictation gesture is active.
         switch recognizer.state {
-        case .idle, .awaitingSecondTap, .holdingAborted: return Unmanaged.passUnretained(event)
+        // `pendingSingleTap` passa oltre: durante la grazia il microfono non è ancora
+        // aperto, quindi non c'è nessun gesto da proteggere ingoiando il tasto.
+        case .idle, .awaitingSecondTap, .pendingSingleTap, .holdingAborted:
+            return Unmanaged.passUnretained(event)
         case .holding, .toggleListening: return nil
         }
     }
